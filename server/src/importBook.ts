@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dataDir, db, getSqliteFilePath, replaceSqliteFromPhysicalBackup, resolveSqliteFilePath } from "./db";
+import Database from "better-sqlite3";
+import { dataDir, db, replaceSqliteFromPhysicalBackup } from "./db";
+import { sqliteSchema } from "./db/schema";
 import { HttpError } from "./httpError";
 import { createBook, getBookPayload, saveRevision } from "./engine";
 import { booksRoot, sanitizeTitle, syncBook } from "./manuscripts";
@@ -157,48 +159,100 @@ function recoveryFile(bookId: string) {
   return path.join(importRecoveryDir(), `${bookId}.json`);
 }
 
-/** Physical whole-DB backup path (SQLite file copy). Documented in docs/STORAGE_LEASE.md */
+/**
+ * Per-book physical backup path (isolated SQLite dump of one book only).
+ * Does NOT copy the whole shared DB — restore cannot nuke other books.
+ * Documented in docs/STORAGE_LEASE.md
+ */
 export function physicalBackupDbPath(bookId: string) {
-  return path.join(importRecoveryDir(), `${bookId}.sqlite.phys`);
+  return path.join(importRecoveryDir(), `${bookId}.book.phys.sqlite`);
 }
 
 function physicalPendingMarker(bookId: string) {
+  return path.join(importRecoveryDir(), `${bookId}.book.phys.pending`);
+}
+
+/** Legacy whole-DB paths (phase9); still recovered if present. */
+function legacyWholeDbPhysPath(bookId: string) {
+  return path.join(importRecoveryDir(), `${bookId}.sqlite.phys`);
+}
+function legacyWholeDbPending(bookId: string) {
   return path.join(importRecoveryDir(), `${bookId}.phys.pending`);
 }
 
+function insertRows(dump: InstanceType<typeof Database>, table: string, rows: Record<string, unknown>[]) {
+  if (!rows.length) return;
+  const cols = Object.keys(rows[0]!);
+  const stmt = dump.prepare(
+    `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+  );
+  const tx = dump.transaction((batch: Record<string, unknown>[]) => {
+    for (const row of batch) stmt.run(...cols.map((c) => row[c] as string | number | null | bigint));
+  });
+  tx(rows);
+}
+
 /**
- * Copy live SQLite DB (+ WAL/SHM if present) before overwrite wipe.
- * No-op when not on sqlite driver. Returns backup main path or null.
+ * Write a per-book SQLite dump (physical isolation) before overwrite wipe.
+ * Works on any driver: reads via snapshotBook from live DbClient.
+ * Returns dump path or null if book missing.
  */
 export function writePhysicalSqliteBackup(bookId: string): string | null {
-  const live = getSqliteFilePath() ?? (db.driver === "sqlite" ? resolveSqliteFilePath() : null);
-  if (!live || db.driver !== "sqlite") return null;
-  if (!fs.existsSync(live)) return null;
+  const book = db.prepare("SELECT id FROM books WHERE id = ?").get(bookId) as { id: string } | undefined;
+  if (!book) return null;
+  const snap = snapshotBook(bookId);
   const dir = importRecoveryDir();
   fs.mkdirSync(dir, { recursive: true });
   const dest = physicalBackupDbPath(bookId);
-  // Best-effort checkpoint so main file is consistent; ignore failures.
   try {
-    db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+    fs.unlinkSync(dest);
   } catch {
     /* ignore */
   }
-  fs.copyFileSync(live, dest);
-  for (const suffix of ["-wal", "-shm"] as const) {
-    const src = `${live}${suffix}`;
-    const side = `${dest}${suffix}`;
-    if (fs.existsSync(src)) fs.copyFileSync(src, side);
-    else {
-      try {
-        fs.unlinkSync(side);
-      } catch {
-        /* ignore */
+  const dump = new Database(dest);
+  try {
+    dump.exec(sqliteSchema());
+    // Ensure lease columns exist on writing_jobs in dump schema baseline
+    try {
+      dump.exec("ALTER TABLE writing_jobs ADD COLUMN lease_owner TEXT");
+    } catch {
+      /* ignore */
+    }
+    try {
+      dump.exec("ALTER TABLE writing_jobs ADD COLUMN lease_until TEXT");
+    } catch {
+      /* ignore */
+    }
+    try {
+      dump.exec("ALTER TABLE artifact_revisions ADD COLUMN source_revision_id TEXT");
+    } catch {
+      /* ignore */
+    }
+    insertRows(dump, "books", [snap.book]);
+    insertRows(dump, "chapters", snap.chapters);
+    insertRows(dump, "artifacts", snap.artifacts.map((a) => ({ ...a, current_revision_id: null })));
+    insertRows(dump, "artifact_revisions", snap.revisions);
+    for (const a of snap.artifacts) {
+      if (a.current_revision_id) {
+        dump.prepare("UPDATE artifacts SET current_revision_id = ? WHERE id = ?").run(a.current_revision_id, a.id);
       }
     }
+    insertRows(dump, "messages", snap.messages);
+    insertRows(dump, "bible_cards", snap.bible);
+    insertRows(dump, "hook_marks", snap.hooks);
+    insertRows(dump, "writing_jobs", snap.jobs);
+    dump.pragma("wal_checkpoint(TRUNCATE)");
+  } finally {
+    dump.close();
   }
   fs.writeFileSync(
     physicalPendingMarker(bookId),
-    JSON.stringify({ bookId, live, dest, at: new Date().toISOString() }),
+    JSON.stringify({
+      bookId,
+      dest,
+      kind: "per-book",
+      at: new Date().toISOString(),
+    }),
     "utf8",
   );
   return dest;
@@ -206,7 +260,14 @@ export function writePhysicalSqliteBackup(bookId: string): string | null {
 
 export function clearPhysicalSqliteBackup(bookId: string) {
   const dest = physicalBackupDbPath(bookId);
-  for (const p of [dest, `${dest}-wal`, `${dest}-shm`, physicalPendingMarker(bookId)]) {
+  for (const p of [
+    dest,
+    physicalPendingMarker(bookId),
+    legacyWholeDbPhysPath(bookId),
+    `${legacyWholeDbPhysPath(bookId)}-wal`,
+    `${legacyWholeDbPhysPath(bookId)}-shm`,
+    legacyWholeDbPending(bookId),
+  ]) {
     try {
       fs.unlinkSync(p);
     } catch {
@@ -216,7 +277,33 @@ export function clearPhysicalSqliteBackup(bookId: string) {
 }
 
 export function hasPhysicalSqliteBackup(bookId: string): boolean {
-  return fs.existsSync(physicalBackupDbPath(bookId));
+  return fs.existsSync(physicalBackupDbPath(bookId)) || fs.existsSync(legacyWholeDbPhysPath(bookId));
+}
+
+/** Read per-book dump back into a BookSnapshot. */
+function readPerBookPhysSnapshot(bookId: string, dumpPath: string): BookSnapshot {
+  const dump = new Database(dumpPath, { readonly: true });
+  try {
+    const book = dump.prepare("SELECT * FROM books WHERE id = ?").get(bookId) as Record<string, unknown>;
+    if (!book?.id) throw new Error(`per-book dump missing book ${bookId}`);
+    const chapters = dump.prepare("SELECT * FROM chapters WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+    const artifacts = dump.prepare("SELECT * FROM artifacts WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+    const artIds = artifacts.map((a) => String(a.id));
+    let revisions: Record<string, unknown>[] = [];
+    if (artIds.length) {
+      const placeholders = artIds.map(() => "?").join(",");
+      revisions = dump
+        .prepare(`SELECT * FROM artifact_revisions WHERE artifact_id IN (${placeholders})`)
+        .all(...artIds) as Record<string, unknown>[];
+    }
+    const messages = dump.prepare("SELECT * FROM messages WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+    const bible = dump.prepare("SELECT * FROM bible_cards WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+    const hooks = dump.prepare("SELECT * FROM hook_marks WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+    const jobs = dump.prepare("SELECT * FROM writing_jobs WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+    return { book, chapters, artifacts, revisions, messages, bible, hooks, jobs };
+  } finally {
+    dump.close();
+  }
 }
 
 
@@ -353,38 +440,76 @@ export function recoverInterruptedImports(): {
 }
 
 /**
- * After logical JSON recovery (or when JSON is missing), restore whole SQLite from .sqlite.phys.
- * Async because the live DB must be closed. Call from startup after recoverInterruptedImports
- * when physicalRestored is still needed, or from tests.
+ * After logical JSON recovery (or when JSON is missing), restore from physical backup.
+ * Preferred: per-book `.book.phys.sqlite` → restoreBookSnapshot (other books untouched).
+ * Legacy: whole-DB `.sqlite.phys` → replaceSqliteFromPhysicalBackup (affects entire DB).
  */
 export async function recoverPhysicalImportBackups(): Promise<{ restored: string[]; skipped: string[] }> {
   const dir = importRecoveryDir();
   const restored: string[] = [];
   const skipped: string[] = [];
   if (!fs.existsSync(dir)) return { restored, skipped };
+
+  const pendingIds = new Set<string>();
   for (const name of fs.readdirSync(dir)) {
-    if (!name.endsWith(".phys.pending")) continue;
-    const bookId = name.slice(0, -".phys.pending".length);
-    // Prefer logical JSON if still present — leave for next recovery pass.
+    if (name.endsWith(".book.phys.pending")) {
+      pendingIds.add(name.slice(0, -".book.phys.pending".length));
+    } else if (name.endsWith(".phys.pending") && !name.endsWith(".book.phys.pending")) {
+      pendingIds.add(name.slice(0, -".phys.pending".length));
+    }
+  }
+
+  for (const bookId of pendingIds) {
     if (fs.existsSync(recoveryFile(bookId))) {
       skipped.push(bookId);
       continue;
     }
-    const backup = physicalBackupDbPath(bookId);
-    if (!fs.existsSync(backup)) {
-      try {
-        fs.unlinkSync(physicalPendingMarker(bookId));
-      } catch {
-        /* ignore */
-      }
-      skipped.push(bookId);
-      continue;
-    }
+    const perBook = physicalBackupDbPath(bookId);
+    const legacy = legacyWholeDbPhysPath(bookId);
     try {
-      await replaceSqliteFromPhysicalBackup(backup);
-      clearPhysicalSqliteBackup(bookId);
-      restored.push(bookId);
-      console.warn(`[import] recovered from physical SQLite backup for book ${bookId}`);
+      if (fs.existsSync(perBook)) {
+        const snap = readPerBookPhysSnapshot(bookId, perBook);
+        // Ensure book row exists (overwrite may have wiped content but kept id, or crash mid-way).
+        const exists = db.prepare("SELECT id FROM books WHERE id = ?").get(bookId) as { id: string } | undefined;
+        if (!exists) {
+          db.prepare(
+            `INSERT INTO books (id, title, genre, logline, style, target_chapters, words_per_chapter, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).run(
+            snap.book.id,
+            snap.book.title,
+            snap.book.genre,
+            snap.book.logline,
+            snap.book.style,
+            snap.book.target_chapters,
+            snap.book.words_per_chapter,
+            snap.book.created_at,
+          );
+        }
+        restoreBookSnapshot(snap);
+        clearPhysicalSqliteBackup(bookId);
+        restored.push(bookId);
+        console.warn(`[import] recovered per-book physical dump for ${bookId} (other books untouched)`);
+      } else if (fs.existsSync(legacy)) {
+        await replaceSqliteFromPhysicalBackup(legacy);
+        clearPhysicalSqliteBackup(bookId);
+        restored.push(bookId);
+        console.warn(
+          `[import] recovered LEGACY whole-DB physical backup for ${bookId} (affects entire SQLite file)`,
+        );
+      } else {
+        try {
+          fs.unlinkSync(physicalPendingMarker(bookId));
+        } catch {
+          /* ignore */
+        }
+        try {
+          fs.unlinkSync(legacyWholeDbPending(bookId));
+        } catch {
+          /* ignore */
+        }
+        skipped.push(bookId);
+      }
     } catch (error) {
       console.error(`[import] physical recovery failed for ${bookId}`, error);
       skipped.push(bookId);
@@ -605,7 +730,7 @@ export function importBookFromFolder(
     overwriteSnapshot = snapshotBook(existingId);
     // Persist BEFORE wipe so a kill mid-import can recover on next boot.
     writeDurableSnapshot(overwriteSnapshot);
-    // Secondary: whole SQLite file copy (see docs/STORAGE_LEASE.md).
+    // Secondary: per-book physical SQLite dump (see docs/STORAGE_LEASE.md).
     writePhysicalSqliteBackup(existingId);
   }
 
@@ -755,16 +880,16 @@ export function importBookFromFolder(
         clearPhysicalSqliteBackup(bid);
       } catch (restoreError) {
         console.error(
-          "import overwrite logical restore failed; physical SQLite backup kept for startup recovery",
+          "import overwrite logical restore failed; per-book physical dump kept for startup recovery",
           restoreError,
         );
-        // Keep data/import-recovery/<id>.sqlite.phys + .phys.pending for recoverInterruptedImports / recoverPhysicalImportBackups.
+        // Keep data/import-recovery/<id>.book.phys.sqlite + .book.phys.pending for recoverPhysicalImportBackups.
       }
       throw new HttpError(
         500,
         restoreOk
           ? `覆盖导入失败，已尝试回滚原书：${error instanceof Error ? error.message : String(error)}`
-          : `覆盖导入失败且逻辑回滚未完成；请保留 data/import-recovery/${bid}.json 与 ${bid}.sqlite.phys，重启将尝试物理库恢复：${error instanceof Error ? error.message : String(error)}`,
+          : `覆盖导入失败且逻辑回滚未完成；请保留 data/import-recovery/${bid}.json 与 ${bid}.book.phys.sqlite，重启将尝试按书物理恢复：${error instanceof Error ? error.message : String(error)}`,
       );
     }
     throw error;

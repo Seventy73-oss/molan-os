@@ -721,9 +721,9 @@ z.close()
   // --- Phase9: physical SQLite backup ---
   const physWritten = __writePhysicalSqliteBackupForTest(bookId);
   const physMain = __physicalBackupDbPathForTest(bookId);
-  const pendingMarker = path.join(importRecoveryDir(), `${bookId}.phys.pending`);
+  const pendingMarker = path.join(importRecoveryDir(), `${bookId}.book.phys.pending`);
   check("E2E 物理库备份文件已写入", !!physWritten && fs.existsSync(physMain), physMain);
-  check("E2E 物理备份路径约定", physMain.endsWith(`${bookId}.sqlite.phys`), physMain);
+  check("E2E 物理备份路径约定（按书）", physMain.endsWith(`${bookId}.book.phys.sqlite`), physMain);
   check("E2E 物理备份 pending 标记", fs.existsSync(pendingMarker), pendingMarker);
   __clearPhysicalSqliteBackupForTest(bookId);
   check("E2E 清除物理备份", !fs.existsSync(physMain) && !fs.existsSync(pendingMarker));
@@ -755,7 +755,7 @@ z.close()
   });
   const physRecover = await recoverPhysicalImportBackups();
   check(
-    "E2E 无 JSON 时物理库恢复",
+    "E2E 无 JSON 时按书物理恢复",
     physRecover.restored.includes(bookId),
     JSON.stringify(physRecover),
   );
@@ -770,6 +770,97 @@ z.close()
   )?.body;
   check("E2E 物理恢复后正文回到备份", bodyPhys === markerBody, (bodyPhys || "").slice(0, 80));
   check("E2E 物理恢复后清除备份文件", !fs.existsSync(__physicalBackupDbPathForTest(bookId)));
+
+  // --- Phase10: per-book isolation (other books untouched) ---
+  const other = engine.createBook({
+    title: `物理隔离他书 ${Date.now()}`,
+    genre: "测",
+    logline: "keep",
+    style: "",
+    targetChapters: 1,
+    wordsPerChapter: 100,
+  });
+  const otherId = other.payload.book.id;
+  engine.saveRevision({
+    bookId: otherId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "OTHER_BOOK_MUST_KEEP",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    skipMemory: true,
+  });
+  engine.saveRevision({
+    bookId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "BOOK_A_BEFORE_BACKUP",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    skipMemory: true,
+  });
+  __writePhysicalSqliteBackupForTest(bookId);
+  __clearDurableSnapshotForTest(bookId);
+  engine.saveRevision({
+    bookId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "BOOK_A_DIRTY",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    skipMemory: true,
+  });
+  engine.saveRevision({
+    bookId: otherId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "OTHER_BOOK_STILL_KEEP",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    skipMemory: true,
+  });
+  const isoRecover = await recoverPhysicalImportBackups();
+  check("E2E 按书恢复命中 A", isoRecover.restored.includes(bookId), JSON.stringify(isoRecover));
+  const bodyA = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         LEFT JOIN chapters c ON c.id = a.chapter_id
+         WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = 1`,
+      )
+      .get(bookId) as { body: string } | undefined
+  )?.body;
+  const bodyB = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         LEFT JOIN chapters c ON c.id = a.chapter_id
+         WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = 1`,
+      )
+      .get(otherId) as { body: string } | undefined
+  )?.body;
+  check("E2E 按书恢复 A 回到备份", bodyA === "BOOK_A_BEFORE_BACKUP", (bodyA || "").slice(0, 80));
+  check(
+    "E2E 按书恢复不伤他书",
+    bodyB === "OTHER_BOOK_STILL_KEEP",
+    (bodyB || "").slice(0, 80),
+  );
+
+  // Phase10: postgres-native worker policy
+  const nativeAllow = jobWorkerAllowedForDriver("postgres-native", false);
+  check(
+    "E2E postgres-native 允许 worker",
+    nativeAllow.allowed && /postgres-native/.test(nativeAllow.reason),
+    nativeAllow.reason,
+  );
 
   // --- Phase9: pi orchestration boundary ---
   const { assertPiModelRelayOnly, piOrchestrationBoundary, probePiCapability } = await import("../src/agent/piAdapter");

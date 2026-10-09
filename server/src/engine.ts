@@ -1,4 +1,4 @@
-import { db, type BookRow, type ChapterRow, type RouteRow } from "./db";
+import { db, getDbInfo, type BookRow, type ChapterRow, type RouteRow } from "./db";
 import { HttpError } from "./httpError";
 import {
   DEFAULT_LEASE_TTL_MS,
@@ -1657,11 +1657,29 @@ export function getJob(id: string) {
 }
 
 
-/** SQLite-backed lease: prevents double-tick across HTTP + worker (same DB file). */
+/**
+ * Job lease: SQLite predicate on default driver; on postgres-native use
+ * FOR UPDATE SKIP LOCKED + same acquire predicate (sync via native bridge).
+ */
 export function tryAcquireJobLease(id: string, owner: string, ttlMs = DEFAULT_LEASE_TTL_MS): boolean {
   getJob(id);
   const until = leaseUntilIso(ttlMs);
   const nowIso = now();
+  if (getDbInfo().driver === "postgres-native") {
+    return db.transaction(() => {
+      const locked = db
+        .prepare(
+          `SELECT id, status, lease_owner, lease_until
+           FROM writing_jobs
+           WHERE id = ?
+           FOR UPDATE SKIP LOCKED`,
+        )
+        .all(id) as { id: string }[];
+      if (!locked.length) return false;
+      const result = db.prepare(SQLITE_ACQUIRE_SQL).run(owner, until, id, nowIso, owner);
+      return result.changes > 0;
+    })();
+  }
   const result = db.prepare(SQLITE_ACQUIRE_SQL).run(owner, until, id, nowIso, owner);
   return result.changes > 0;
 }

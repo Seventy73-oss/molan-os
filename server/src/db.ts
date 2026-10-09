@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { SCENES, migratePostgres, migrateSqlite, postgresSchema, sqliteSchema } from "./db/schema";
+import { createNativePostgresClient } from "./db/pgNativeClient";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const root = path.resolve(here, "../..");
@@ -11,7 +12,7 @@ export const skillsDir = path.join(root, "skills");
 
 fs.mkdirSync(dataDir, { recursive: true });
 
-export type DbDriver = "sqlite" | "postgres" | "pglite";
+export type DbDriver = "sqlite" | "postgres" | "pglite" | "postgres-native";
 
 export type BookRow = {
   id: string;
@@ -94,7 +95,16 @@ function resolveDriverChoice(): {
   const raw = (process.env.MOLAN_DB || process.env.CHANGJUAN_DB || "").trim().toLowerCase();
   const url = (process.env.DATABASE_URL || "").trim();
   const pgliteDir = path.join(dataDir, "changjuan-pglite");
+  const native = (process.env.MOLAN_NATIVE_PG || "").trim() === "1";
+  // Native Postgres: real SQL + FOR UPDATE lease (opt-in). Mirror mode kept for DATABASE_URL without flag.
+  if (url && native) return { driver: "postgres-native", connectionString: url, pgliteDir };
   if (url) return { driver: "postgres", connectionString: url, pgliteDir };
+  if (raw === "postgres-native" || raw === "pg-native" || raw === "native-pg") {
+    if (!url) {
+      throw new Error("MOLAN_DB=postgres-native 需要同时设置 DATABASE_URL");
+    }
+    return { driver: "postgres-native", connectionString: url, pgliteDir };
+  }
   if (raw === "postgres" || raw === "postgresql" || raw === "pg" || raw === "pglite") {
     return { driver: "pglite", connectionString: null, pgliteDir };
   }
@@ -423,14 +433,21 @@ export async function initDb(): Promise<DbClient> {
   if (_init) return _init;
   _init = (async () => {
     const choice = resolveDriverChoice();
-    if (choice.driver !== "sqlite") {
+    if (choice.driver === "postgres" || choice.driver === "pglite") {
       console.warn(
-        `[db] driver=${choice.driver} 为实验性模式（内存镜像整表刷盘，不支持多进程租约）。` +
-          `默认请用 SQLite；若坚持使用请保持单进程，且任务 worker 需 MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1。` +
-          `见 docs/STORAGE_LEASE.md`,
+        `[db] driver=${choice.driver} 为实验性镜像刷盘（不支持多进程租约）。` +
+          `默认请用 SQLite；原生 Postgres 请设 MOLAN_NATIVE_PG=1 + DATABASE_URL。` +
+          `镜像模式任务 worker 需 MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1。见 docs/STORAGE_LEASE.md`,
       );
     }
-    _db = choice.driver === "sqlite" ? createSqlite() : await createPostgresClient(choice);
+    if (choice.driver === "sqlite") {
+      _db = createSqlite();
+    } else if (choice.driver === "postgres-native" && choice.connectionString) {
+      _db = createNativePostgresClient(choice.connectionString);
+      console.log(`[db] native Postgres lease enabled (FOR UPDATE SKIP LOCKED)`);
+    } else {
+      _db = await createPostgresClient(choice);
+    }
     console.log(`[db] driver=${_db.driver} detail=${_db.detail}`);
     return _db;
   })();

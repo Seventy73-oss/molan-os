@@ -79,7 +79,7 @@ export function listAgentCapabilities(): {
     db,
     pi: piOrchestrationBoundary(),
     note:
-      `存储：${db.ready ? db.driver : "初始化中"}（DATABASE_URL / MOLAN_DB 或 CHANGJUAN_DB=postgres|pglite，默认 sqlite；库文件仍为 data/changjuan.sqlite）。` +
+      `存储：${db.ready ? db.driver : "初始化中"}（默认 sqlite；原生 PG：MOLAN_NATIVE_PG=1 + DATABASE_URL；镜像：DATABASE_URL 或 MOLAN_DB=pglite）。` +
       " pi-agent 已接入 @earendil-works/pi-agent-core（模型代调，非自主工具编排）；provider/env 选 pi 时走 Agent 运行时。详见 docs/PI_RUNTIME.md。",
   };
 }

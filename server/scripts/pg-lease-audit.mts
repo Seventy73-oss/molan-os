@@ -187,10 +187,55 @@ async function main() {
 
   await runAgainstPglite();
 
-  // Treat "真实 Postgres 可达" fail as soft skip
+  // Phase10: optional native app DbClient smoke (same URL when PG reachable)
+  if (opened) {
+    const { createNativePostgresClient } = await import("../src/db/pgNativeClient");
+    const { jobWorkerAllowedForDriver } = await import("../src/jobs/worker");
+    const policy = jobWorkerAllowedForDriver("postgres-native", false);
+    check("P10 policy 允许 postgres-native worker", policy.allowed === true, policy.reason);
+    const native = createNativePostgresClient(url);
+    try {
+      const id = `native-app-${Date.now()}`;
+      native.run(
+        `INSERT INTO writing_jobs (id, book_id, status, created_at, log_json)
+         VALUES (?, ?, 'running', ?, '[]')
+         ON CONFLICT (id) DO UPDATE SET status = 'running', lease_owner = NULL, lease_until = NULL`,
+        [id, "native-book", new Date().toISOString()],
+      );
+      const acquired = native.transaction(() => {
+        const locked = native
+          .prepare(
+            `SELECT id FROM writing_jobs WHERE id = ? FOR UPDATE SKIP LOCKED`,
+          )
+          .all(id) as { id: string }[];
+        if (!locked.length) return false;
+        const r = native
+          .prepare(
+            `UPDATE writing_jobs SET lease_owner = ?, lease_until = ?
+             WHERE id = ? AND status = 'running'
+               AND (lease_until IS NULL OR lease_until < ? OR lease_owner = ?)`,
+          )
+          .run("native-owner", new Date(Date.now() + 60_000).toISOString(), id, new Date().toISOString(), "native-owner");
+        return r.changes > 0;
+      })();
+      check("P10 native DbClient FOR UPDATE 租约", acquired === true);
+      const row = native.get<{ lease_owner: string }>(
+        "SELECT lease_owner FROM writing_jobs WHERE id = ?",
+        [id],
+      );
+      check("P10 native DbClient 租约列写入", row?.lease_owner === "native-owner", String(row?.lease_owner));
+    } finally {
+      await native.close();
+    }
+  } else {
+    check("P10 native DbClient 冒烟", false, "SKIP (no Postgres)");
+  }
+
+  // Treat "真实 Postgres 可达" / P10 SKIP fail as soft skip
   const hardFail = results.filter((r) => {
     if (r.ok) return false;
     if (r.name === "真实 Postgres 可达") return false;
+    if (r.name === "P10 native DbClient 冒烟" && r.detail?.startsWith("SKIP")) return false;
     return true;
   });
   console.log(`\npg-lease: ${results.filter((r) => r.ok).length}/${results.length} passed (${hardFail.length} hard fail)`);

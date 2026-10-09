@@ -6,18 +6,17 @@ const DEFAULT_INTERVAL_MS = 2500;
 const WORKER_OWNER = `worker-${process.pid}-${randomUUID().slice(0, 8)}`;
 
 /**
- * Postgres/PGlite use an in-memory SQLite mirror + full-table flush.
- * Cross-process row leases are NOT safe there. Default: do not start the job worker
- * unless the operator explicitly opts in with MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1
- * and runs exactly one process.
+ * Mirror Postgres/PGlite (memory SQLite + full-table flush): cross-process leases are NOT safe.
+ * Native Postgres (`postgres-native` / MOLAN_NATIVE_PG=1): real SQL + FOR UPDATE SKIP LOCKED — worker allowed.
+ * Mirror opt-in: MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1 (single-process only).
  */
 export function experimentalPgWorkerAllowed(): boolean {
   return (process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER || "").trim() === "1";
 }
 
 /**
- * Pure policy for tests: Postgres/PGlite refuse worker unless explicit opt-in.
- * Does NOT implement cross-process lease — only documents refuse-by-default.
+ * Pure policy for tests / boot.
+ * sqlite + postgres-native → allow; mirror postgres/pglite → refuse unless experimental flag.
  */
 export function jobWorkerAllowedForDriver(
   driver: string,
@@ -25,6 +24,9 @@ export function jobWorkerAllowedForDriver(
 ): { allowed: boolean; reason: string } {
   if (driver === "sqlite") {
     return { allowed: true, reason: "sqlite" };
+  }
+  if (driver === "postgres-native") {
+    return { allowed: true, reason: "postgres-native (FOR UPDATE SKIP LOCKED lease)" };
   }
   if (experimentalFlag) {
     return {
@@ -36,7 +38,7 @@ export function jobWorkerAllowedForDriver(
     allowed: false,
     reason:
       `${driver} 为实验性镜像刷盘，多进程租约未验证；默认拒绝启动任务 worker。` +
-      `单进程可设 MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1。详见 docs/STORAGE_LEASE.md`,
+      `原生驱动请设 MOLAN_NATIVE_PG=1；镜像单进程可设 MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1。详见 docs/STORAGE_LEASE.md`,
   };
 }
 
@@ -144,8 +146,10 @@ export function startJobWorker(intervalMs = DEFAULT_INTERVAL_MS) {
     console.warn(`[jobs] worker NOT started: ${policy.reason}`);
     return status;
   }
-  if (policy.reason !== "sqlite") {
+  if (policy.reason !== "sqlite" && !policy.reason.startsWith("postgres-native")) {
     console.warn(`[jobs] experimental PG worker enabled — ${policy.reason}`);
+  } else if (policy.reason.startsWith("postgres-native")) {
+    console.log(`[jobs] native Postgres worker — ${policy.reason}`);
   }
   status.intervalMs = intervalMs;
   status.running = true;

@@ -7,22 +7,45 @@
 - 同一数据库文件上，HTTP `tick` 与后台 worker 通过租约互斥，避免双推进。
 - 建议单进程写库；多进程同时打开同一 SQLite 文件仍可能锁等待，但不应用作横向扩展方案。
 
-## Postgres 原生租约（已测）
+## 可选：原生 Postgres 应用驱动（阶段 10）
 
-- 共享 SQL / 纯函数：`server/src/jobs/lease.ts`
-- 原生实现（`FOR UPDATE SKIP LOCKED` + 同谓词 UPDATE）：`server/src/jobs/pgNativeLease.ts`
-- **验收脚本**（可接真实 Postgres 多会话）：
+应用内可选择**真正对着 Postgres 跑 SQL**（不再是内存 SQLite 镜像整表刷盘）：
 
 ```bash
-# 本机示例（需已创建库与用户）
+DATABASE_URL=postgres://user:pass@127.0.0.1:5432/molan \
+MOLAN_NATIVE_PG=1 \
+  npm run dev:server
+```
+
+或等价：`MOLAN_DB=postgres-native` + `DATABASE_URL=...`。
+
+| 项 | 行为 |
+|---|---|
+| SQL | 应用仍写 `?` 占位符；`server/src/db/pgNativeClient.ts` 转为 `$1..$n` 后经 worker 同步桥调 `node-pg` |
+| 任务租约 | `tryAcquireJobLease` 在 `postgres-native` 下走 `FOR UPDATE SKIP LOCKED` + 同谓词 UPDATE |
+| 任务 worker | **允许**启动（与 SQLite 同级） |
+| 默认 | 未设 `MOLAN_NATIVE_PG=1` 时，`DATABASE_URL` 仍走旧的**镜像刷盘**实验模式 |
+
+Markdown 导出布局（`data/books/`）不变；正式生成仍无服务端静默本地降级。
+
+## Postgres 租约单测（lease harness）
+
+- 共享 SQL / 纯函数：`server/src/jobs/lease.ts`
+- 原生实现：`server/src/jobs/pgNativeLease.ts`
+- 验收：
+
+```bash
 MOLAN_LEASE_DATABASE_URL=postgres://molan:molan@127.0.0.1:5432/molan_lease \
   npm run test:pg-lease
 ```
 
-- 真实 Postgres 不可达时：脚本对「真实 Postgres 可达」记软跳过，并仍跑 **PGlite 同实例** SQL 语义；**不宣称**已具备集群。
-- 应用主路径仍默认 SQLite。`DATABASE_URL` / `MOLAN_DB=pglite` 仍是**内存镜像整表刷盘**实验模式，**不能**把镜像上的租约列当成跨进程锁。
-- **默认行为**：`driver=postgres|pglite` 时拒绝启动任务 worker；单进程例外：`MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1`。
-- 完整原生 Postgres 驱动替换镜像刷盘仍不在默认产品路径；横向扩展请继续 SQLite 单写者，或外接队列 + 本仓库已验证的 PG lease SQL。
+- 真实 Postgres 不可达时：脚本对「真实 Postgres 可达」记软跳过，并仍跑 **PGlite 同实例** SQL 语义。
+
+## 镜像 Postgres / PGlite（实验）
+
+- `DATABASE_URL` **不带** `MOLAN_NATIVE_PG=1`，或 `MOLAN_DB=pglite`：内存镜像整表刷盘。
+- **不能**把镜像上的租约列当成跨进程锁。
+- 默认拒绝启动任务 worker；单进程例外：`MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1`。
 
 ## 覆盖导入与崩溃恢复
 
@@ -33,15 +56,19 @@ MOLAN_LEASE_DATABASE_URL=postgres://molan:molan@127.0.0.1:5432/molan_lease \
 - 进程在 wipe 与 restore 之间被杀死：下次启动 `recoverInterruptedImports()` 从 JSON 还原并 `syncBook`。
 - JSON 损坏 → `data/import-recovery/corrupt/`。
 
-### 物理 SQLite 备份（二级）
+### 按书物理 SQLite 备份（二级，阶段 10）
 
-- **同一时刻**在 wipe 前复制整库文件到：
-  - `data/import-recovery/<bookId>.sqlite.phys`
-  - 以及同名 `-wal` / `-shm`（若存在）
-  - 标记：`data/import-recovery/<bookId>.phys.pending`
-- 逻辑回滚成功或导入成功后清除物理备份。
-- 逻辑回滚失败时保留物理文件；启动时 `recoverPhysicalImportBackups()` 在 **无可用 JSON** 时关闭并替换 live SQLite 后重开。
-- 物理恢复影响**整库**（不只当前书），仅作灾难兜底。
+- wipe 前把**仅该书**相关行导出为独立 SQLite：
+  - `data/import-recovery/<bookId>.book.phys.sqlite`
+  - 标记：`data/import-recovery/<bookId>.book.phys.pending`
+- 恢复时 `restoreBookSnapshot` **只动该书**，同库其他书不受影响。
+- 逻辑回滚成功或导入成功后清除。
+- 逻辑 JSON 仍优先；无 JSON 时才走物理按书恢复。
+
+### 遗留：整库 `.sqlite.phys`（阶段 9）
+
+- 若仍存在 `<bookId>.sqlite.phys` + `.phys.pending`，启动时仍可整库替换恢复（**会影响同库其他书**）。
+- 新写入不再生成整库副本。
 
 ## 取消与暂停语义（回顾）
 

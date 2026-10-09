@@ -255,6 +255,21 @@ z.close()
     ) === true,
   );
 
+  // Phase10: sqlCompat + worker policy for native PG + per-book phys path
+  const { qmarksToDollar } = await import("../src/db/sqlCompat");
+  const q = qmarksToDollar("SELECT a FROM t WHERE x = ? AND y = '?' AND z = ?");
+  check("P10 ?→$ 跳过字符串内问号", q.text === "SELECT a FROM t WHERE x = $1 AND y = '?' AND z = $2" && q.count === 2, q.text);
+  const { jobWorkerAllowedForDriver } = await import("../src/jobs/worker");
+  const native = jobWorkerAllowedForDriver("postgres-native", false);
+  check("P10 postgres-native 允许 worker", native.allowed === true, native.reason);
+  const mirror = jobWorkerAllowedForDriver("postgres", false);
+  check("P10 镜像 postgres 仍默认拒开", mirror.allowed === false);
+  const { physicalBackupDbPath } = await import("../src/importBook");
+  check(
+    "P10 物理备份路径按书隔离",
+    physicalBackupDbPath("abc").endsWith("abc.book.phys.sqlite"),
+    physicalBackupDbPath("abc"),
+  );
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

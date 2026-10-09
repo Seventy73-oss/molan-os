@@ -1,9 +1,38 @@
 import { randomUUID } from "node:crypto";
-import { db } from "../db";
+import { db, getDbInfo } from "../db";
 import { releaseJobLease, tickJob, tryAcquireJobLease } from "../engine";
 
 const DEFAULT_INTERVAL_MS = 2500;
 const WORKER_OWNER = `worker-${process.pid}-${randomUUID().slice(0, 8)}`;
+
+/**
+ * Postgres/PGlite use an in-memory SQLite mirror + full-table flush.
+ * Cross-process row leases are NOT safe there. Default: do not start the job worker
+ * unless the operator explicitly opts in with MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1
+ * and runs exactly one process.
+ */
+export function experimentalPgWorkerAllowed(): boolean {
+  return (process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER || "").trim() === "1";
+}
+
+export function assertJobWorkerStoragePolicy(): { allowed: boolean; reason: string } {
+  const info = getDbInfo();
+  if (info.driver === "sqlite") {
+    return { allowed: true, reason: "sqlite" };
+  }
+  if (experimentalPgWorkerAllowed()) {
+    return {
+      allowed: true,
+      reason: `${info.driver}: MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1 (single-process only)`,
+    };
+  }
+  return {
+    allowed: false,
+    reason:
+      `${info.driver} 为实验性镜像刷盘，多进程租约未验证；默认拒绝启动任务 worker。` +
+      `单进程可设 MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1。详见 docs/STORAGE_LEASE.md`,
+  };
+}
 
 let timer: NodeJS.Timeout | null = null;
 let busy = false;
@@ -98,6 +127,16 @@ async function tickOnce() {
 
 export function startJobWorker(intervalMs = DEFAULT_INTERVAL_MS) {
   if (timer) return status;
+  const policy = assertJobWorkerStoragePolicy();
+  if (!policy.allowed) {
+    status.running = false;
+    status.lastError = policy.reason;
+    console.warn(`[jobs] worker NOT started: ${policy.reason}`);
+    return status;
+  }
+  if (policy.reason !== "sqlite") {
+    console.warn(`[jobs] experimental PG worker enabled — ${policy.reason}`);
+  }
   status.intervalMs = intervalMs;
   status.running = true;
   timer = setInterval(() => {

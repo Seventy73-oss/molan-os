@@ -9,10 +9,20 @@
 
 ## Postgres / PGlite（实验性）
 
-- 当前实现仍以内存 SQLite 镜像 + 刷盘为主，**不适合多进程生产**。
-- **未验证**跨进程 Postgres advisory lock / row lease。
-- 若启用 Postgres：请限制为**单 worker 单进程**，并把模式视为实验性。
-- 完整增量 Postgres 驱动与集群 lease 不在本阶段范围。
+- 当前实现仍以**内存 SQLite 镜像 + 整表刷盘**为主，**不适合多进程生产**。
+- **未验证**跨进程 Postgres advisory lock / row lease；两个进程各自持有独立镜像，租约列无法互斥。
+- **默认行为**：`driver=postgres|pglite` 时**拒绝启动**任务 worker，并在启动日志中告警。
+- **单进程例外**：仅当确认全局只有一个 Node 进程时，可设置  
+  `MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1`  
+  强制开启 worker。多 worker / 多副本严禁使用该开关。
+- 完整增量 Postgres 驱动与集群 lease 不在本仓库当前范围；需要横向扩展时请继续用 **SQLite 单写者**，或自备外部队列。
+
+## 覆盖导入与崩溃恢复
+
+- 覆盖导入前会把原书逻辑快照落到 `data/import-recovery/<bookId>.json`（先写临时文件再 rename）。
+- 导入成功或内存回滚成功后删除该文件。
+- 若进程在 wipe 与 restore 之间被杀死，下次启动 `recoverInterruptedImports()` 会尝试从该文件还原书库并 `syncBook`。
+- **人工恢复**：若启动恢复仍失败，保留该 JSON，核对 `data/books/<bookId>/` 与 SQLite 后，可把文件移出目录再重启，或在维护环境用快照回灌逻辑恢复。
 
 ## 取消与暂停语义（回顾）
 

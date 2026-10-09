@@ -8,15 +8,19 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const host = (env.MOLAN_WEB_HOST || process.env.MOLAN_WEB_HOST || "127.0.0.1").trim() || "127.0.0.1";
+  const apiProxy =
+    (env.MOLAN_API_PROXY || process.env.MOLAN_API_PROXY || "http://127.0.0.1:8787").trim() ||
+    "http://127.0.0.1:8787";
+  const webPort = Number(env.MOLAN_WEB_PORT || process.env.MOLAN_WEB_PORT || 5173) || 5173;
   return {
     plugins: [react()],
     server: {
       host,
-      port: 5173,
+      port: webPort,
       strictPort: true,
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:8787",
+          target: apiProxy,
           changeOrigin: false,
           // Only proxy when the request arrives on loopback unless explicitly opened.
           bypass(req) {
@@ -37,7 +41,7 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       host,
-      port: 4173,
+      port: Number(env.MOLAN_WEB_PREVIEW_PORT || process.env.MOLAN_WEB_PREVIEW_PORT || 4173) || 4173,
       strictPort: true,
     },
     build: {

@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test:regression": "tsx server/scripts/regression-audit.mts",
     "test:e2e": "tsx server/scripts/e2e-audit.mts",
-    "test:audit": "npm run test:regression && npm run test:e2e"
+    "test:e2e:browser": "tsx server/scripts/e2e-browser.mts",
+    "test:audit": "npm run test:regression && npm run test:e2e && npm run test:e2e:browser"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.1.0",

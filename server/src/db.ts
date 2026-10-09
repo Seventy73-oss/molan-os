@@ -411,7 +411,9 @@ export async function initDb(): Promise<DbClient> {
     const choice = resolveDriverChoice();
     if (choice.driver !== "sqlite") {
       console.warn(
-        `[db] driver=${choice.driver} 为实验性模式（内存镜像整表刷盘，仅建议单进程）。默认请用 SQLite。`,
+        `[db] driver=${choice.driver} 为实验性模式（内存镜像整表刷盘，不支持多进程租约）。` +
+          `默认请用 SQLite；若坚持使用请保持单进程，且任务 worker 需 MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1。` +
+          `见 docs/STORAGE_LEASE.md`,
       );
     }
     _db = choice.driver === "sqlite" ? createSqlite() : await createPostgresClient(choice);

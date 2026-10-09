@@ -16,3 +16,6 @@ coverage/
 data/.molan-secret
 
 *.molan-secret
+
+# overwrite-import crash recovery snapshots
+data/import-recovery/

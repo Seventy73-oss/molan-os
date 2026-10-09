@@ -30,7 +30,7 @@ import { cancelGeneration,
   updateBook,
 } from "./engine";
 import { listHooks, markHook } from "./hooks";
-import { importBookFromZipBuffer } from "./importBook";
+import { importBookFromZipBuffer, recoverInterruptedImports } from "./importBook";
 import { listUsage, usageSummary } from "./usage";
 import {
   bookProgress,
@@ -767,6 +767,13 @@ app.put("/api/scene-routes", async (c) => {
 async function main() {
   await initDb();
   reloadSkills();
+  const recovery = recoverInterruptedImports();
+  if (recovery.restored.length) {
+    console.warn(`[boot] restored interrupted imports: ${recovery.restored.join(", ")}`);
+  }
+  if (recovery.skipped.length) {
+    console.error(`[boot] import recovery skipped (manual check data/import-recovery/): ${recovery.skipped.join(", ")}`);
+  }
   syncAllBooks();
   startJobWorker(Number(process.env.MOLAN_JOB_INTERVAL_MS || process.env.CHANGJUAN_JOB_INTERVAL_MS || 2500));
 

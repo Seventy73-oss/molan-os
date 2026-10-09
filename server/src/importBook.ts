@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { db } from "./db";
+import { dataDir, db } from "./db";
 import { HttpError } from "./httpError";
 import { createBook, getBookPayload, saveRevision } from "./engine";
 import { booksRoot, sanitizeTitle, syncBook } from "./manuscripts";
@@ -146,6 +146,78 @@ type BookSnapshot = {
   hooks: Record<string, unknown>[];
   jobs: Record<string, unknown>[];
 };
+
+/** Durable import-recovery dir: survives process kill between wipe and restore. */
+export function importRecoveryDir() {
+  return path.join(dataDir, "import-recovery");
+}
+
+function recoveryFile(bookId: string) {
+  return path.join(importRecoveryDir(), `${bookId}.json`);
+}
+
+/**
+ * Write snapshot to disk with temp+rename so a crash mid-write leaves no partial final file.
+ * Call BEFORE wipeBookContent on overwrite import.
+ */
+function writeDurableSnapshot(snap: BookSnapshot) {
+  const dir = importRecoveryDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const bookId = String(snap.book.id);
+  const finalPath = recoveryFile(bookId);
+  const tmpPath = path.join(dir, `.${bookId}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmpPath, JSON.stringify(snap), "utf8");
+  fs.renameSync(tmpPath, finalPath);
+}
+
+function clearDurableSnapshot(bookId: string) {
+  try {
+    fs.unlinkSync(recoveryFile(bookId));
+  } catch {
+    /* missing is fine */
+  }
+}
+
+function readDurableSnapshot(bookId: string): BookSnapshot | null {
+  const file = recoveryFile(bookId);
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8")) as BookSnapshot;
+  } catch (error) {
+    console.error("[import] corrupt recovery snapshot", bookId, error);
+    return null;
+  }
+}
+
+/**
+ * On startup: if an overwrite-import left a recovery file, restore DB+md from it.
+ * Manual recovery: copy `data/import-recovery/<bookId>.json` aside, then call this or restore via test helper.
+ */
+export function recoverInterruptedImports(): { restored: string[]; skipped: string[] } {
+  const dir = importRecoveryDir();
+  const restored: string[] = [];
+  const skipped: string[] = [];
+  if (!fs.existsSync(dir)) return { restored, skipped };
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".json") || name.startsWith(".")) continue;
+    const bookId = name.slice(0, -".json".length);
+    const snap = readDurableSnapshot(bookId);
+    if (!snap?.book?.id) {
+      skipped.push(bookId);
+      continue;
+    }
+    try {
+      restoreBookSnapshot(snap);
+      clearDurableSnapshot(bookId);
+      restored.push(bookId);
+      console.warn(`[import] recovered interrupted overwrite import for book ${bookId}`);
+    } catch (error) {
+      console.error(`[import] recovery failed for ${bookId}; file kept at ${recoveryFile(bookId)}`, error);
+      skipped.push(bookId);
+    }
+  }
+  return { restored, skipped };
+}
 
 function snapshotBook(bookId: string): BookSnapshot {
   const book = db.prepare("SELECT * FROM books WHERE id = ?").get(bookId) as Record<string, unknown>;
@@ -357,6 +429,8 @@ export function importBookFromFolder(
   let overwriteSnapshot: BookSnapshot | null = null;
   if (existingId && conflict === "overwrite") {
     overwriteSnapshot = snapshotBook(existingId);
+    // Persist BEFORE wipe so a kill mid-import can recover on next boot.
+    writeDurableSnapshot(overwriteSnapshot);
   }
 
   const imported: ImportResult["imported"] = [];
@@ -481,6 +555,9 @@ export function importBookFromFolder(
   }
 
   const payload = getBookPayload(bookId);
+  if (overwriteSnapshot) {
+    clearDurableSnapshot(String(overwriteSnapshot.book.id));
+  }
   return {
     bookId,
     title: payload.book.title,
@@ -492,14 +569,22 @@ export function importBookFromFolder(
   };
   } catch (error) {
     if (overwriteSnapshot) {
+      let restoreOk = false;
       try {
         restoreBookSnapshot(overwriteSnapshot);
+        restoreOk = true;
+        clearDurableSnapshot(String(overwriteSnapshot.book.id));
       } catch (restoreError) {
-        console.error("import overwrite restore failed", restoreError);
+        console.error(
+          "import overwrite restore failed; durable snapshot kept for startup recovery",
+          restoreError,
+        );
       }
       throw new HttpError(
         500,
-        `覆盖导入失败，已尝试回滚原书：${error instanceof Error ? error.message : String(error)}`,
+        restoreOk
+          ? `覆盖导入失败，已尝试回滚原书：${error instanceof Error ? error.message : String(error)}`
+          : `覆盖导入失败且内存回滚未完成；请保留 data/import-recovery/${overwriteSnapshot.book.id}.json 并重启以恢复：${error instanceof Error ? error.message : String(error)}`,
       );
     }
     throw error;
@@ -517,4 +602,13 @@ export function __snapshotBookForTest(bookId: string) {
 }
 export function __restoreBookSnapshotForTest(snap: ReturnType<typeof snapshotBook>) {
   restoreBookSnapshot(snap);
+}
+export function __writeDurableSnapshotForTest(snap: ReturnType<typeof snapshotBook>) {
+  writeDurableSnapshot(snap);
+}
+export function __clearDurableSnapshotForTest(bookId: string) {
+  clearDurableSnapshot(bookId);
+}
+export function __recoveryFileForTest(bookId: string) {
+  return recoveryFile(bookId);
 }

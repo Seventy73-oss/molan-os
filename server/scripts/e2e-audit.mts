@@ -1,7 +1,8 @@
 /**
  * Phase-3 audit E2E (API-level, mock models / local-draft only).
  * Covers: slow/concurrent CAS, SSE lost receipt, process restart, late candidate,
- * job pause/cancel, overwrite-import rollback, AbortSignal cancel, SQLite lease.
+ * job pause/cancel, overwrite-import rollback, durable import recovery, AbortSignal cancel,
+ * SQLite lease, worker storage policy.
  *
  * Run: npm run test:e2e
  */
@@ -26,17 +27,30 @@ function check(name: string, ok: boolean, detail?: string) {
 
 async function main() {
   const engine = await import("../src/engine");
-  const { importBookFromZipBuffer, __snapshotBookForTest, __restoreBookSnapshotForTest } = await import(
-    "../src/importBook"
-  );
+  const {
+    importBookFromZipBuffer,
+    __snapshotBookForTest,
+    __restoreBookSnapshotForTest,
+    __writeDurableSnapshotForTest,
+    __clearDurableSnapshotForTest,
+    __recoveryFileForTest,
+    recoverInterruptedImports,
+  } = await import("../src/importBook");
   const { db } = await import("../src/db");
-  const { withJobLock, tryAcquireJobLease, releaseJobLease } = await import("../src/jobs/worker").then(async () => {
-    // re-export lease from engine; withJobLock from worker
+  const {
+    withJobLock,
+    tryAcquireJobLease,
+    releaseJobLease,
+    assertJobWorkerStoragePolicy,
+    experimentalPgWorkerAllowed,
+  } = await import("../src/jobs/worker").then(async () => {
     const worker = await import("../src/jobs/worker");
     return {
       withJobLock: worker.withJobLock,
       tryAcquireJobLease: engine.tryAcquireJobLease,
       releaseJobLease: engine.releaseJobLease,
+      assertJobWorkerStoragePolicy: worker.assertJobWorkerStoragePolicy,
+      experimentalPgWorkerAllowed: worker.experimentalPgWorkerAllowed,
     };
   });
   const { throwIfAborted, isAbortError } = await import("../src/abortUtil");
@@ -338,6 +352,40 @@ z.close()
       .get(bookId) as { body: string }
   ).body;
   check("E2E 快照可完整还原", bodyRestored === "覆盖前正文应保留");
+
+  // --- Durable import recovery (crash window) ---
+  const snapForCrash = __snapshotBookForTest(bookId);
+  __writeDurableSnapshotForTest(snapForCrash);
+  const recoveryPath = __recoveryFileForTest(bookId);
+  check("E2E 落盘恢复文件已写入", fs.existsSync(recoveryPath), recoveryPath);
+  // Simulate wipe without restore (crash window)
+  db.prepare("DELETE FROM messages WHERE book_id = ?").run(bookId);
+  const mid = (
+    db.prepare("SELECT COUNT(*) AS n FROM messages WHERE book_id = ?").get(bookId) as { n: number }
+  ).n;
+  check("E2E 模拟 wipe 后消息清空", mid === 0);
+  const recovered = recoverInterruptedImports();
+  check(
+    "E2E 启动恢复打断的覆盖导入",
+    recovered.restored.includes(bookId) && !fs.existsSync(recoveryPath),
+    JSON.stringify(recovered),
+  );
+  const msgsAfter = (
+    db.prepare("SELECT COUNT(*) AS n FROM messages WHERE book_id = ?").get(bookId) as { n: number }
+  ).n;
+  check("E2E 恢复后消息行数回到快照", msgsAfter === snapForCrash.messages.length, String(msgsAfter));
+
+  // SQLite worker policy allows; clear any leftover
+  __clearDurableSnapshotForTest(bookId);
+  const policy = assertJobWorkerStoragePolicy();
+  check("E2E SQLite 允许任务 worker", policy.allowed && policy.reason === "sqlite", policy.reason);
+  const prevFlag = process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER;
+  delete process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER;
+  check("E2E PG worker 默认拒绝开关", experimentalPgWorkerAllowed() === false);
+  process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER = "1";
+  check("E2E PG worker 显式允许开关", experimentalPgWorkerAllowed() === true);
+  if (prevFlag === undefined) delete process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER;
+  else process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER = prevFlag;
 
   // Cancelled generation reuse
   let cancelReuse = false;

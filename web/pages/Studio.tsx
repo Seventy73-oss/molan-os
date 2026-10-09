@@ -1189,8 +1189,8 @@ export function Studio() {
                 {needsOutline
                   ? "建议先写细纲，定下场景和冲突，再按细纲生成正文。"
                   : doc.kind === "review_report"
-                    ? "正文写好后，可以让长卷按设定逐条核对，生成一份审核报告。"
-                    : "让长卷按档案和大纲先起一稿，再慢慢改。"}
+                    ? "正文写好后，可以让墨兰写作按设定逐条核对，生成一份审核报告。"
+                    : "让墨兰写作按档案和大纲先起一稿，再慢慢改。"}
               </p>
               <div className="doc-empty-actions">
                 {needsOutline && outlineDoc ? (
@@ -1484,7 +1484,7 @@ export function Studio() {
           {messages.length === 0 && !pendingUser && !busy ? (
             <div className="chat-empty">
               <div className="chat-empty-mark">长</div>
-              <p className="chat-empty-title">想让长卷做什么？</p>
+              <p className="chat-empty-title">想让墨兰写作做什么？</p>
               <p className="chat-empty-sub">选一条开头，或直接输入。</p>
               <div className="suggestions">
                 {suggestions.map((item) => (
@@ -1513,7 +1513,7 @@ export function Studio() {
               <div key={message.id} className="msg bot">
                 <div className="who">
                   <span className="bot-mark">长</span>
-                  长卷
+                  墨兰
                 </div>
                 <AssistantMessage
                   content={message.content}
@@ -1547,7 +1547,7 @@ export function Studio() {
             <div className="msg bot pending" aria-live="polite">
               <div className="who">
                 <span className="bot-mark">长</span>
-                长卷
+                墨兰
               </div>
               <div className="pending-line">
                 <span className="typing">
@@ -1712,7 +1712,7 @@ export function Studio() {
                 ref={composerRef}
                 rows={1}
                 value={chatText}
-                placeholder="让长卷改写、续写，或问点什么…"
+                placeholder="让墨兰写作改写、续写，或问点什么…"
                 onChange={(event) => setChatText(event.target.value)}
                 onCompositionStart={() => {
                   composerComposing.current = true;

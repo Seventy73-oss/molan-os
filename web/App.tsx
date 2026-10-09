@@ -55,7 +55,7 @@ function Shell() {
       <header className="topbar">
         <Link to="/" className="brand">
           <LogoMark />
-          <span className="wordmark">长卷</span>
+          <span className="wordmark">墨兰写作</span>
         </Link>
         {studio ? (
           <nav className="crumbs" aria-label="位置">
@@ -97,7 +97,7 @@ function Shell() {
 function NotFound() {
   return (
     <div className="page page-enter not-found">
-      <p className="eyebrow">长卷</p>
+      <p className="eyebrow">墨兰写作</p>
       <h1>没有这一页</h1>
       <p className="sub">链接可能写错了，或者书已经删掉。</p>
       <Link className="btn primary" to="/">

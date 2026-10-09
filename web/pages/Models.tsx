@@ -257,7 +257,7 @@ export function Models() {
     <div className="page page-enter models-page settings-page">
       <header className="page-head">
         <div>
-          <p className="eyebrow">长卷 · 设置</p>
+          <p className="eyebrow">墨兰写作 · 设置</p>
           <h1>模型</h1>
           <p className="sub">接口密钥只写进这台机器的数据库，不会回到浏览器，也不会进本地存储。</p>
         </div>
@@ -281,7 +281,7 @@ export function Models() {
           <div className="provider-head">
             <div>
               <h2>写作运行时</h2>
-              <p>当前可用的适配器。已安装 @earendil-works/pi-agent-core 时可在路由或 CHANGJUAN_AGENT_RUNTIME=pi 启用。</p>
+              <p>当前可用的适配器。已安装 @earendil-works/pi-agent-core 时可在路由或 MOLAN_AGENT_RUNTIME=pi（兼容 CHANGJUAN_AGENT_RUNTIME）启用。</p>
             </div>
             {runtime.envRuntime ? <span className="pill">env: {runtime.envRuntime}</span> : <span className="pill">按场景路由</span>}
           </div>

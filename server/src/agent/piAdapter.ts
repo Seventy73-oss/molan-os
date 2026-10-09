@@ -44,7 +44,7 @@ export function probePiCapability(): AgentCapability {
       id: "pi-agent",
       label: "pi-agent-core",
       available: true,
-      reason: "已安装 @earendil-works/pi-agent-core；设 CHANGJUAN_AGENT_RUNTIME=pi 或路由 provider=pi 启用",
+      reason: "已安装 @earendil-works/pi-agent-core；设 MOLAN_AGENT_RUNTIME=pi（兼容 CHANGJUAN_AGENT_RUNTIME）或路由 provider=pi 启用",
       packageName: PACKAGE_NAME,
     };
   }
@@ -119,7 +119,7 @@ export class PiAgentAdapter implements AgentRuntimeAdapter {
 
     const models = createModels();
     const faux = fauxProvider({
-      models: [{ id: "changjuan-pi", name: "长卷 pi" }],
+      models: [{ id: "molan-pi", name: "墨兰写作 pi" }],
     });
     models.setProvider(faux.provider);
     faux.setResponses([fauxAssistantMessage(draft.text)]);
@@ -127,7 +127,7 @@ export class PiAgentAdapter implements AgentRuntimeAdapter {
     const model = faux.getModel();
     const agent = new Agent({
       initialState: {
-        systemPrompt: "你是长卷的写作运行时（pi-agent）。只交付场景要求的中文稿件，不要解释过程。",
+        systemPrompt: "你是墨兰写作的写作运行时（pi-agent）。只交付场景要求的中文稿件，不要解释过程。",
         model,
       },
       streamFn: models.streamSimple.bind(models),

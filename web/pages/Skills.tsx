@@ -63,7 +63,7 @@ export function Skills() {
     <div className="page page-enter skills-page settings-page">
       <header className="page-head">
         <div>
-          <p className="eyebrow">长卷 · 设置</p>
+          <p className="eyebrow">墨兰写作 · 设置</p>
           <h1>技能</h1>
           <p className="sub">用户蒸馏包已完整接入：去 AI 味、开局拆解卡、卷级蒸馏、结构骨架、文风语料、选题创作。生成时按场景注入 pack 关键原文，不是空壳摘要。</p>
         </div>

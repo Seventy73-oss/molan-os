@@ -662,12 +662,12 @@ async function main() {
   await initDb();
   reloadSkills();
   syncAllBooks();
-  startJobWorker(Number(process.env.CHANGJUAN_JOB_INTERVAL_MS || 2500));
+  startJobWorker(Number(process.env.MOLAN_JOB_INTERVAL_MS || process.env.CHANGJUAN_JOB_INTERVAL_MS || 2500));
 
   const port = Number(process.env.PORT || 8787);
   serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, (info) => {
     const dbInfo = getDbInfo();
-    console.log(`长卷 API http://127.0.0.1:${info.port}  db=${dbInfo.driver}`);
+    console.log(`墨兰写作 API http://127.0.0.1:${info.port}  db=${dbInfo.driver}`);
   });
 }
 

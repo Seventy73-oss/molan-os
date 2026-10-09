@@ -20,7 +20,7 @@ function stripFence(text: string): string {
 
 function buildMessages(input: RunInput) {
   const system = [
-    "你是长卷的写作引擎。用简体中文交付当前场景的稿件，不要解释写作过程。",
+    "你是墨兰写作的写作引擎。用简体中文交付当前场景的稿件，不要解释写作过程。",
     CONTRACT[input.scene],
     ...input.skillTexts.map((skill) => `# ${skill.name}\n${skill.text}`),
   ].join("\n\n");

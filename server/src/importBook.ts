@@ -94,7 +94,7 @@ function wipeBookContent(bookId: string) {
 }
 
 /**
- * Import a zip (or already-extracted folder) of changjuan markdown layout into a book.
+ * Import a zip (or already-extracted folder) of molan/墨兰写作 markdown layout into a book.
  * Layout: optional book folder containing 00-档案.md / 00-全书大纲.md / NN-章名/{细纲,正文,审核,记忆}.md
  */
 export function importBookFromZipBuffer(
@@ -102,8 +102,8 @@ export function importBookFromZipBuffer(
   opts: { conflict?: ImportConflict; title?: string; filename?: string } = {},
 ): ImportResult {
   const conflict: ImportConflict = opts.conflict ?? "new_book";
-  const tmpZip = path.join(os.tmpdir(), `changjuan-import-${Date.now()}.zip`);
-  const tmpDir = path.join(os.tmpdir(), `changjuan-import-dir-${Date.now()}`);
+  const tmpZip = path.join(os.tmpdir(), `molan-import-${Date.now()}.zip`);
+  const tmpDir = path.join(os.tmpdir(), `molan-import-dir-${Date.now()}`);
   fs.writeFileSync(tmpZip, buffer);
   try {
     unzipTo(tmpZip, tmpDir);

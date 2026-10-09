@@ -192,7 +192,7 @@ with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
 export function exportBookZip(bookId: string): { filename: string; buffer: Buffer } {
   const title = sanitizeTitle(mustBookTitle(bookId));
   syncBook(bookId);
-  const tmp = path.join(os.tmpdir(), `changjuan-${bookId}-${Date.now()}.zip`);
+  const tmp = path.join(os.tmpdir(), `molan-${bookId}-${Date.now()}.zip`);
   zipDirectory(bookDir(bookId), tmp, title);
   const buffer = fs.readFileSync(tmp);
   fs.unlinkSync(tmp);
@@ -208,7 +208,7 @@ export function exportChapterZip(bookId: string, chapterNumber: number): { filen
   if (!chapter) throw new Error(`没有第 ${chapterNumber} 章`);
   const dir = resolveChapterDir(bookId, chapter.number, chapter.title);
   const folder = path.basename(dir);
-  const tmp = path.join(os.tmpdir(), `changjuan-${bookId}-ch${chapterNumber}-${Date.now()}.zip`);
+  const tmp = path.join(os.tmpdir(), `molan-${bookId}-ch${chapterNumber}-${Date.now()}.zip`);
   zipDirectory(dir, tmp, folder);
   const buffer = fs.readFileSync(tmp);
   fs.unlinkSync(tmp);

@@ -63,7 +63,7 @@ export function Library() {
     <div className="page library-page page-enter">
       <header className="page-head library-hero">
         <div className="hero-copy">
-          <p className="eyebrow">长卷 · 书库</p>
+          <p className="eyebrow">墨兰写作 · 书库</p>
           <h1>书稿</h1>
           <p className="sub">一句话起头，或自己写下书名。大纲、细纲和正文都留在同一本书里。</p>
         </div>
@@ -143,7 +143,7 @@ export function Library() {
           {busy ? "正在建书…" : "建书"}
         </button>
       </form>
-      <p className="brief-hint">这是一段简介，不是书名。长卷会从里面拆题材和主角，再起书名。想自己定名，写上「书名是……」。</p>
+      <p className="brief-hint">这是一段简介，不是书名。墨兰写作会从里面拆题材和主角，再起书名。想自己定名，写上「书名是……」。</p>
 
       {creating ? (
         <form className="card-form" onSubmit={manual}>

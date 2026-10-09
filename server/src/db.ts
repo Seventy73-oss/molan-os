@@ -88,7 +88,8 @@ function resolveDriverChoice(): {
   connectionString: string | null;
   pgliteDir: string;
 } {
-  const raw = (process.env.CHANGJUAN_DB || "").trim().toLowerCase();
+  // Brand: 墨兰写作 / molan-os. Data filenames keep changjuan.* for backward compatibility.
+  const raw = (process.env.MOLAN_DB || process.env.CHANGJUAN_DB || "").trim().toLowerCase();
   const url = (process.env.DATABASE_URL || "").trim();
   const pgliteDir = path.join(dataDir, "changjuan-pglite");
   if (url) return { driver: "postgres", connectionString: url, pgliteDir };

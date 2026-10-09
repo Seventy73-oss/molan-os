@@ -30,7 +30,7 @@ async function getPiAdapterCached(): Promise<PiAgentAdapter | null> {
 }
 
 export function getAdapter(route: RouteRow): AgentRuntimeAdapter {
-  const envRuntime = (process.env.CHANGJUAN_AGENT_RUNTIME || "").trim().toLowerCase();
+  const envRuntime = (process.env.MOLAN_AGENT_RUNTIME || process.env.CHANGJUAN_AGENT_RUNTIME || "").trim().toLowerCase();
   const provider =
     envRuntime === "pi" || envRuntime === "openai" || envRuntime === "local" ? envRuntime : route.provider;
 
@@ -60,7 +60,7 @@ export function listAgentCapabilities(): {
   db: { driver: string; detail: string; ready: boolean };
   note: string;
 } {
-  const envRuntime = (process.env.CHANGJUAN_AGENT_RUNTIME || "").trim() || null;
+  const envRuntime = (process.env.MOLAN_AGENT_RUNTIME || process.env.CHANGJUAN_AGENT_RUNTIME || "").trim() || null;
   const db = getDbInfo();
   const capabilities: AgentCapability[] = [
     {
@@ -82,7 +82,7 @@ export function listAgentCapabilities(): {
     envRuntime,
     db,
     note:
-      `存储：${db.ready ? db.driver : "初始化中"}（DATABASE_URL / CHANGJUAN_DB=postgres|pglite，默认 sqlite）。` +
+      `存储：${db.ready ? db.driver : "初始化中"}（DATABASE_URL / MOLAN_DB 或 CHANGJUAN_DB=postgres|pglite，默认 sqlite；库文件仍为 data/changjuan.sqlite）。` +
       " pi-agent 已接入 @earendil-works/pi-agent-core；provider/env 选 pi 时走 Agent 运行时。",
   };
 }

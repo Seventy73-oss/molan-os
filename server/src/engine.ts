@@ -86,6 +86,7 @@ type ArtifactJoin = {
   id: string;
   kind: string;
   chapter_id: string | null;
+  current_revision_id: string | null;
   chapter_number: number | null;
   revision: number | null;
   body: string | null;
@@ -103,7 +104,7 @@ export function getBookPayload(id: string) {
     .all(id) as ChapterRow[];
   const artifacts = db
     .prepare(
-      `SELECT a.id, a.kind, a.chapter_id, c.number AS chapter_number,
+      `SELECT a.id, a.kind, a.chapter_id, a.current_revision_id, c.number AS chapter_number,
               r.revision, r.body, r.source, r.model, r.skill_ids, r.scene, r.created_at
        FROM artifacts a
        LEFT JOIN artifact_revisions r ON r.id = a.current_revision_id
@@ -129,6 +130,7 @@ export function getBookPayload(id: string) {
       chapterId: artifact.chapter_id,
       chapterNumber: artifact.chapter_number,
       revision: artifact.revision ?? 0,
+      revisionId: artifact.current_revision_id,
       body: artifact.body ?? "",
       source: artifact.source,
       model: artifact.model,
@@ -428,12 +430,20 @@ export function saveRevision(input: {
   bookId: string;
   kind: string;
   chapterNumber: number | null;
+  /** Stable chapter id preferred over number when provided. */
+  chapterId?: string | null;
   body: string;
   source: string;
   model: string | null;
   skillIds: string[];
   scene: string | null;
   skipMemory?: boolean;
+  /** Optimistic concurrency: must match current revision id (or null if none). */
+  expectedRevisionId?: string | null;
+  /** When true, insert revision but do not set as current (candidate / late AI). */
+  asCandidate?: boolean;
+  /** Bind derived artifacts (review/memory) to a body revision. */
+  sourceRevisionId?: string | null;
 }) {
   let body = input.body;
   if (
@@ -446,23 +456,41 @@ export function saveRevision(input: {
   input = { ...input, body };
 
   mustBook(input.bookId);
-  const chapter = input.chapterNumber
-    ? (db.prepare("SELECT * FROM chapters WHERE book_id = ? AND number = ?").get(input.bookId, input.chapterNumber) as
-        | ChapterRow
-        | undefined)
-    : undefined;
-  if (input.chapterNumber && !chapter) throw new HttpError(400, `没有第 ${input.chapterNumber} 章`);
+  let chapter: ChapterRow | undefined;
+  if (input.chapterId) {
+    chapter = db.prepare("SELECT * FROM chapters WHERE id = ? AND book_id = ?").get(input.chapterId, input.bookId) as
+      | ChapterRow
+      | undefined;
+    if (!chapter) throw new HttpError(400, "章节不存在或不属于本书");
+  } else if (input.chapterNumber) {
+    chapter = db.prepare("SELECT * FROM chapters WHERE book_id = ? AND number = ?").get(input.bookId, input.chapterNumber) as
+      | ChapterRow
+      | undefined;
+    if (!chapter) throw new HttpError(400, `没有第 ${input.chapterNumber} 章`);
+  }
   const chapterId = chapter?.id ?? null;
-  const revision = db.transaction(() => {
+  const chapterNumber = chapter?.number ?? input.chapterNumber ?? null;
+  const saved = db.transaction(() => {
     let artifact = db
-      .prepare("SELECT id FROM artifacts WHERE book_id = ? AND kind = ? AND ifnull(chapter_id, '') = ifnull(?, '')")
-      .get(input.bookId, input.kind, chapterId) as { id: string } | undefined;
+      .prepare("SELECT id, current_revision_id FROM artifacts WHERE book_id = ? AND kind = ? AND ifnull(chapter_id, '') = ifnull(?, '')")
+      .get(input.bookId, input.kind, chapterId) as { id: string; current_revision_id: string | null } | undefined;
     if (!artifact) {
+      if (input.expectedRevisionId != null && input.expectedRevisionId !== undefined) {
+        // Client thought there was a revision
+        if (input.expectedRevisionId !== null) {
+          throw new HttpError(409, "稿件版本冲突：本地基线已失效（尚无服务端稿）");
+        }
+      }
       const id = crypto.randomUUID();
       db.prepare(
         "INSERT INTO artifacts (id, book_id, chapter_id, kind, current_revision_id) VALUES (?, ?, ?, ?, NULL)",
       ).run(id, input.bookId, chapterId, input.kind);
-      artifact = { id };
+      artifact = { id, current_revision_id: null };
+    } else if (input.expectedRevisionId !== undefined) {
+      const current = artifact.current_revision_id;
+      if (current !== input.expectedRevisionId) {
+        throw new HttpError(409, "稿件版本冲突：已有更新的修订，请刷新后重试");
+      }
     }
     const prev = db
       .prepare("SELECT COALESCE(MAX(revision), 0) AS n FROM artifact_revisions WHERE artifact_id = ?")
@@ -471,8 +499,8 @@ export function saveRevision(input: {
     const revId = crypto.randomUUID();
     db.prepare(
       `INSERT INTO artifact_revisions
-        (id, artifact_id, revision, body, source, model, skill_ids, scene, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, artifact_id, revision, body, source, model, skill_ids, scene, created_at, source_revision_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       revId,
       artifact.id,
@@ -483,37 +511,50 @@ export function saveRevision(input: {
       JSON.stringify(input.skillIds),
       input.scene,
       now(),
+      input.sourceRevisionId ?? null,
     );
-    db.prepare("UPDATE artifacts SET current_revision_id = ? WHERE id = ?").run(revId, artifact.id);
-    if (chapterId && input.kind === "chapter_outline") {
-      db.prepare("UPDATE chapters SET status = CASE WHEN status = 'empty' THEN 'outlined' ELSE status END WHERE id = ?").run(
-        chapterId,
-      );
-    } else if (chapterId && input.kind === "chapter_body") {
-      db.prepare(
-        "UPDATE chapters SET status = CASE WHEN status = 'reviewed' THEN status ELSE 'drafted' END WHERE id = ?",
-      ).run(chapterId);
-    } else if (chapterId && input.kind === "review_report") {
-      db.prepare("UPDATE chapters SET status = 'reviewed' WHERE id = ?").run(chapterId);
+    if (!input.asCandidate) {
+      db.prepare("UPDATE artifacts SET current_revision_id = ? WHERE id = ?").run(revId, artifact.id);
+      if (chapterId && input.kind === "chapter_outline") {
+        db.prepare("UPDATE chapters SET status = CASE WHEN status = 'empty' THEN 'outlined' ELSE status END WHERE id = ?").run(
+          chapterId,
+        );
+      } else if (chapterId && input.kind === "chapter_body") {
+        // Body change invalidates reviewed status
+        db.prepare("UPDATE chapters SET status = 'drafted' WHERE id = ?").run(chapterId);
+        // Mark review/memory derived from older body as stale via status field on chapter already
+      } else if (chapterId && input.kind === "review_report") {
+        db.prepare("UPDATE chapters SET status = 'reviewed' WHERE id = ?").run(chapterId);
+      }
     }
-    return next;
+    return { revision: next, revisionId: revId, artifactId: artifact.id, chapterId, chapterNumber };
   })();
-  applyDerived(input.bookId, input.kind, input.scene, input.body);
-  try {
-    syncBook(input.bookId);
-  } catch (error) {
-    console.error("manuscript sync failed", error);
+  if (!input.asCandidate) {
+    applyDerived(input.bookId, input.kind, input.scene, input.body);
+    try {
+      syncBook(input.bookId);
+    } catch (error) {
+      console.error("manuscript sync failed", error);
+    }
+    if (
+      input.kind === "chapter_body" &&
+      chapterNumber &&
+      input.body.trim() &&
+      input.model !== "import" &&
+      !input.skipMemory
+    ) {
+      scheduleMemoryExtract(input.bookId, chapterNumber, saved.revisionId);
+    }
   }
-  if (
-    input.kind === "chapter_body" &&
-    input.chapterNumber &&
-    input.body.trim() &&
-    input.model !== "import" &&
-    !(input as { skipMemory?: boolean }).skipMemory
-  ) {
-    scheduleMemoryExtract(input.bookId, input.chapterNumber);
-  }
-  return { kind: input.kind, revision, chapterNumber: input.chapterNumber };
+  return {
+    kind: input.kind,
+    revision: saved.revision,
+    revisionId: saved.revisionId,
+    artifactId: saved.artifactId,
+    chapterId: saved.chapterId,
+    chapterNumber: saved.chapterNumber,
+    current: !input.asCandidate,
+  };
 }
 
 function applyDerived(bookId: string, kind: string, scene: string | null, body: string) {
@@ -567,20 +608,46 @@ const memoryPending = new Set<string>();
 const memoryPromises = new Map<string, Promise<void>>();
 
 /** After chapter body is saved/generated, quietly refresh chapter memory ledger. */
-export function scheduleMemoryExtract(bookId: string, chapterNumber: number) {
+/** Latest body revision we want memory for — late extracts must not overwrite newer. */
+const memoryDesiredRevision = new Map<string, string>();
+
+export function scheduleMemoryExtract(bookId: string, chapterNumber: number, sourceRevisionId?: string | null): Promise<void> {
   const key = `${bookId}:${chapterNumber}`;
-  if (memoryPromises.has(key)) return memoryPromises.get(key)!;
+  if (sourceRevisionId) memoryDesiredRevision.set(key, sourceRevisionId);
+  const desired = memoryDesiredRevision.get(key) || sourceRevisionId || "";
+  if (memoryPromises.has(key)) {
+    // Already running — after it finishes, re-check desired revision.
+    const existing = memoryPromises.get(key)!;
+    return existing.then(async () => {
+      const still = memoryDesiredRevision.get(key);
+      if (still && still !== desired) {
+        await scheduleMemoryExtract(bookId, chapterNumber, still);
+      }
+    });
+  }
   memoryPending.add(key);
+  const targetRev = desired;
   const promise = new Promise<void>((resolve) => {
     setTimeout(() => {
       void (async () => {
         try {
-          await executeScene({
+          const result = await executeScene({
             bookId,
             scene: "memory_extract",
             chapterNumber,
             instruction: "",
+            sourceRevisionId: targetRev || null,
           });
+          void result;
+          // If a newer body landed while we ran, schedule again.
+          const latest = memoryDesiredRevision.get(key);
+          if (latest && targetRev && latest !== targetRev) {
+            memoryPromises.delete(key);
+            memoryPending.delete(key);
+            scheduleMemoryExtract(bookId, chapterNumber, latest);
+            resolve();
+            return;
+          }
         } catch (error) {
           console.error("[memory] extract failed", error);
         } finally {
@@ -682,6 +749,11 @@ export async function executeScene(input: {
   chapterNumber: number | null;
   instruction?: string;
   skillIds?: string[];
+  /** When saving review/memory, bind to this body revision. */
+  sourceRevisionId?: string | null;
+  expectedRevisionId?: string | null;
+  asCandidate?: boolean;
+  generationId?: string | null;
 }) {
   mustBook(input.bookId);
   const needsChapter = input.scene === "chapter_outline" || input.scene === "chapter_body" || input.scene === "review" || input.scene === "humanize" || input.scene === "memory_extract";
@@ -727,6 +799,18 @@ export async function executeScene(input: {
     console.error("[usage] record failed", error);
   }
   const kind = sceneKind(input.scene);
+  // Bind review/memory to the body revision they were based on.
+  let sourceRevisionId = input.sourceRevisionId ?? null;
+  if (!sourceRevisionId && (input.scene === "review" || input.scene === "memory_extract") && chapterNumber) {
+    const bodyArt = db
+      .prepare(
+        `SELECT a.current_revision_id AS id FROM artifacts a
+         LEFT JOIN chapters c ON c.id = a.chapter_id
+         WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = ?`,
+      )
+      .get(input.bookId, chapterNumber) as { id: string | null } | undefined;
+    sourceRevisionId = bodyArt?.id ?? null;
+  }
   const saved = kind
     ? saveRevision({
         bookId: input.bookId,
@@ -737,8 +821,18 @@ export async function executeScene(input: {
         model: result.modelUsed,
         skillIds: skills.map((skill) => skill.id),
         scene: input.scene,
+        expectedRevisionId: input.expectedRevisionId,
+        asCandidate: input.asCandidate,
+        sourceRevisionId,
       })
     : null;
+  if (input.generationId) {
+    completeGeneration(input.generationId, {
+      status: "completed",
+      resultRevisionId: saved && "revisionId" in saved ? (saved as { revisionId: string }).revisionId : null,
+      result: { text: result.text, modelUsed: result.modelUsed, saved },
+    });
+  }
   return {
     text: result.text,
     modelUsed: result.modelUsed,
@@ -876,31 +970,141 @@ export function listMessages(bookId: string) {
   });
 }
 
+
+export type GenerationStatus = "running" | "completed" | "failed" | "cancelled";
+
+export function beginGeneration(input: {
+  id: string;
+  bookId: string;
+  scene: string;
+  chapterNumber?: number | null;
+  chapterId?: string | null;
+  baseRevisionId?: string | null;
+}) {
+  const existing = db.prepare("SELECT * FROM generations WHERE id = ?").get(input.id) as
+    | {
+        id: string;
+        status: string;
+        result_json: string | null;
+        error: string | null;
+        result_revision_id: string | null;
+      }
+    | undefined;
+  if (existing) {
+    return {
+      reused: true as const,
+      status: existing.status as GenerationStatus,
+      result: existing.result_json ? JSON.parse(existing.result_json) : null,
+      error: existing.error,
+      resultRevisionId: existing.result_revision_id,
+    };
+  }
+  const ts = now();
+  db.prepare(
+    `INSERT INTO generations
+      (id, book_id, scene, chapter_id, chapter_number, status, base_revision_id, result_revision_id, result_json, error, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'running', ?, NULL, NULL, NULL, ?, ?)`,
+  ).run(
+    input.id,
+    input.bookId,
+    input.scene,
+    input.chapterId ?? null,
+    input.chapterNumber ?? null,
+    input.baseRevisionId ?? null,
+    ts,
+    ts,
+  );
+  return { reused: false as const, status: "running" as const };
+}
+
+export function getGeneration(id: string) {
+  const row = db.prepare("SELECT * FROM generations WHERE id = ?").get(id) as
+    | {
+        id: string;
+        book_id: string;
+        scene: string;
+        status: string;
+        result_json: string | null;
+        error: string | null;
+        result_revision_id: string | null;
+        base_revision_id: string | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    id: row.id,
+    bookId: row.book_id,
+    scene: row.scene,
+    status: row.status as GenerationStatus,
+    result: row.result_json ? JSON.parse(row.result_json) : null,
+    error: row.error,
+    resultRevisionId: row.result_revision_id,
+    baseRevisionId: row.base_revision_id,
+  };
+}
+
+export function completeGeneration(
+  id: string,
+  patch: { status: GenerationStatus; resultRevisionId?: string | null; result?: unknown; error?: string | null },
+) {
+  const ts = now();
+  db.prepare(
+    `UPDATE generations SET status = ?, result_revision_id = COALESCE(?, result_revision_id),
+      result_json = COALESCE(?, result_json), error = ?, updated_at = ? WHERE id = ?`,
+  ).run(
+    patch.status,
+    patch.resultRevisionId ?? null,
+    patch.result != null ? JSON.stringify(patch.result) : null,
+    patch.error ?? null,
+    ts,
+    id,
+  );
+}
+
 /** Exported for smoke tests — keep intents narrow (no bare 写/生成 → 正文). */
 export function routeMessage(message: string): SceneId | null {
-  // A question ("这一章写得怎样？") must not be treated as a write command,
-  // unless it actually names a document to produce.
-  const asks = /[？?]\s*$/.test(message);
+  const text = message.trim();
+  if (!text) return null;
+
+  // Negation / refusal never authorizes a write.
+  if (/(不要|别|禁止|无需|不用|别再|先别|不要再).{0,12}(写|生成|重写|续写|起草|扩写|审核|润色|去\s*AI)/.test(text)) {
+    return null;
+  }
+  // How-to / meta questions are discussion, not write auth — even if they contain 写+正文.
+  if (/(怎么|如何|怎样).{0,8}(写|生成)/.test(text) || /(写|生成).{0,8}(怎么|如何|怎样)/.test(text)) {
+    return null;
+  }
+
+  const asks = /[？?]\s*$/.test(text);
   const ordersDraft =
     /(写|生成|重写|续写|起草|扩写).{0,16}(大纲|细纲|正文|档案|设定|审核)|(大纲|细纲|正文|档案|设定).{0,10}(写|生成|重写|续写|起草|扩写)/.test(
-      message,
+      text,
     );
-  // Avoid「这一章写得怎样？」— require imperative write, not 写得/写的.
   const chapterWrite =
-    /(写|生成|重写|续写|起草|扩写)\s*(一?下)?\s*(这一章|本章|这章)/.test(message) ||
-    /(这一章|本章|这章).{0,8}(写出来|写完|重写|生成|续写|起草|扩写)/.test(message);
-  if (asks && !ordersDraft && !chapterWrite && !/去\s*AI|润色|审核/.test(message)) return null;
+    /(写|生成|重写|续写|起草|扩写)\s*(一?下)?\s*(这一章|本章|这章)/.test(text) ||
+    /(这一章|本章|这章).{0,8}(写出来|写完|重写|生成|续写|起草|扩写)/.test(text);
 
-  if (/去\s*AI|润色/.test(message)) return "humanize";
-  if (message.includes("审核")) return "review";
-  if (/建书|新建一本|建一本/.test(message) || (/(档案|设定)/.test(message) && (ordersDraft || !asks))) {
+  // Pure evaluation / discussion without imperative write.
+  if (
+    /(太短|太长|怎样|怎么样|如何|感觉|觉得|评价|分析一下)/.test(text) &&
+    !ordersDraft &&
+    !chapterWrite
+  ) {
+    return null;
+  }
+
+  if (asks && !ordersDraft && !chapterWrite && !/^(去\s*AI|润色|审核)/.test(text)) return null;
+
+  if (/去\s*AI|润色/.test(text)) return "humanize";
+  if (/审核/.test(text) && (ordersDraft || /审核(一下|本章|这一章|第\s*\d+)|^(请)?审核/.test(text))) {
+    return "review";
+  }
+  if (/建书|新建一本|建一本/.test(text) || (/(档案|设定)/.test(text) && ordersDraft)) {
     return "book_setup";
   }
-  if (message.includes("细纲") && (ordersDraft || !asks)) return "chapter_outline";
-  // 「写全书大纲」— check 大纲 before 正文.
-  if (message.includes("大纲") && (ordersDraft || !asks)) return "outline";
-  if (message.includes("正文") && (ordersDraft || chapterWrite || !asks)) return "chapter_body";
-  // 「写这一章 / 写本章」走正文；不再把裸「写/生成」当成写正文。
+  if (text.includes("细纲") && ordersDraft) return "chapter_outline";
+  if (text.includes("大纲") && ordersDraft) return "outline";
+  if (text.includes("正文") && (ordersDraft || chapterWrite)) return "chapter_body";
   if (chapterWrite) return "chapter_body";
   return null;
 }
@@ -971,10 +1175,34 @@ export async function rewriteSelection(input: {
   }
 }
 
-export async function chat(bookId: string, message: string, preferredChapter?: number | null) {
+export async function chat(
+  bookId: string,
+  message: string,
+  preferredChapter?: number | null,
+  generationId?: string | null,
+) {
   const book = mustBook(bookId);
   const text = message.trim();
   if (!text) throw new HttpError(400, "要说一句");
+  if (generationId) {
+    const began = beginGeneration({
+      id: generationId,
+      bookId,
+      scene: "chat",
+      chapterNumber: preferredChapter ?? null,
+    });
+    if (began.reused) {
+      if (began.status === "completed" && began.result) {
+        return began.result as { message: ReturnType<typeof insertMessage>; saved: unknown };
+      }
+      if (began.status === "running") {
+        throw new HttpError(409, "同一 generationId 仍在执行，请查询状态而非重试");
+      }
+      if (began.status === "failed") {
+        throw new HttpError(502, began.error || "上次生成失败");
+      }
+    }
+  }
   insertMessage(bookId, "user", text, null);
   const scene = routeMessage(text);
   if (!scene) {
@@ -1147,14 +1375,24 @@ export function getJob(id: string) {
 }
 
 export function setJobStatus(id: string, status: string) {
-  if (!["paused", "running", "done"].includes(status)) throw new HttpError(400, "状态只能是 paused、running 或 done");
+  if (!["paused", "running", "done", "cancelled"].includes(status)) {
+    throw new HttpError(400, "状态只能是 paused、running、done 或 cancelled");
+  }
   getJob(id);
   db.prepare("UPDATE writing_jobs SET status = ?, error = CASE WHEN ? = 'running' THEN NULL ELSE error END WHERE id = ?").run(
     status,
     status,
     id,
   );
-  appendJobLog(id, getJob(id).currentStage, getJob(id).currentChapter, status === "paused" ? "已暂停" : status === "running" ? "继续运行" : "标记完成");
+  const label =
+    status === "paused"
+      ? "已暂停（当前阶段结束后停）"
+      : status === "running"
+        ? "继续运行"
+        : status === "cancelled"
+          ? "已取消（迟到结果不设为当前稿）"
+          : "标记完成";
+  appendJobLog(id, getJob(id).currentStage, getJob(id).currentChapter, label);
   return getJob(id);
 }
 
@@ -1185,9 +1423,26 @@ function advanceAfterChapter(id: string, job: ReturnType<typeof getJob>) {
   }
 }
 
+/** cancelled → stop without advancing; paused → caller may advance stage but must keep paused. */
+function jobLease(id: string, stage: string): "ok" | "paused" | "stop" {
+  const fresh = getJob(id);
+  if (fresh.status === "cancelled") {
+    appendJobLog(id, stage, fresh.currentChapter, "任务已取消，不再推进");
+    return "stop";
+  }
+  if (fresh.status === "done") return "stop";
+  if (fresh.status === "paused") {
+    appendJobLog(id, stage, fresh.currentChapter, "任务已暂停，本阶段完成后停留");
+    return "paused";
+  }
+  return "ok";
+}
+
 export async function tickJob(id: string) {
   const job = getJob(id);
-  if (job.status === "paused" || job.status === "done") return { job, advanced: false };
+  if (job.status === "paused" || job.status === "done" || job.status === "cancelled") {
+    return { job, advanced: false };
+  }
   try {
     if (job.currentStage === "outline") {
       const existing = artifactBody(job.bookId, "book_outline", null);
@@ -1197,10 +1452,12 @@ export async function tickJob(id: string) {
       } else {
         appendJobLog(id, "outline", job.currentChapter, "已有全书大纲，跳过");
       }
-      db.prepare("UPDATE writing_jobs SET current_stage = 'chapter_outline', current_chapter = ?, status = 'running', error = NULL WHERE id = ?").run(
-        job.fromChapter,
-        id,
-      );
+      const leaseOutline = jobLease(id, "outline");
+      if (leaseOutline === "stop") return { job: getJob(id), advanced: false };
+      db.prepare(
+        `UPDATE writing_jobs SET current_stage = 'chapter_outline', current_chapter = ?, error = NULL,
+          status = CASE WHEN status = 'paused' THEN 'paused' ELSE 'running' END WHERE id = ?`,
+      ).run(job.fromChapter, id);
     } else if (job.currentStage === "chapter_outline") {
       await executeScene({
         bookId: job.bookId,
@@ -1209,15 +1466,31 @@ export async function tickJob(id: string) {
         instruction: `写第 ${job.currentChapter} 章细纲`,
       });
       appendJobLog(id, "chapter_outline", job.currentChapter, `第 ${job.currentChapter} 章细纲完成`);
+      const lease_chapter_outline = jobLease(id, "chapter_outline");
+      if (lease_chapter_outline === "stop") return { job: getJob(id), advanced: false };
+      // paused: still advance stage pointer below, status stays paused
       db.prepare("UPDATE writing_jobs SET current_stage = 'chapter_body', error = NULL WHERE id = ?").run(id);
     } else if (job.currentStage === "chapter_body") {
+      const bodyBefore = db
+        .prepare(
+          `SELECT a.current_revision_id AS id FROM artifacts a
+           LEFT JOIN chapters c ON c.id = a.chapter_id
+           WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = ?`,
+        )
+        .get(job.bookId, job.currentChapter) as { id: string | null } | undefined;
       await executeScene({
         bookId: job.bookId,
         scene: "chapter_body",
         chapterNumber: job.currentChapter,
         instruction: `写第 ${job.currentChapter} 章正文`,
+        // If cancelled mid-flight, still may have saved — lease check drops advance.
+        expectedRevisionId: undefined,
       });
       appendJobLog(id, "chapter_body", job.currentChapter, `第 ${job.currentChapter} 章正文完成`);
+      void bodyBefore;
+      const lease_chapter_body = jobLease(id, "chapter_body");
+      if (lease_chapter_body === "stop") return { job: getJob(id), advanced: false };
+      // paused: still advance stage pointer below, status stays paused
       db.prepare("UPDATE writing_jobs SET current_stage = 'memory', error = NULL WHERE id = ?").run(id);
     } else if (job.currentStage === "memory") {
       const ok = await waitMemoryExtract(job.bookId, job.currentChapter, 40_000);
@@ -1227,6 +1500,9 @@ export async function tickJob(id: string) {
         job.currentChapter,
         ok ? `第 ${job.currentChapter} 章记忆已抽取` : `第 ${job.currentChapter} 章记忆等待超时，继续`,
       );
+      const lease_memory = jobLease(id, "memory");
+      if (lease_memory === "stop") return { job: getJob(id), advanced: false };
+      // paused: still advance stage pointer below, status stays paused
       if (job.autoReview) {
         db.prepare("UPDATE writing_jobs SET current_stage = 'review', error = NULL WHERE id = ?").run(id);
       } else {
@@ -1240,11 +1516,17 @@ export async function tickJob(id: string) {
         instruction: `审核第 ${job.currentChapter} 章正文，列出问题清单`,
       });
       appendJobLog(id, "review", job.currentChapter, `第 ${job.currentChapter} 章审核完成`);
+      const lease_review = jobLease(id, "review");
+      if (lease_review === "stop") return { job: getJob(id), advanced: false };
+      // paused: still advance stage pointer below, status stays paused
       advanceAfterChapter(id, getJob(id));
     } else {
       db.prepare("UPDATE writing_jobs SET status = 'done', current_stage = 'done' WHERE id = ?").run(id);
       appendJobLog(id, "done", job.currentChapter, "完成");
     }
+    // If user paused during stage, stay paused after advancing stage pointer.
+    const latest = getJob(id);
+    if (latest.status === "paused") return { job: latest, advanced: true };
     return { job: getJob(id), advanced: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "任务失败";

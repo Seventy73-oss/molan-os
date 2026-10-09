@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS artifact_revisions (
   model TEXT,
   skill_ids TEXT,
   scene TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  source_revision_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS skills (
@@ -132,6 +133,21 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS generations (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL,
+  chapter_id TEXT,
+  chapter_number INTEGER,
+  status TEXT NOT NULL,
+  base_revision_id TEXT,
+  result_revision_id TEXT,
+  result_json TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -192,7 +208,8 @@ CREATE TABLE IF NOT EXISTS artifact_revisions (
   model TEXT,
   skill_ids TEXT,
   scene TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  source_revision_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS skills (
@@ -273,6 +290,21 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS generations (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL,
+  chapter_id TEXT,
+  chapter_number INTEGER,
+  status TEXT NOT NULL,
+  base_revision_id TEXT,
+  result_revision_id TEXT,
+  result_json TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -342,6 +374,32 @@ CREATE TABLE IF NOT EXISTS hook_marks (
   } catch {
     // column exists
   }
+  try {
+    run(`ALTER TABLE artifact_revisions ADD COLUMN source_revision_id TEXT`);
+  } catch {
+    // column exists
+  }
+  try {
+    run(`CREATE UNIQUE INDEX IF NOT EXISTS artifact_revisions_unique ON artifact_revisions(artifact_id, revision)`);
+  } catch {
+    // may fail if duplicates exist — do not delete history
+  }
+  exec(`
+CREATE TABLE IF NOT EXISTS generations (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL,
+  chapter_id TEXT,
+  chapter_number INTEGER,
+  status TEXT NOT NULL,
+  base_revision_id TEXT,
+  result_revision_id TEXT,
+  result_json TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`);
 }
 
 export function migratePostgres(exec: (sql: string) => Promise<void>) {
@@ -379,7 +437,22 @@ DO $$ BEGIN
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS log_json TEXT NOT NULL DEFAULT '[]';
   ALTER TABLE scene_routes ADD COLUMN IF NOT EXISTS thinking_intensity TEXT NOT NULL DEFAULT 'medium';
+  ALTER TABLE artifact_revisions ADD COLUMN IF NOT EXISTS source_revision_id TEXT;
 EXCEPTION WHEN others THEN NULL;
 END $$;
+CREATE TABLE IF NOT EXISTS generations (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL,
+  chapter_id TEXT,
+  chapter_number INTEGER,
+  status TEXT NOT NULL,
+  base_revision_id TEXT,
+  result_revision_id TEXT,
+  result_json TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `);
 }

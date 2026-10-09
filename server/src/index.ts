@@ -23,6 +23,7 @@ import {
   renameChapter,
   retryJob,
   rewriteSelection,
+  getGeneration,
   saveRevision,
   setJobStatus,
   tickJob,
@@ -47,7 +48,11 @@ import { sseJson, streamChat, streamSceneRun, streamSelectionRewrite } from "./s
 import { exportBookZip, exportChapterMarkdown, exportChapterZip, readArtifactFile, syncAllBooks, syncBook } from "./manuscripts";
 import { getModelsList, providerView, refreshModels, saveProvider, testProvider } from "./provider";
 import {
+  assertAccessToken,
+  assertLanAuthConfigured,
   assertSafeBaseUrl,
+  assertTrustedWriteOrigin,
+  configuredAccessToken,
   corsAllowedOrigins,
   isCorsOriginAllowed,
   listenHostname,
@@ -83,6 +88,30 @@ app.use(
   }),
 );
 
+
+/** Access token + trusted Origin on writes. CORS is not authentication. */
+app.use("/api/*", async (c, next) => {
+  const path = c.req.path;
+  if (path === "/api/health") return next();
+  const method = c.req.method.toUpperCase();
+  const isWrite = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (isWrite) {
+    try {
+      assertTrustedWriteOrigin(c.req.header("Origin"), c.req.header("Host"));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "拒绝写操作" }, 403);
+    }
+  }
+  if (configuredAccessToken()) {
+    try {
+      assertAccessToken(c.req.header("Authorization") || c.req.header("X-Molan-Token"));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "未授权" }, 401);
+    }
+  }
+  await next();
+});
+
 /** Durable flush for postgres/pglite after mutating API calls. */
 app.use("/api/*", async (c, next) => {
   await next();
@@ -91,6 +120,10 @@ app.use("/api/*", async (c, next) => {
       await db.flush();
     } catch (error) {
       console.error("[db] flush failed", error);
+      // For experimental postgres/pglite: do not pretend success if durable flush failed.
+      if (getDbInfo().driver !== "sqlite" && c.res.status < 400) {
+        return c.json({ error: "持久化失败，请重试" }, 500);
+      }
     }
   }
 });
@@ -114,6 +147,12 @@ function sceneOf(value: unknown): SceneId {
   if (typeof value === "string" && SCENES.has(value as SceneId)) return value as SceneId;
   throw new HttpError(400, "未知场景");
 }
+
+app.get("/api/generations/:id", (c) => {
+  const row = getGeneration(c.req.param("id"));
+  if (!row) throw new HttpError(404, "生成记录不存在");
+  return c.json(row);
+});
 
 app.get("/api/health", (c) => {
   const info = getDbInfo();
@@ -308,15 +347,25 @@ app.put("/api/books/:id/artifacts", async (c) => {
   const kind = typeof body.kind === "string" ? body.kind : "";
   if (!kind) throw new HttpError(400, "缺少稿件类型");
   const chapterNumber = typeof body.chapterNumber === "number" ? body.chapterNumber : null;
+  const expectedRevisionId =
+    body.expectedRevisionId === null
+      ? null
+      : typeof body.expectedRevisionId === "string"
+        ? body.expectedRevisionId
+        : undefined;
+  const chapterId = typeof body.chapterId === "string" ? body.chapterId : undefined;
   const saved = saveRevision({
     bookId: c.req.param("id"),
     kind,
     chapterNumber,
+    chapterId,
     body: typeof body.body === "string" ? body.body : "",
     source: body.source === "agent" ? "agent" : "human",
     model: typeof body.model === "string" ? body.model : null,
     skillIds: asStrings(body.skillIds),
     scene: typeof body.scene === "string" ? body.scene : null,
+    expectedRevisionId,
+    asCandidate: body.asCandidate === true,
   });
   return c.json(saved);
 });
@@ -378,15 +427,17 @@ app.post("/api/books/:id/chat", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const message = typeof body.message === "string" ? body.message : "";
   const chapterNumber = typeof body.chapterNumber === "number" ? body.chapterNumber : null;
-  return c.json(await chat(c.req.param("id"), message, chapterNumber));
+  const generationId = typeof body.generationId === "string" ? body.generationId : null;
+  return c.json(await chat(c.req.param("id"), message, chapterNumber, generationId));
 });
 
 app.post("/api/books/:id/chat/stream", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const message = typeof body.message === "string" ? body.message : "";
   const chapterNumber = typeof body.chapterNumber === "number" ? body.chapterNumber : null;
+  const generationId = typeof body.generationId === "string" ? body.generationId : null;
   return sseJson(c, async (emit) => {
-    await streamChat(emit, c.req.param("id"), message, chapterNumber);
+    await streamChat(emit, c.req.param("id"), message, chapterNumber, generationId);
   });
 });
 
@@ -712,6 +763,7 @@ async function main() {
 
   const port = Number(process.env.PORT || 8787);
   const hostname = listenHostname();
+  assertLanAuthConfigured(hostname);
   serve({ fetch: app.fetch, port, hostname }, (info) => {
     const dbInfo = getDbInfo();
     const shown = hostname === "0.0.0.0" ? `0.0.0.0:${info.port} (局域网可访问)` : `${hostname}:${info.port}`;

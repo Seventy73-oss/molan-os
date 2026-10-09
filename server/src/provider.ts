@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { secureFetch } from "./outbound";
 import {
   assertSafeBaseUrl,
   assertSafeBaseUrlResolved,
@@ -240,10 +241,11 @@ export async function refreshModels(force = true): Promise<ModelsList> {
 
   const url = `${safeUrl.replace(/\/$/, "")}/models`;
   try {
-    const response = await fetch(url, {
+    const response = await secureFetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
+      withApiKey: Boolean(apiKey),
+      timeoutMs: 15_000,
     });
     if (!response.ok) {
       const detail = redact(await response.text());
@@ -326,7 +328,7 @@ export async function testProvider(input: { baseUrl?: unknown; apiKey?: unknown;
   const safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withApiKey });
   const url = `${safeUrl.replace(/\/$/, "")}/chat/completions`;
   try {
-    const response = await fetch(url, {
+    const response = await secureFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -335,7 +337,8 @@ export async function testProvider(input: { baseUrl?: unknown; apiKey?: unknown;
         temperature: 0,
         messages: [{ role: "user", content: "ping" }],
       }),
-      signal: AbortSignal.timeout(12_000),
+      withApiKey: Boolean(apiKey),
+      timeoutMs: 12_000,
     });
     if (!response.ok) {
       const detail = redact(await response.text());

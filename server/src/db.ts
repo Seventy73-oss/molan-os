@@ -82,6 +82,7 @@ const TABLES = [
   "bible_cards",
   "api_usage",
   "hook_marks",
+  "generations",
 ] as const;
 
 function resolveDriverChoice(): {
@@ -112,7 +113,7 @@ function seedRoutes(run: (sql: string, params?: SqlValue[]) => void) {
 }
 
 function createSqlite(): DbClient {
-  const file = path.join(dataDir, "changjuan.sqlite");
+  const file = (process.env.MOLAN_SQLITE_PATH || "").trim() || path.join(dataDir, "changjuan.sqlite");
   const raw = new Database(file);
   raw.pragma("journal_mode = WAL");
   raw.exec(sqliteSchema());
@@ -314,6 +315,10 @@ async function createPostgresClient(choice: ReturnType<typeof resolveDriverChoic
       if (!dirty) return;
       dirty = false;
       await snapshotToBackend(mirror, backend);
+    }).catch((error) => {
+      // Keep the queue alive after a failed persist so later saves still run.
+      console.error("[db] postgres/pglite persist failed", error);
+      dirty = true;
     });
   }
 
@@ -404,6 +409,11 @@ export async function initDb(): Promise<DbClient> {
   if (_init) return _init;
   _init = (async () => {
     const choice = resolveDriverChoice();
+    if (choice.driver !== "sqlite") {
+      console.warn(
+        `[db] driver=${choice.driver} 为实验性模式（内存镜像整表刷盘，仅建议单进程）。默认请用 SQLite。`,
+      );
+    }
     _db = choice.driver === "sqlite" ? createSqlite() : await createPostgresClient(choice);
     console.log(`[db] driver=${_db.driver} detail=${_db.detail}`);
     return _db;

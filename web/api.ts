@@ -21,6 +21,7 @@ export type Artifact = {
   chapterId: string | null;
   chapterNumber: number | null;
   revision: number;
+  revisionId?: string | null;
   body: string;
   source: string | null;
   model: string | null;
@@ -148,7 +149,15 @@ export type ChatMessage = {
   createdAt: string;
 };
 
-export type Saved = { kind: string; revision: number; chapterNumber: number | null };
+export type Saved = {
+  kind: string;
+  revision: number;
+  revisionId?: string;
+  artifactId?: string;
+  chapterId?: string | null;
+  chapterNumber: number | null;
+  current?: boolean;
+};
 
 export type WritingJob = {
   id: string;
@@ -241,8 +250,25 @@ export const api = {
     }),
   saveArtifact: (
     id: string,
-    body: { kind: string; chapterNumber: number | null; body: string; source: "human" | "agent"; scene: string; skillIds: string[]; model: string },
+    body: {
+      kind: string;
+      chapterNumber: number | null;
+      body: string;
+      source: "human" | "agent";
+      scene: string;
+      skillIds: string[];
+      model: string;
+      expectedRevisionId?: string | null;
+      chapterId?: string | null;
+    },
   ) => request<Saved>(`/api/books/${id}/artifacts`, { method: "PUT", body: JSON.stringify(body) }),
+  getGeneration: (generationId: string) =>
+    request<{
+      id: string;
+      status: string;
+      result: unknown;
+      error: string | null;
+    }>(`/api/generations/${generationId}`),
   sceneRun: (
     id: string,
     body: { scene: string; chapterNumber: number | null; instruction: string; skillIds?: string[] },
@@ -443,10 +469,11 @@ export const streamApi = {
     onEvent: (event: { type: string; text?: string; message?: string; payload?: unknown }) => void,
     signal?: AbortSignal,
     chapterNumber?: number | null,
+    generationId?: string | null,
   ) =>
     postStream(
       `/api/books/${id}/chat/stream`,
-      { message, chapterNumber: chapterNumber ?? null },
+      { message, chapterNumber: chapterNumber ?? null, generationId: generationId ?? null },
       onEvent,
       signal,
     ) as Promise<{

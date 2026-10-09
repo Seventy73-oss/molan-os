@@ -178,6 +178,12 @@ export function Studio() {
   const jobAutoRef = useRef(false);
   const revealAbort = useRef<AbortController | null>(null);
   const streamAbort = useRef<AbortController | null>(null);
+  /** Protects against slow save responses overwriting newer edits. */
+  const editorSessionRef = useRef(0);
+  const editEpochRef = useRef(0);
+  const savedRevisionIdRef = useRef<string | null>(null);
+  const docKeyRef = useRef("");
+
   const [jobFrom, setJobFrom] = useState(1);
   const [jobAutoReview, setJobAutoReview] = useState(false);
   const [jobMaxRetries, setJobMaxRetries] = useState(1);
@@ -206,6 +212,10 @@ export function Studio() {
 
   function show(payload: BookPayload, next: Doc) {
     const artifact = findArtifact(payload, next);
+    editorSessionRef.current += 1;
+    editEpochRef.current = 0;
+    docKeyRef.current = `${next.kind}:${next.chapterNumber ?? ""}`;
+    savedRevisionIdRef.current = artifact?.revisionId ?? null;
     setDoc(next);
     setDraft(artifact?.body ?? "");
     setSavedText(artifact?.body ?? "");
@@ -407,6 +417,9 @@ export function Studio() {
 
   async function persist(text = draft) {
     if (!data || text === savedText) return;
+    const session = editorSessionRef.current;
+    const epochAtStart = editEpochRef.current;
+    const docKeyAtStart = `${doc.kind}:${doc.chapterNumber ?? ""}`;
     setSaving(true);
     try {
       const saved = await api.saveArtifact(id, {
@@ -417,15 +430,38 @@ export function Studio() {
         scene,
         skillIds: checked,
         model: modelLine,
+        expectedRevisionId: savedRevisionIdRef.current,
       });
-      setDraft(text);
-      setSavedText(text);
+      // Only touch editor state if still same document session.
+      if (editorSessionRef.current !== session || docKeyRef.current !== docKeyAtStart) {
+        return saved;
+      }
+      if ("revisionId" in saved && saved.revisionId) {
+        savedRevisionIdRef.current = saved.revisionId as string;
+      }
       setRevision(saved.revision);
+      if (editEpochRef.current === epochAtStart) {
+        // No newer edits — safe to align draft/saved baseline.
+        setDraft(text);
+        setSavedText(text);
+      } else {
+        // User typed while save was in flight — keep draft, only advance saved baseline for the saved text.
+        setSavedText(text);
+        setNotice("已保存较早版本；编辑区保留你继续输入的内容");
+      }
       const payload = await api.book(id);
-      dataRef.current = payload;
-      setData(payload);
+      if (editorSessionRef.current === session) {
+        dataRef.current = payload;
+        setData(payload);
+      }
+      return saved;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      const msg = err instanceof Error ? err.message : "保存失败";
+      if (/版本冲突|409/.test(msg)) {
+        setError("保存冲突：服务端已有更新版本，请刷新稿件后再试");
+      } else {
+        setError(msg);
+      }
       throw err;
     } finally {
       setSaving(false);
@@ -484,6 +520,7 @@ export function Studio() {
     try {
       // Persist current edits first so chat generation cannot clobber an unsaved draft.
       await persist();
+      const generationId = crypto.randomUUID();
       let result;
       let live = "";
       try {
@@ -493,11 +530,27 @@ export function Studio() {
             live += event.text;
             setStreamPreview(live);
           }
-        }, abort.signal, doc.chapterNumber);
+        }, abort.signal, doc.chapterNumber, generationId);
       } catch (err) {
         if (isAbort(err)) throw err;
-        result = await api.chat(id, message, doc.chapterNumber);
+        // Do NOT blindly re-run generation — server may have already saved.
+        setStreamStatus("正在确认任务状态…");
+        try {
+          const status = await api.getGeneration(generationId);
+          if (status?.status === "completed" && status.result) {
+            result = status.result as NonNullable<typeof result>;
+          } else if (status?.status === "running") {
+            throw new Error("生成仍在进行或回执丢失，请稍后在对话记录中确认，勿重复发送");
+          } else {
+            throw err instanceof Error ? err : new Error("流式对话失败");
+          }
+        } catch (inner) {
+          if (inner instanceof Error && /生成仍在进行|回执丢失/.test(inner.message)) throw inner;
+          // generation record may not exist (older server path) — surface original error, no auto-retry
+          throw err instanceof Error ? err : new Error("流式对话失败");
+        }
       }
+      if (!result) throw new Error("未获得生成结果");
       const msgs = await api.messages(id);
       setMessages(msgs.messages);
       if (result.saved) {
@@ -554,11 +607,8 @@ export function Studio() {
         );
       } catch (err) {
         if (isAbort(err)) throw err;
-        result = await api.rewriteSelection(id, {
-          selection: payload.selection,
-          instruction: payload.instruction,
-          scene,
-        });
+        // No automatic non-stream retry — avoids duplicate model calls after lost SSE.
+        throw err instanceof Error ? err : new Error("选区改写失败");
       }
       setAssistLocal(Boolean(result.local));
       if (result.local) {
@@ -1187,7 +1237,7 @@ export function Studio() {
                 value={draft}
                 autoFocus={writing && isEmptyDoc}
                 placeholder={doc.kind === "chapter_body" ? "从第一句开始写…" : "在这里写…"}
-                onChange={setDraft}
+                onChange={(text) => { editEpochRef.current += 1; setDraft(text); }}
                 onCommit={save}
                 assistBusy={busy === "assist"}
                 onAssist={assistSelection}

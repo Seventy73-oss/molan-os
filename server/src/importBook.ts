@@ -19,29 +19,72 @@ export type ImportResult = {
   chapters: number;
 };
 
+const IMPORT_LIMITS = {
+  maxEntries: Number(process.env.MOLAN_IMPORT_MAX_ENTRIES || 4000),
+  maxTotalBytes: Number(process.env.MOLAN_IMPORT_MAX_TOTAL_BYTES || 80 * 1024 * 1024),
+  maxFileBytes: Number(process.env.MOLAN_IMPORT_MAX_FILE_BYTES || 8 * 1024 * 1024),
+  maxRatio: Number(process.env.MOLAN_IMPORT_MAX_RATIO || 200),
+  timeoutMs: Number(process.env.MOLAN_IMPORT_TIMEOUT_MS || 60_000),
+};
+
 function unzipTo(zipPath: string, dest: string) {
   fs.mkdirSync(dest, { recursive: true });
-  execFileSync("python3", [
-    "-c",
-    `
-import pathlib, sys, zipfile
+  execFileSync(
+    "python3",
+    [
+      "-c",
+      `
+import pathlib, sys, zipfile, stat
 zf = zipfile.ZipFile(sys.argv[1])
-dest = pathlib.Path(sys.argv[2])
+dest = pathlib.Path(sys.argv[2]).resolve()
 dest.mkdir(parents=True, exist_ok=True)
+max_entries = int(sys.argv[3])
+max_total = int(sys.argv[4])
+max_file = int(sys.argv[5])
+max_ratio = float(sys.argv[6])
+entries = 0
+total = 0
+compressed_total = 0
 for info in zf.infolist():
     name = info.filename.replace("\\\\", "/")
-    if name.startswith("__MACOSX/") or name.endswith("/"):
+    if not name or name.startswith("__MACOSX/") or name.endswith("/"):
         continue
-    # strip zip-slip
-    target = (dest / name).resolve()
-    if not str(target).startswith(str(dest.resolve())):
+    if name.startswith("/") or (len(name) > 1 and name[1] == ":"):
+        raise SystemExit("zip absolute path refused")
+    if ".." in pathlib.PurePosixPath(name).parts:
         raise SystemExit("zip slip")
+    is_symlink = ((info.external_attr >> 16) & stat.S_IFLNK) == stat.S_IFLNK
+    if is_symlink:
+        raise SystemExit("zip symlink refused")
+    target = (dest / name).resolve()
+    try:
+        target.relative_to(dest)
+    except ValueError:
+        raise SystemExit("zip slip")
+    entries += 1
+    if entries > max_entries:
+        raise SystemExit("zip too many entries")
+    data = zf.read(info)
+    if len(data) > max_file:
+        raise SystemExit("zip file too large")
+    total += len(data)
+    compressed_total += max(info.compress_size, 1)
+    if total > max_total:
+        raise SystemExit("zip uncompressed too large")
+    if compressed_total > 0 and (total / compressed_total) > max_ratio:
+        raise SystemExit("zip bomb ratio")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(zf.read(info))
+    target.write_bytes(data)
 `,
-    zipPath,
-    dest,
-  ]);
+      zipPath,
+      dest,
+      String(IMPORT_LIMITS.maxEntries),
+      String(IMPORT_LIMITS.maxTotalBytes),
+      String(IMPORT_LIMITS.maxFileBytes),
+      String(IMPORT_LIMITS.maxRatio),
+    ],
+    { timeout: IMPORT_LIMITS.timeoutMs },
+  );
 }
 
 function findBookRoot(extracted: string): string {
@@ -145,6 +188,31 @@ export function importBookFromFolder(
   const targetFromProfile = Number(fieldOf(profile, "目标章数"));
   const wordsFromProfile = Number(fieldOf(profile, "每章字数"));
   const chapterCount = Math.max(chapterDirs.length, Number.isFinite(targetFromProfile) ? targetFromProfile : 0, 1);
+  if (chapterDirs.length > 500) throw new HttpError(400, "章节过多，拒绝导入");
+  const seenNums = new Set<number>();
+  for (const ch of chapterDirs) {
+    if (!Number.isFinite(ch.number) || ch.number < 1) throw new HttpError(400, `非法章号：${ch.number}`);
+    if (seenNums.has(ch.number)) throw new HttpError(400, `重复章号：${ch.number}`);
+    seenNums.add(ch.number);
+  }
+
+  // Validate & preload all chapter files BEFORE any DB wipe (fail closed).
+  const preloaded: { number: number; title: string; files: { kind: string; body: string; path: string }[] }[] = [];
+  for (const ch of chapterDirs) {
+    const files: { kind: string; body: string; path: string }[] = [];
+    for (const { file, kind } of [
+      { file: "细纲.md", kind: "chapter_outline" },
+      { file: "正文.md", kind: "chapter_body" },
+      { file: "审核.md", kind: "review_report" },
+      { file: "记忆.md", kind: "chapter_memory" },
+    ] as const) {
+      const body = readIf(path.join(ch.dir, file));
+      if (body == null) continue;
+      if (!body.trim() && kind !== "chapter_body") continue;
+      files.push({ kind, body, path: path.join(path.basename(ch.dir), file) });
+    }
+    preloaded.push({ number: ch.number, title: ch.title, files });
+  }
 
   const existingId = findBookByTitle(title);
   if (existingId && conflict === "skip") {
@@ -164,6 +232,9 @@ export function importBookFromFolder(
   if (existingId && conflict === "overwrite") {
     bookId = existingId;
     reused = true;
+    db.prepare(
+      `UPDATE writing_jobs SET status = 'cancelled', error = COALESCE(error, '导入覆盖前取消') WHERE book_id = ? AND status IN ('running', 'paused', 'error')`,
+    ).run(bookId);
     wipeBookContent(bookId);
     db.prepare(
       `UPDATE books SET title = ?, genre = ?, logline = ?, style = ?, target_chapters = ?, words_per_chapter = ? WHERE id = ?`,
@@ -237,37 +308,37 @@ export function importBookFromFolder(
     imported.push({ kind: "book_outline", chapterNumber: null, path: "00-全书大纲.md" });
   }
 
-  const fileMap: { file: string; kind: string }[] = [
-    { file: "细纲.md", kind: "chapter_outline" },
-    { file: "正文.md", kind: "chapter_body" },
-    { file: "审核.md", kind: "review_report" },
-    { file: "记忆.md", kind: "chapter_memory" },
-  ];
-
-  for (const ch of chapterDirs) {
+  for (const ch of preloaded) {
     db.prepare("UPDATE chapters SET title = ? WHERE book_id = ? AND number = ?").run(ch.title, bookId, ch.number);
-    for (const { file, kind } of fileMap) {
-      const body = readIf(path.join(ch.dir, file));
-      if (body == null) continue;
-      if (!body.trim() && kind !== "chapter_body") continue;
+    for (const file of ch.files) {
       saveRevision({
         bookId,
-        kind,
+        kind: file.kind,
         chapterNumber: ch.number,
-        body,
+        body: file.body,
         source: "human",
         model: "import",
         skillIds: [],
-        scene: kind === "chapter_body" ? "chapter_body" : kind === "chapter_outline" ? "chapter_outline" : kind === "review_report" ? "review" : "memory_extract",
+        scene:
+          file.kind === "chapter_body"
+            ? "chapter_body"
+            : file.kind === "chapter_outline"
+              ? "chapter_outline"
+              : file.kind === "review_report"
+                ? "review"
+                : "memory_extract",
+        skipMemory: true,
       });
-      imported.push({ kind, chapterNumber: ch.number, path: path.join(path.basename(ch.dir), file) });
+      imported.push({ kind: file.kind, chapterNumber: ch.number, path: file.path });
     }
   }
 
-  // Keep the resolved book title (custom or folder), don't let profile 书名 silently win.
+  // Keep resolved title (incl. new_book disambiguation suffix); don't let raw profile 书名 wipe it.
+  const resolvedTitle =
+    (db.prepare("SELECT title FROM books WHERE id = ?").get(bookId) as { title: string } | undefined)?.title || title;
   db.prepare(
     `UPDATE books SET title = ?, genre = COALESCE(NULLIF(?, ''), genre), logline = COALESCE(NULLIF(?, ''), logline), style = COALESCE(NULLIF(?, ''), style) WHERE id = ?`,
-  ).run(title, genre, logline, style, bookId);
+  ).run(resolvedTitle, genre, logline, style, bookId);
 
   try {
     syncBook(bookId);

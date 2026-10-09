@@ -418,10 +418,15 @@ export function Manuscript({
       const result = await onAssist({ action, selection: selected, instruction });
       const next = (result ?? "").replace(/\r\n?/g, "\n").trim();
       if (!next) return;
-      // Re-validate range against current doc size.
+      // Re-validate range against current doc size AND original text.
       const size = editor.state.doc.content.size;
       const safeFrom = Math.max(0, Math.min(from, size));
       const safeTo = Math.max(safeFrom, Math.min(to, size));
+      const currentSlice = editor.state.doc.textBetween(safeFrom, safeTo, "\n", "\n");
+      if (currentSlice !== selected) {
+        window.alert("原文已变化，选区改写结果未自动套用。请重新选择后再试。");
+        return;
+      }
       if (action === "continue") {
         // Append a new paragraph after the selection so续写 stays md-sync friendly.
         const continued: JSONContent[] = [

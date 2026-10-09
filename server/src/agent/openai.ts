@@ -10,6 +10,7 @@ import {
   type ThinkingIntensity,
 } from "../thinking";
 import { redactSecrets } from "../security";
+import { secureFetch } from "../outbound";
 
 const CONTRACT: Record<SceneId, string> = {
   topic: "交付题材方案：读者、冲突、不写什么、书名和两句简介。",
@@ -94,14 +95,15 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         : this.options.model;
     const url = `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`;
     try {
-      const response = await fetch(url, {
+      const response = await secureFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.options.apiKey}`,
         },
         body: JSON.stringify(buildCompletionBody(input, model, false)),
-        signal: AbortSignal.timeout(60_000),
+        withApiKey: Boolean(this.options.apiKey),
+        timeoutMs: 60_000,
       });
       if (!response.ok) {
         const detail = redactSecrets(await response.text());
@@ -138,14 +140,15 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         : this.options.model;
     const url = `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`;
     try {
-      const response = await fetch(url, {
+      const response = await secureFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.options.apiKey}`,
         },
         body: JSON.stringify(buildCompletionBody(input, model, true)),
-        signal: AbortSignal.timeout(120_000),
+        withApiKey: Boolean(this.options.apiKey),
+        timeoutMs: 120_000,
       });
       if (!response.ok) {
         const detail = redactSecrets(await response.text());

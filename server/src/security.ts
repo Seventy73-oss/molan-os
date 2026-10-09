@@ -102,12 +102,20 @@ export function isPrivateOrReservedHost(hostname: string): boolean {
     return false;
   }
 
-  // IPv6 condensed checks
+  // IPv6 condensed checks (incl. IPv4-mapped ::ffff:x.x.x.x and ::ffff:aabb:ccdd)
   if (host.includes(":")) {
     if (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) return true;
     if (host.startsWith("::ffff:")) {
-      const v4 = host.slice("::ffff:".length);
-      if (isIpv4(v4)) return isPrivateOrReservedHost(v4);
+      const mapped = host.slice("::ffff:".length);
+      if (isIpv4(mapped)) return isPrivateOrReservedHost(mapped);
+      // Hex form produced by URL normalization, e.g. ::ffff:c0a8:101 → 192.168.1.1
+      const hex = mapped.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+      if (hex) {
+        const hi = parseInt(hex[1]!, 16);
+        const lo = parseInt(hex[2]!, 16);
+        const v4 = `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`;
+        return isPrivateOrReservedHost(v4);
+      }
     }
   }
   return false;
@@ -167,12 +175,15 @@ export function assertSafeBaseUrl(raw: string, options: SafeUrlOptions = {}): st
   const requireAllowlist = Boolean(options.withApiKey ?? options.withStoredKey);
   if (requireAllowlist) {
     const allowed = allowedBaseHosts();
-    if (allowLocal && (host === "127.0.0.1" || host === "localhost")) {
-      // ok when local LLM mode is on
+    const isLocalHost = host === "127.0.0.1" || host === "localhost";
+    if (allowLocal && isLocalHost) {
+      // local LLM may use http://127.0.0.1
     } else if (!allowed.has(host)) {
       throw new Error(
         `携带 API Key（环境变量或已保存）时，Base URL 主机必须在白名单内（当前 ${host} 不在）。可设 MOLAN_ALLOWED_BASE_HOSTS，或改用不带密钥的探测`,
       );
+    } else if (url.protocol === "http:" && !isLocalHost) {
+      throw new Error("携带 API Key 时公网 Base URL 必须使用 https（本地模型除外）");
     }
   }
 
@@ -224,15 +235,18 @@ function ensureSecretMaterial(): Buffer {
       const raw = readFileSync(SECRET_PATH, "utf8").trim();
       if (raw.length >= 32) return createHash("sha256").update(raw).digest();
     }
-  } catch {
-    // fall through to generate
+  } catch (error) {
+    throw new Error(`无法读取密钥材料（${SECRET_PATH}）：${error instanceof Error ? error.message : "未知错误"}`);
   }
   const generated = randomBytes(32).toString("hex");
   try {
     mkdirSync(dirname(SECRET_PATH), { recursive: true });
     writeFileSync(SECRET_PATH, generated, { mode: 0o600 });
-  } catch {
-    // if we cannot persist, still use ephemeral (keys won't decrypt across restarts)
+  } catch (error) {
+    // Fail closed: ephemeral keys would make stored credentials undecryptable after restart.
+    throw new Error(
+      `无法持久化密钥材料到 ${SECRET_PATH}（${error instanceof Error ? error.message : "未知错误"}）。请设置 MOLAN_SECRET 或修复 data 目录写权限`,
+    );
   }
   return createHash("sha256").update(generated).digest();
 }
@@ -273,3 +287,51 @@ export function envApiKey(): string {
 }
 
 export { ENC_PREFIX };
+
+
+/** Independent app access token — never reuse model API keys. */
+export function configuredAccessToken(): string {
+  return (process.env.MOLAN_ACCESS_TOKEN || "").trim();
+}
+
+export function accessTokenConfigured(): boolean {
+  return Boolean(configuredAccessToken());
+}
+
+export function assertAccessToken(headerValue: string | undefined | null): void {
+  const expected = configuredAccessToken();
+  if (!expected) return; // local-dev without token is allowed on loopback; LAN mode checks separately
+  const raw = (headerValue || "").trim();
+  const token = raw.toLowerCase().startsWith("bearer ") ? raw.slice(7).trim() : raw;
+  if (!token || token !== expected) {
+    throw new Error("未授权：缺少或错误的访问令牌");
+  }
+}
+
+/** Reject untrusted Origin on mutating requests (CORS is not auth). */
+export function assertTrustedWriteOrigin(origin: string | undefined | null, hostHeader: string | undefined | null): void {
+  if (!origin) {
+    // non-browser / same-origin proxy — require Host to look local or explicitly allowed
+    const host = (hostHeader || "").split(",")[0]!.trim().toLowerCase();
+    if (!host) return;
+    const hostname = host.replace(/:\d+$/, "");
+    if (hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1") return;
+    if (corsAllowedOrigins().some((o) => {
+      try { return new URL(o).hostname === hostname; } catch { return false; }
+    })) return;
+    throw new Error("拒绝不可信 Host 的写操作");
+  }
+  if (!isCorsOriginAllowed(origin)) {
+    throw new Error(`拒绝不可信来源的写操作（Origin ${origin}）`);
+  }
+}
+
+export function assertLanAuthConfigured(bindHost: string): void {
+  const host = bindHost.trim().toLowerCase();
+  const external = host === "0.0.0.0" || host === "::" || host === "[::]";
+  if (external && !accessTokenConfigured()) {
+    throw new Error(
+      "局域网监听（MOLAN_HOST=0.0.0.0）必须配置 MOLAN_ACCESS_TOKEN，否则拒绝启动。CORS 不能代替认证。",
+    );
+  }
+}

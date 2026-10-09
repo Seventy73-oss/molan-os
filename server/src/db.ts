@@ -37,6 +37,7 @@ export type RouteRow = {
   provider: string;
   model_id: string;
   base_url: string | null;
+  thinking_intensity: string;
 };
 
 export type SqlValue = string | number | null | boolean | bigint;

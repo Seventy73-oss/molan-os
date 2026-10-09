@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS scene_routes (
   scene TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
-  base_url TEXT
+  base_url TEXT,
+  thinking_intensity TEXT NOT NULL DEFAULT 'medium'
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -207,7 +208,8 @@ CREATE TABLE IF NOT EXISTS scene_routes (
   scene TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
   model_id TEXT NOT NULL,
-  base_url TEXT
+  base_url TEXT,
+  thinking_intensity TEXT NOT NULL DEFAULT 'medium'
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -335,6 +337,11 @@ CREATE TABLE IF NOT EXISTS hook_marks (
       // column exists
     }
   }
+  try {
+    run(`ALTER TABLE scene_routes ADD COLUMN thinking_intensity TEXT NOT NULL DEFAULT 'medium'`);
+  } catch {
+    // column exists
+  }
 }
 
 export function migratePostgres(exec: (sql: string) => Promise<void>) {
@@ -371,6 +378,7 @@ DO $$ BEGIN
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS log_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE scene_routes ADD COLUMN IF NOT EXISTS thinking_intensity TEXT NOT NULL DEFAULT 'medium';
 EXCEPTION WHEN others THEN NULL;
 END $$;
 `);

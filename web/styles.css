@@ -819,7 +819,7 @@ select {
 .route-list { margin-top: 0; padding: 2px 0; overflow: hidden; }
 .route-row {
   display: grid;
-  grid-template-columns: minmax(108px, 132px) 132px minmax(120px, 1fr) minmax(140px, 1.15fr);
+  grid-template-columns: minmax(100px, 124px) 118px minmax(110px, 1fr) 88px minmax(120px, 1.05fr);
   gap: 12px;
   align-items: center;
   padding: 9px 18px;
@@ -2992,7 +2992,7 @@ select {
   .manuscript.prose { font-size: 17px; line-height: 1.92; }
   .tools-drawer { right: 10px; width: min(380px, calc(100vw - 28px)); }
   .route-row {
-    grid-template-columns: minmax(96px, 120px) 120px minmax(100px, 1fr) minmax(120px, 1fr);
+    grid-template-columns: minmax(90px, 110px) 110px minmax(90px, 1fr) 80px minmax(100px, 1fr);
     gap: 10px;
     padding: 10px 14px;
   }
@@ -3482,8 +3482,8 @@ select {
 }
 .route-section { margin-top: 40px; }
 .route-row {
-  grid-template-columns: minmax(120px, 148px) 140px minmax(140px, 1fr) minmax(160px, 1.2fr);
-  gap: 16px;
+  grid-template-columns: minmax(110px, 140px) 128px minmax(120px, 1fr) 88px minmax(140px, 1.1fr);
+  gap: 14px;
   padding: 12px 20px;
   align-items: center;
 }
@@ -3684,4 +3684,57 @@ label {
 .skills-page .page,
 .settings-page .page {
   max-width: 1040px;
+}
+
+
+/* Thinking intensity */
+.studio-thinking {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.studio-thinking-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  margin-right: 2px;
+}
+.thinking-pill {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--tint);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.generate-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.generate-row .generate {
+  flex: 1;
+}
+.thinking-inline {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 72px;
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.thinking-inline select {
+  height: 36px;
+  font-size: 13px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--ink);
 }

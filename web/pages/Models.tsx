@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type AgentRuntimeInfo, type ModelsList, type ProviderSettings, type Route, type UsageSummary } from "../api";
+import { api, THINKING_OPTIONS, type AgentRuntimeInfo, type ModelsList, type ProviderSettings, type Route, type ThinkingIntensity, type UsageSummary } from "../api";
 import { useBookTitle } from "../App";
 import { ModelPicker } from "../components/ModelPicker";
 
@@ -34,7 +34,16 @@ const EMPTY: ProviderSettings = {
 
 function normalize(routes: Route[]): Route[] {
   const map = new Map(routes.map((route) => [route.scene, route]));
-  return ORDER.map(([scene]) => map.get(scene) ?? { scene, provider: "local", modelId: "local-draft", baseUrl: null });
+  return ORDER.map(([scene]) => {
+    const hit = map.get(scene);
+    return {
+      scene,
+      provider: hit?.provider ?? "local",
+      modelId: hit?.modelId ?? "local-draft",
+      baseUrl: hit?.baseUrl ?? null,
+      thinkingIntensity: (hit?.thinkingIntensity as ThinkingIntensity | undefined) ?? "medium",
+    };
+  });
 }
 
 function formatFetched(iso: string | null) {
@@ -382,7 +391,7 @@ export function Models() {
         <div className="route-head">
           <div>
             <h2>场景路由</h2>
-            <p>正文、审核、全书大纲、细纲等可各自选不同模型。留空接口地址用上面的 Base URL；模型选「使用默认模型」则跟默认模型走。</p>
+            <p>正文、审核、全书大纲、细纲等可各自选不同模型和思考强度。留空接口地址用上面的 Base URL；模型选「使用默认模型」则跟默认模型走。思考强度会映射到推理力度 / 温度；不支持的接口会降级为提示词约束。</p>
           </div>
           <div className="actions">
             <button type="button" className="btn" disabled={busy !== ""} onClick={() => void useOpenAI()}>
@@ -401,6 +410,7 @@ export function Models() {
             <span>场景</span>
             <span>来源</span>
             <span>模型</span>
+            <span>思考强度</span>
             <span>接口地址</span>
           </div>
           {ORDER.map(([scene, label, hint]) => {
@@ -429,6 +439,18 @@ export function Models() {
                 ) : (
                   <input value="local-draft" disabled aria-label={`${label}模型`} />
                 )}
+                <select
+                  value={route.thinkingIntensity ?? "medium"}
+                  aria-label={`${label}思考强度`}
+                  title="思考强度：关闭 / 低 / 中 / 高"
+                  onChange={(e) => update(scene, { thinkingIntensity: e.target.value as ThinkingIntensity })}
+                >
+                  {THINKING_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
                 <input
                   value={route.baseUrl ?? ""}
                   aria-label={`${label}接口地址`}

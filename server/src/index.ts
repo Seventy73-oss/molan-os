@@ -46,6 +46,7 @@ import {
 import { sseJson, streamChat, streamSceneRun, streamSelectionRewrite } from "./streamSupport";
 import { exportBookZip, exportChapterMarkdown, exportChapterZip, readArtifactFile, syncAllBooks, syncBook } from "./manuscripts";
 import { getModelsList, providerView, refreshModels, saveProvider, testProvider } from "./provider";
+import { normalizeThinking } from "./thinking";
 import { isUserPack, loadUserPackPrompt, readSkillFile, reloadSkills, skillDescription, skillPromptMeta, toSkillTexts, userPackDefaultMax, userPackSources, type SkillRow } from "./skills";
 
 const SCENES = new Set<SceneId>([
@@ -611,6 +612,7 @@ app.get("/api/scene-routes", (c) => {
     provider: string;
     model_id: string;
     base_url: string | null;
+    thinking_intensity?: string | null;
   }[];
   return c.json({
     routes: rows.map((row) => ({
@@ -618,6 +620,7 @@ app.get("/api/scene-routes", (c) => {
       provider: row.provider,
       modelId: row.model_id,
       baseUrl: row.base_url,
+      thinkingIntensity: normalizeThinking(row.thinking_intensity),
     })),
   });
 });
@@ -626,9 +629,13 @@ app.put("/api/scene-routes", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const routes = Array.isArray(body.routes) ? body.routes : [];
   const update = db.prepare(
-    `INSERT INTO scene_routes (scene, provider, model_id, base_url)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(scene) DO UPDATE SET provider = excluded.provider, model_id = excluded.model_id, base_url = excluded.base_url`,
+    `INSERT INTO scene_routes (scene, provider, model_id, base_url, thinking_intensity)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(scene) DO UPDATE SET
+       provider = excluded.provider,
+       model_id = excluded.model_id,
+       base_url = excluded.base_url,
+       thinking_intensity = excluded.thinking_intensity`,
   );
   const tx = db.transaction(() => {
     for (const route of routes) {
@@ -638,7 +645,10 @@ app.put("/api/scene-routes", async (c) => {
       const provider = item.provider === "openai" ? "openai" : item.provider === "pi" ? "pi" : "local";
       const modelId = typeof item.modelId === "string" && item.modelId.trim() ? item.modelId.trim() : "local-draft";
       const baseUrl = typeof item.baseUrl === "string" && item.baseUrl.trim() ? item.baseUrl.trim() : null;
-      update.run(scene, provider, modelId, baseUrl);
+      const thinkingIntensity = normalizeThinking(
+        item.thinkingIntensity ?? item.thinking_intensity,
+      );
+      update.run(scene, provider, modelId, baseUrl, thinkingIntensity);
     }
   });
   tx();
@@ -647,6 +657,7 @@ app.put("/api/scene-routes", async (c) => {
     provider: string;
     model_id: string;
     base_url: string | null;
+    thinking_intensity?: string | null;
   }[];
   return c.json({
     routes: rows.map((row) => ({
@@ -654,6 +665,7 @@ app.put("/api/scene-routes", async (c) => {
       provider: row.provider,
       modelId: row.model_id,
       baseUrl: row.base_url,
+      thinkingIntensity: normalizeThinking(row.thinking_intensity),
     })),
   });
 });

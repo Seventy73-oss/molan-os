@@ -1,5 +1,14 @@
 import type { AgentRuntimeAdapter, RunInput, RunOutput, SceneId } from "./adapter";
 import { LocalDraftAdapter } from "./localDraft";
+import {
+  maxTokensHint,
+  modelLikelySupportsReasoning,
+  normalizeThinking,
+  reasoningEffortOf,
+  temperatureOf,
+  thinkingSystemHint,
+  type ThinkingIntensity,
+} from "../thinking";
 
 const CONTRACT: Record<SceneId, string> = {
   topic: "交付题材方案：读者、冲突、不写什么、书名和两句简介。",
@@ -18,10 +27,16 @@ function stripFence(text: string): string {
   return (match?.[1] ?? text).trim();
 }
 
+function intensityOf(input: RunInput): ThinkingIntensity {
+  return normalizeThinking(input.thinkingIntensity);
+}
+
 function buildMessages(input: RunInput) {
+  const level = intensityOf(input);
   const system = [
     "你是墨兰写作的写作引擎。用简体中文交付当前场景的稿件，不要解释写作过程。",
     CONTRACT[input.scene],
+    thinkingSystemHint(level),
     ...input.skillTexts.map((skill) => `# ${skill.name}\n${skill.text}`),
   ].join("\n\n");
   const user = [input.context, input.instruction ? `【本次指令】\n${input.instruction}` : ""]
@@ -31,6 +46,30 @@ function buildMessages(input: RunInput) {
     { role: "system" as const, content: system },
     { role: "user" as const, content: user },
   ];
+}
+
+/** Build chat/completions body with thinking intensity mapped to provider fields. */
+export function buildCompletionBody(input: RunInput, model: string, stream: boolean) {
+  const level = intensityOf(input);
+  const body: Record<string, unknown> = {
+    model,
+    messages: buildMessages(input),
+    temperature: temperatureOf(level),
+  };
+  if (stream) body.stream = true;
+
+  const effort = reasoningEffortOf(level);
+  if (effort && modelLikelySupportsReasoning(model)) {
+    body.reasoning_effort = effort;
+    body.thinking = { type: "enabled", budget_tokens: level === "high" ? 8000 : level === "medium" ? 4000 : 1024 };
+  } else if (effort) {
+    body.reasoning_effort = effort;
+  }
+
+  const maxTok = maxTokensHint(level);
+  if (maxTok) body.max_tokens = maxTok;
+
+  return body;
 }
 
 export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
@@ -51,11 +90,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.options.apiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          temperature: 0.8,
-          messages: buildMessages(input),
-        }),
+        body: JSON.stringify(buildCompletionBody(input, model, false)),
         signal: AbortSignal.timeout(60_000),
       });
       if (!response.ok) {
@@ -100,12 +135,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.options.apiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          temperature: 0.8,
-          stream: true,
-          messages: buildMessages(input),
-        }),
+        body: JSON.stringify(buildCompletionBody(input, model, true)),
         signal: AbortSignal.timeout(120_000),
       });
       if (!response.ok) {
@@ -148,7 +178,6 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
     } catch (error) {
       const local = await new LocalDraftAdapter().runScene(input);
       const reason = error instanceof Error ? error.message : "未知错误";
-      // Simulate stream for local fallback so the UI still gets progressive tokens.
       await emitChunked(local.text, onToken);
       return { text: local.text, modelUsed: `local-draft (openai stream failed: ${reason})` };
     }

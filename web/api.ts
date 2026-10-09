@@ -86,7 +86,27 @@ export type Skill = {
   body: string;
 };
 
-export type Route = { scene: string; provider: string; modelId: string; baseUrl: string | null };
+export type ThinkingIntensity = "off" | "low" | "medium" | "high";
+
+export type Route = {
+  scene: string;
+  provider: string;
+  modelId: string;
+  baseUrl: string | null;
+  thinkingIntensity?: ThinkingIntensity;
+};
+
+export const THINKING_OPTIONS: { value: ThinkingIntensity; label: string }[] = [
+  { value: "off", label: "关闭" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+
+export function thinkingLabel(level?: string | null): string {
+  const hit = THINKING_OPTIONS.find((o) => o.value === level);
+  return hit?.label ?? "中";
+}
 
 export type ProviderSettings = {
   baseUrl: string;

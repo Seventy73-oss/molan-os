@@ -22,6 +22,8 @@ export type RunInput = {
   skillTexts: SkillText[];
   context: string;
   instruction?: string;
+  /** off | low | medium | high */
+  thinkingIntensity?: string;
 };
 
 export type RunOutput = {

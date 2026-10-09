@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useBlocker, useParams } from "react-router-dom";
-import { api, streamApi, type Artifact, type BookPayload, type ChatMessage, type ModelInfo, type ProviderSettings, type Route, type Skill, type WritingJob } from "../api";
+import { api, streamApi, type Artifact, type BookPayload, type ChatMessage, type ModelInfo, type ProviderSettings, type Route, type Skill, type WritingJob, THINKING_OPTIONS, thinkingLabel, type ThinkingIntensity } from "../api";
 import { prefersReducedMotion, revealText } from "../lib/reveal";
 import { ModelPicker } from "../components/ModelPicker";
 import { useBookTitle } from "../App";
@@ -376,6 +376,21 @@ export function Studio() {
       setError(err instanceof Error ? err.message : "路由没有保存");
     }
   }
+
+  async function applySceneThinking(level: ThinkingIntensity) {
+    if (!route) return;
+    const next = routes.map((item) =>
+      item.scene === scene ? { ...item, thinkingIntensity: level } : item,
+    );
+    setRoutes(next);
+    try {
+      const saved = await api.saveRoutes(next);
+      setRoutes(saved.routes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "思考强度没有保存");
+    }
+  }
+
   const chapterTitle = data?.chapters.find((chapter) => chapter.number === doc.chapterNumber)?.title;
 
   function claim(kind: "generate" | "chat" | "assist") {
@@ -1370,6 +1385,21 @@ export function Studio() {
                         }}
                       />
                     ) : null}
+                    <div className="studio-thinking" role="group" aria-label="思考强度">
+                      <span className="studio-thinking-label">思考强度</span>
+                      {THINKING_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          className={(route?.thinkingIntensity ?? "medium") === opt.value ? "chip on" : "chip"}
+                          onClick={() => {
+                            void applySceneThinking(opt.value);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                     <div className="studio-model-actions">
                       <Link className="text-link" to="/models" onClick={() => setPickingModel(false)}>
                         全部场景…
@@ -1398,6 +1428,9 @@ export function Studio() {
                 本地草稿
               </Link>
             ) : null}
+            <span className="thinking-pill" title={`「${SCENE_NAME[scene]}」思考强度`}>
+              思考·{thinkingLabel(route?.thinkingIntensity)}
+            </span>
           </span>
         </header>
         {settingsExpanded ? (
@@ -1755,19 +1788,38 @@ export function Studio() {
               )}
             </button>
           </div>
-          <button
-            type="button"
-            className={busy === "generate" ? "btn primary generate working" : "btn primary generate"}
-            onClick={() => {
-              if (busy === "generate") cancelStream();
-              else void generate();
-            }}
-            disabled={Boolean(busy) && busy !== "generate"}
-            aria-busy={busy === "generate"}
-          >
-            {busy === "generate" ? <Spinner /> : null}
-            {busy === "generate" ? "停止生成" : "生成此稿"}
-          </button>
+          <div className="generate-row">
+            <label className="thinking-inline" title="当前场景的思考强度，可在上方模型菜单或「模型」页修改">
+              <span>思考</span>
+              <select
+                value={route?.thinkingIntensity ?? "medium"}
+                aria-label="思考强度"
+                disabled={Boolean(busy)}
+                onChange={(e) => {
+                  void applySceneThinking(e.target.value as ThinkingIntensity);
+                }}
+              >
+                {THINKING_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className={busy === "generate" ? "btn primary generate working" : "btn primary generate"}
+              onClick={() => {
+                if (busy === "generate") cancelStream();
+                else void generate();
+              }}
+              disabled={Boolean(busy) && busy !== "generate"}
+              aria-busy={busy === "generate"}
+            >
+              {busy === "generate" ? <Spinner /> : null}
+              {busy === "generate" ? "停止生成" : "生成此稿"}
+            </button>
+          </div>
         </footer>
       </aside>
     </div>

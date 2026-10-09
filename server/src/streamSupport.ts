@@ -13,12 +13,13 @@ import {
 import { db, type RouteRow } from "./db";
 import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { sceneKind } from "./agent/adapter";
+import { normalizeThinking } from "./thinking";
 
 type Emit = (event: Record<string, unknown>) => Promise<void>;
 
 function routeFor(scene: string): RouteRow {
   const route = db.prepare("SELECT * FROM scene_routes WHERE scene = ?").get(scene) as RouteRow | undefined;
-  return route ?? { scene, provider: "local", model_id: "local-draft", base_url: null };
+  return route ?? { scene, provider: "local", model_id: "local-draft", base_url: null, thinking_intensity: "medium" };
 }
 
 
@@ -87,6 +88,7 @@ export async function streamSceneRun(
   const result = await streamAdapterRun(route, {
     scene: input.scene,
     model: route.model_id,
+    thinkingIntensity: normalizeThinking(route.thinking_intensity),
     skillTexts,
     context,
     instruction,
@@ -133,6 +135,7 @@ export async function streamSelectionRewrite(
           {
             scene: "humanize",
             model: route.model_id,
+            thinkingIntensity: normalizeThinking(route.thinking_intensity),
             skillTexts,
             context: `【待改片段】\n${input.selection}\n`,
             instruction: [

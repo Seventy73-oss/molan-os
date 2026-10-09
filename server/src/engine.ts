@@ -13,6 +13,7 @@ import {
 import { formatOpenHooksForContext, formatOpenHooksForReview } from "./hooks";
 import { estimateTokensFromText, recordUsage } from "./usage";
 import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
+import { normalizeThinking } from "./thinking";
 
 
 const CN: Record<string, number> = {
@@ -662,7 +663,7 @@ export function buildContext(bookId: string, chapterNumber: number | null, instr
 
 function routeFor(scene: string): RouteRow {
   const route = db.prepare("SELECT * FROM scene_routes WHERE scene = ?").get(scene) as RouteRow | undefined;
-  return route ?? { scene, provider: "local", model_id: "local-draft", base_url: null };
+  return route ?? { scene, provider: "local", model_id: "local-draft", base_url: null, thinking_intensity: "medium" };
 }
 
 export async function executeScene(input: {
@@ -693,6 +694,7 @@ export async function executeScene(input: {
   const result = await getAdapter(route).runScene({
     scene: input.scene,
     model: route.model_id,
+    thinkingIntensity: normalizeThinking(route.thinking_intensity),
     skillTexts,
     context,
     instruction,
@@ -748,6 +750,7 @@ export async function autoSetup(brief: string, forcedId?: string) {
   const result = await getAdapter(route).runScene({
     scene,
     model: route.model_id,
+    thinkingIntensity: normalizeThinking(route.thinking_intensity),
     skillTexts: toSkillTexts(skills),
     context: `【题材简述】\n${text}\n`,
     instruction: text,
@@ -907,6 +910,7 @@ export async function rewriteSelection(input: {
     const result = await getAdapter(route).runScene({
       scene: "humanize",
       model: route.model_id,
+      thinkingIntensity: normalizeThinking(route.thinking_intensity),
       skillTexts,
       context: `【待改片段】\n${selection}\n`,
       instruction: [
@@ -958,6 +962,7 @@ export async function chat(bookId: string, message: string) {
       const result = await getAdapter(route).runScene({
         scene: chatScene,
         model: route.model_id,
+        thinkingIntensity: normalizeThinking(route.thinking_intensity),
         skillTexts,
         context,
         instruction: text,

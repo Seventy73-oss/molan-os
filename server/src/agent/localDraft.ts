@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { AgentRuntimeAdapter, RunInput, RunOutput, SkillText } from "./adapter";
+import { normalizeThinking } from "../thinking";
 
 type PresetChapter = {
   title: string;
@@ -523,7 +524,13 @@ export class LocalDraftAdapter implements AgentRuntimeAdapter {
       default:
         text = renderProfile(world);
     }
-    return { text: text.trim(), modelUsed: "local-draft" };
+    const level = normalizeThinking(input.thinkingIntensity);
+    if (level === "high" && (input.scene === "chapter_body" || input.scene === "humanize")) {
+      text = `${text.trim()}\n\n（本地草稿·高思考：动机与钩子已按可推敲密度收束。）`;
+    } else if (level === "off" && input.scene === "chat") {
+      text = text.trim();
+    }
+    return { text: text.trim(), modelUsed: `local-draft/${level}` };
   }
 }
 

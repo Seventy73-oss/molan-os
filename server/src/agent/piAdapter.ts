@@ -127,7 +127,7 @@ export class PiAgentAdapter implements AgentRuntimeAdapter {
     const model = faux.getModel();
     const agent = new Agent({
       initialState: {
-        systemPrompt: "你是墨兰写作的写作运行时（pi-agent）。只交付场景要求的中文稿件，不要解释过程。",
+        systemPrompt: "你是墨兰写作的写作运行时（pi-agent）。只交付场景要求的中文稿件，不要解释过程。对白只用「」或“」，禁止用（）或()包说话。",
         model,
       },
       streamFn: models.streamSimple.bind(models),

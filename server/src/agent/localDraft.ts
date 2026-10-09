@@ -388,14 +388,34 @@ function renderChapterOutline(world: World, number: number): string {
   return `第${number}章 ${chapter.title}\n\n${scenes}\n\n章末钩子：${chapter.hook}`;
 }
 
+
+/** Spoken dialogue must use 「」 or “”, never （） or (). */
+export function normalizeDialogueQuotes(text: string): string {
+  let out = text;
+  // After speech verbs: 说（…）→ 说「…」
+  out = out.replace(
+    /(说|道|问|喊|答|叫|骂|笑|回|应|斥|劝|吼|嘀咕|低语)([道了着过]?)\s*[（(]([^（）()]{1,160})[）)]/g,
+    "$1$2「$3」",
+  );
+  // Standalone paren speech lines / clauses that look like talk
+  out = out.replace(/(^|\n)\s*[（(]([^（）()\n]{1,160})[）)]\s*(?=\n|$)/g, "$1「$2」");
+  // Inline speech-like paren containing sentence-final particles
+  out = out.replace(
+    /[（(]([^（）()]{0,100}[吗吧啊呢嘛哟呵唉][！？!?。…]?)[）)]/g,
+    "「$1」",
+  );
+  return out;
+}
+
 function dialogueEnabled(skills: SkillText[]): boolean {
   if (skills.length === 0) return true;
   return skills.some((skill) => skill.id === "dialogue" || skill.name.includes("对白"));
 }
 
 function applyDialogue(text: string, enabled: boolean): string {
-  if (enabled) return text;
-  return text.replace(/「([^」]*)」/g, "$1");
+  const normalized = normalizeDialogueQuotes(text);
+  if (enabled) return normalized;
+  return normalized.replace(/「([^」]*)」/g, "$1").replace(/“([^”]*)”/g, "$1");
 }
 
 function renderBody(world: World, number: number, skills: SkillText[]): string {
@@ -422,7 +442,10 @@ function renderReview(context: string): string {
       issues.push(`[连续] 细纲里的「${quote}」正文没有落地。补进动作，不要另起一段解释。`);
     }
   }
-  const dialogues = body.match(/「/g)?.length ?? 0;
+  const dialogues = (body.match(/「/g)?.length ?? 0) + (body.match(/“/g)?.length ?? 0);
+  if (/[（(][^）)]{1,80}[）)]/.test(body) && /(说|道|问|喊)[（(]|[（(][^）)]{0,40}[吗吧啊呢]/.test(body)) {
+    issues.push("[文风] 对白用了括号（）或 ()。改成中文引号「」或“”，括号不是对白。");
+  }
   if (dialogues < 2) {
     issues.push("[文风] 对白少于两处，信息几乎都靠叙述。把一条信息改成人物在压力下说出口的话。");
   }
@@ -470,7 +493,7 @@ function humanize(context: string): string {
     })
     .join("\n\n");
   text = text.replace(/。{2,}/g, "。").replace(/\s+\n/g, "\n").trim();
-  return text;
+  return normalizeDialogueQuotes(text);
 }
 
 function renderMemory(context: string): string {
@@ -554,9 +577,12 @@ export function rewriteSelectionLocal(selection: string, instruction: string): s
   }
 
   if (/对白|对话/.test(ask)) {
-    const lead = text.split(/\n+/).map((line) => line.trim()).filter(Boolean)[0] ?? text;
+    const base = normalizeDialogueQuotes(text);
+    const lead = base.split(/\n+/).map((line) => line.trim()).filter(Boolean)[0] ?? base;
     const clip = Array.from(lead).slice(0, 36).join("");
-    return `${text}\n\n「你就说一句实话。」\n「我说过了。」他停了一停，「你只是不想听。」\n她看着${clip ? "那一点痕迹" : "他"}，没有再追。`;
+    return normalizeDialogueQuotes(
+      `${base}\n\n「你就说一句实话。」\n「我说过了。」他停了一停，「你只是不想听。」\n她看着${clip ? "那一点痕迹" : "他"}，没有再追。`,
+    );
   }
 
   // 润色 / 改写 / custom: strip common AI-ish fillers on the span itself.
@@ -604,5 +630,6 @@ export function rewriteSelectionLocal(selection: string, instruction: string): s
     }
   }
 
+  out = normalizeDialogueQuotes(out);
   return out || text;
 }

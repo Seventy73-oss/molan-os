@@ -15,9 +15,9 @@ const CONTRACT: Record<SceneId, string> = {
   book_setup: "先逐行写出书名、题材、简介、文风、目标章数、每章字数和章目，再写档案散文。",
   outline: "按章交付全书大纲。每章一行「数字. 章名」，下一段写这一章不能退回的因果。",
   chapter_outline: "交付本章细纲：章名、三到四个场景（目标、冲突、细节）和章末钩子。",
-  chapter_body: "只交付本章正文。不要标题，不要创作说明。用叙事散文写完这一章。",
+  chapter_body: "只交付本章正文。不要标题，不要创作说明。用叙事散文写完这一章。对白必须用中文引号「」或“”，禁止用（）或()包说话。",
   review: "只交付问题清单。每条包含类型、稿中原句和改法。不要重写全文。",
-  humanize: "只交付润色后的正文。不改人名、时间和物件事实，不加说明。",
+  humanize: "只交付润色后的正文。不改人名、时间和物件事实，不加说明。对白改用「」或“」，去掉用（）或()包的说话。",
   memory_extract: "用短行写下本章事实、章末留下的物件、下一章必须接住的信息。",
   chat: "用简体中文简短回答用户关于本书写作的问题。不要擅自生成整章正文或大纲，除非对方明确要求。",
 };
@@ -34,7 +34,7 @@ function intensityOf(input: RunInput): ThinkingIntensity {
 function buildMessages(input: RunInput) {
   const level = intensityOf(input);
   const system = [
-    "你是墨兰写作的写作引擎。用简体中文交付当前场景的稿件，不要解释写作过程。",
+    "你是墨兰写作的写作引擎。用简体中文交付当前场景的稿件，不要解释写作过程。正文对白只用「」或“」，禁止用（）或()包说话。",
     CONTRACT[input.scene],
     thinkingSystemHint(level),
     ...input.skillTexts.map((skill) => `# ${skill.name}\n${skill.text}`),

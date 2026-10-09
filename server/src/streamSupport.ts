@@ -142,6 +142,7 @@ export async function streamSelectionRewrite(
               input.instruction,
               "只改写上面的「待改片段」。",
               "只输出改写后的文字本身，不要标题、引号包裹、创作说明或前后缀。",
+              "对白用「」或“”，不要用（）或()包说话。",
               /续写/.test(input.instruction) ? "若指令是续写：只输出接在选区后面的新文字，不要重复原文。" : "",
             ]
               .filter(Boolean)

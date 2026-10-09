@@ -139,6 +139,7 @@ export type AgentRuntimeInfo = {
   capabilities: AgentCapability[];
   envRuntime: string | null;
   note: string;
+  pi?: { mode: string; autonomous: boolean; toolsSupported: boolean; note: string };
 };
 
 export type ChatMessage = {

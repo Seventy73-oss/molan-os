@@ -234,6 +234,28 @@ z.close()
   await chain;
   check("T01 持久化队列失败后仍继续", ran === 2);
 
+  // Phase9: pi boundary + lease predicate
+  const { assertPiModelRelayOnly, piOrchestrationBoundary, probePiCapability } = await import("../src/agent/piAdapter");
+  const { wouldAcquireLease } = await import("../src/jobs/lease");
+  check("P9 pi 边界 autonomous=false", piOrchestrationBoundary().autonomous === false);
+  check("P9 pi capability 文案含非自主或代调", /非自主|模型代调/.test(probePiCapability().reason));
+  let p9refuse = false;
+  try {
+    assertPiModelRelayOnly({ scene: "chat", skillTexts: [], context: "", enableTools: true } as never);
+  } catch {
+    p9refuse = true;
+  }
+  check("P9 pi 拒绝 enableTools", p9refuse);
+  check(
+    "P9 lease 谓词：过期可抢",
+    wouldAcquireLease(
+      { status: "running", lease_owner: "old", lease_until: new Date(Date.now() - 1000).toISOString() },
+      "new",
+      new Date().toISOString(),
+    ) === true,
+  );
+
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

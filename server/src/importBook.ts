@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dataDir, db } from "./db";
+import { dataDir, db, getSqliteFilePath, replaceSqliteFromPhysicalBackup, resolveSqliteFilePath } from "./db";
 import { HttpError } from "./httpError";
 import { createBook, getBookPayload, saveRevision } from "./engine";
 import { booksRoot, sanitizeTitle, syncBook } from "./manuscripts";
@@ -152,9 +152,73 @@ export function importRecoveryDir() {
   return path.join(dataDir, "import-recovery");
 }
 
+
 function recoveryFile(bookId: string) {
   return path.join(importRecoveryDir(), `${bookId}.json`);
 }
+
+/** Physical whole-DB backup path (SQLite file copy). Documented in docs/STORAGE_LEASE.md */
+export function physicalBackupDbPath(bookId: string) {
+  return path.join(importRecoveryDir(), `${bookId}.sqlite.phys`);
+}
+
+function physicalPendingMarker(bookId: string) {
+  return path.join(importRecoveryDir(), `${bookId}.phys.pending`);
+}
+
+/**
+ * Copy live SQLite DB (+ WAL/SHM if present) before overwrite wipe.
+ * No-op when not on sqlite driver. Returns backup main path or null.
+ */
+export function writePhysicalSqliteBackup(bookId: string): string | null {
+  const live = getSqliteFilePath() ?? (db.driver === "sqlite" ? resolveSqliteFilePath() : null);
+  if (!live || db.driver !== "sqlite") return null;
+  if (!fs.existsSync(live)) return null;
+  const dir = importRecoveryDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const dest = physicalBackupDbPath(bookId);
+  // Best-effort checkpoint so main file is consistent; ignore failures.
+  try {
+    db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+  } catch {
+    /* ignore */
+  }
+  fs.copyFileSync(live, dest);
+  for (const suffix of ["-wal", "-shm"] as const) {
+    const src = `${live}${suffix}`;
+    const side = `${dest}${suffix}`;
+    if (fs.existsSync(src)) fs.copyFileSync(src, side);
+    else {
+      try {
+        fs.unlinkSync(side);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  fs.writeFileSync(
+    physicalPendingMarker(bookId),
+    JSON.stringify({ bookId, live, dest, at: new Date().toISOString() }),
+    "utf8",
+  );
+  return dest;
+}
+
+export function clearPhysicalSqliteBackup(bookId: string) {
+  const dest = physicalBackupDbPath(bookId);
+  for (const p of [dest, `${dest}-wal`, `${dest}-shm`, physicalPendingMarker(bookId)]) {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function hasPhysicalSqliteBackup(bookId: string): boolean {
+  return fs.existsSync(physicalBackupDbPath(bookId));
+}
+
 
 /**
  * Write snapshot to disk with temp+rename so a crash mid-write leaves no partial final file.
@@ -252,12 +316,18 @@ function readDurableSnapshot(bookId: string): BookSnapshot | null {
  * On startup: if an overwrite-import left a recovery file, restore DB+md from it.
  * Manual recovery: copy `data/import-recovery/<bookId>.json` aside, then call this or restore via test helper.
  */
-export function recoverInterruptedImports(): { restored: string[]; skipped: string[]; cleanedTmp: number } {
+export function recoverInterruptedImports(): {
+  restored: string[];
+  skipped: string[];
+  cleanedTmp: number;
+  physicalRestored: string[];
+} {
   const dir = importRecoveryDir();
   const restored: string[] = [];
   const skipped: string[] = [];
+  const physicalRestored: string[] = [];
   const cleanedTmp = cleanupOrphanTmpFiles();
-  if (!fs.existsSync(dir)) return { restored, skipped, cleanedTmp };
+  if (!fs.existsSync(dir)) return { restored, skipped, cleanedTmp, physicalRestored };
   for (const name of fs.readdirSync(dir)) {
     if (!name.endsWith(".json") || name.startsWith(".")) continue;
     // Skip nested corrupt/ directory entries (readdir is not recursive, but be explicit).
@@ -271,6 +341,7 @@ export function recoverInterruptedImports(): { restored: string[]; skipped: stri
     try {
       restoreBookSnapshot(snap);
       clearDurableSnapshot(bookId);
+      clearPhysicalSqliteBackup(bookId);
       restored.push(bookId);
       console.warn(`[import] recovered interrupted overwrite import for book ${bookId}`);
     } catch (error) {
@@ -278,7 +349,48 @@ export function recoverInterruptedImports(): { restored: string[]; skipped: stri
       skipped.push(bookId);
     }
   }
-  return { restored, skipped, cleanedTmp };
+  return { restored, skipped, cleanedTmp, physicalRestored };
+}
+
+/**
+ * After logical JSON recovery (or when JSON is missing), restore whole SQLite from .sqlite.phys.
+ * Async because the live DB must be closed. Call from startup after recoverInterruptedImports
+ * when physicalRestored is still needed, or from tests.
+ */
+export async function recoverPhysicalImportBackups(): Promise<{ restored: string[]; skipped: string[] }> {
+  const dir = importRecoveryDir();
+  const restored: string[] = [];
+  const skipped: string[] = [];
+  if (!fs.existsSync(dir)) return { restored, skipped };
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".phys.pending")) continue;
+    const bookId = name.slice(0, -".phys.pending".length);
+    // Prefer logical JSON if still present — leave for next recovery pass.
+    if (fs.existsSync(recoveryFile(bookId))) {
+      skipped.push(bookId);
+      continue;
+    }
+    const backup = physicalBackupDbPath(bookId);
+    if (!fs.existsSync(backup)) {
+      try {
+        fs.unlinkSync(physicalPendingMarker(bookId));
+      } catch {
+        /* ignore */
+      }
+      skipped.push(bookId);
+      continue;
+    }
+    try {
+      await replaceSqliteFromPhysicalBackup(backup);
+      clearPhysicalSqliteBackup(bookId);
+      restored.push(bookId);
+      console.warn(`[import] recovered from physical SQLite backup for book ${bookId}`);
+    } catch (error) {
+      console.error(`[import] physical recovery failed for ${bookId}`, error);
+      skipped.push(bookId);
+    }
+  }
+  return { restored, skipped };
 }
 
 function snapshotBook(bookId: string): BookSnapshot {
@@ -493,6 +605,8 @@ export function importBookFromFolder(
     overwriteSnapshot = snapshotBook(existingId);
     // Persist BEFORE wipe so a kill mid-import can recover on next boot.
     writeDurableSnapshot(overwriteSnapshot);
+    // Secondary: whole SQLite file copy (see docs/STORAGE_LEASE.md).
+    writePhysicalSqliteBackup(existingId);
   }
 
   const imported: ImportResult["imported"] = [];
@@ -619,6 +733,7 @@ export function importBookFromFolder(
   const payload = getBookPayload(bookId);
   if (overwriteSnapshot) {
     clearDurableSnapshot(String(overwriteSnapshot.book.id));
+    clearPhysicalSqliteBackup(String(overwriteSnapshot.book.id));
   }
   return {
     bookId,
@@ -631,22 +746,25 @@ export function importBookFromFolder(
   };
   } catch (error) {
     if (overwriteSnapshot) {
+      const bid = String(overwriteSnapshot.book.id);
       let restoreOk = false;
       try {
         restoreBookSnapshot(overwriteSnapshot);
         restoreOk = true;
-        clearDurableSnapshot(String(overwriteSnapshot.book.id));
+        clearDurableSnapshot(bid);
+        clearPhysicalSqliteBackup(bid);
       } catch (restoreError) {
         console.error(
-          "import overwrite restore failed; durable snapshot kept for startup recovery",
+          "import overwrite logical restore failed; physical SQLite backup kept for startup recovery",
           restoreError,
         );
+        // Keep data/import-recovery/<id>.sqlite.phys + .phys.pending for recoverInterruptedImports / recoverPhysicalImportBackups.
       }
       throw new HttpError(
         500,
         restoreOk
           ? `覆盖导入失败，已尝试回滚原书：${error instanceof Error ? error.message : String(error)}`
-          : `覆盖导入失败且内存回滚未完成；请保留 data/import-recovery/${overwriteSnapshot.book.id}.json 并重启以恢复：${error instanceof Error ? error.message : String(error)}`,
+          : `覆盖导入失败且逻辑回滚未完成；请保留 data/import-recovery/${bid}.json 与 ${bid}.sqlite.phys，重启将尝试物理库恢复：${error instanceof Error ? error.message : String(error)}`,
       );
     }
     throw error;
@@ -682,4 +800,14 @@ export function __cleanupOrphanTmpFilesForTest() {
 }
 export function __quarantineCorruptForTest(bookId: string, reason: string) {
   quarantineCorrupt(bookId, reason);
+}
+
+export function __physicalBackupDbPathForTest(bookId: string) {
+  return physicalBackupDbPath(bookId);
+}
+export function __writePhysicalSqliteBackupForTest(bookId: string) {
+  return writePhysicalSqliteBackup(bookId);
+}
+export function __clearPhysicalSqliteBackupForTest(bookId: string) {
+  clearPhysicalSqliteBackup(bookId);
 }

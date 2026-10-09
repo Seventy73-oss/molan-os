@@ -30,7 +30,7 @@ import { cancelGeneration,
   updateBook,
 } from "./engine";
 import { listHooks, markHook } from "./hooks";
-import { importBookFromZipBuffer, recoverInterruptedImports } from "./importBook";
+import { importBookFromZipBuffer, recoverInterruptedImports, recoverPhysicalImportBackups } from "./importBook";
 import { listUsage, usageSummary } from "./usage";
 import {
   bookProgress,
@@ -773,6 +773,13 @@ async function main() {
   }
   if (recovery.skipped.length) {
     console.error(`[boot] import recovery skipped (manual check data/import-recovery/): ${recovery.skipped.join(", ")}`);
+  }
+  const phys = await recoverPhysicalImportBackups();
+  if (phys.restored.length) {
+    console.warn(`[boot] restored physical SQLite backups: ${phys.restored.join(", ")}`);
+  }
+  if (phys.skipped.length) {
+    console.warn(`[boot] physical backup recovery skipped: ${phys.skipped.join(", ")}`);
   }
   syncAllBooks();
   startJobWorker(Number(process.env.MOLAN_JOB_INTERVAL_MS || process.env.CHANGJUAN_JOB_INTERVAL_MS || 2500));

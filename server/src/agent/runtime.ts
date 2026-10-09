@@ -5,6 +5,7 @@ import {
   PiAgentAdapter,
   PiAgentUnavailableAdapter,
   isPiPackageInstalled,
+  piOrchestrationBoundary,
   probePiCapability,
   type AgentCapability,
 } from "./piAdapter";
@@ -53,6 +54,7 @@ export function listAgentCapabilities(): {
   envRuntime: string | null;
   db: { driver: string; detail: string; ready: boolean };
   note: string;
+  pi: ReturnType<typeof piOrchestrationBoundary>;
 } {
   const envRuntime = (process.env.MOLAN_AGENT_RUNTIME || process.env.CHANGJUAN_AGENT_RUNTIME || "").trim() || null;
   const db = getDbInfo();
@@ -75,8 +77,9 @@ export function listAgentCapabilities(): {
     capabilities,
     envRuntime,
     db,
+    pi: piOrchestrationBoundary(),
     note:
       `存储：${db.ready ? db.driver : "初始化中"}（DATABASE_URL / MOLAN_DB 或 CHANGJUAN_DB=postgres|pglite，默认 sqlite；库文件仍为 data/changjuan.sqlite）。` +
-      " pi-agent 已接入 @earendil-works/pi-agent-core；provider/env 选 pi 时走 Agent 运行时。",
+      " pi-agent 已接入 @earendil-works/pi-agent-core（模型代调，非自主工具编排）；provider/env 选 pi 时走 Agent 运行时。详见 docs/PI_RUNTIME.md。",
   };
 }

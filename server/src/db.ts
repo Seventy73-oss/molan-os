@@ -113,7 +113,7 @@ function seedRoutes(run: (sql: string, params?: SqlValue[]) => void) {
 }
 
 function createSqlite(): DbClient {
-  const file = (process.env.MOLAN_SQLITE_PATH || "").trim() || path.join(dataDir, "changjuan.sqlite");
+  const file = resolveSqliteFilePath();
   const raw = new Database(file);
   raw.pragma("journal_mode = WAL");
   raw.exec(sqliteSchema());
@@ -396,6 +396,20 @@ async function createPostgresClient(choice: ReturnType<typeof resolveDriverChoic
 let _db: DbClient | null = null;
 let _init: Promise<DbClient> | null = null;
 
+
+/** Absolute path of the SQLite DB file (env override or default under data/). */
+export function resolveSqliteFilePath(): string {
+  return (process.env.MOLAN_SQLITE_PATH || "").trim() || path.join(dataDir, "changjuan.sqlite");
+}
+
+export function getSqliteFilePath(): string | null {
+  if (!_db) {
+    const choice = resolveDriverChoice();
+    return choice.driver === "sqlite" ? resolveSqliteFilePath() : null;
+  }
+  return _db.driver === "sqlite" ? _db.detail : null;
+}
+
 export function getDbInfo(): { driver: DbDriver; detail: string; ready: boolean } {
   if (!_db) {
     const choice = resolveDriverChoice();
@@ -421,6 +435,38 @@ export async function initDb(): Promise<DbClient> {
     return _db;
   })();
   return _init;
+}
+
+
+/**
+ * Close live SQLite (if open), replace DB file from a physical backup, reopen.
+ * Used for overwrite-import disaster recovery and tests.
+ */
+export async function replaceSqliteFromPhysicalBackup(backupDbPath: string): Promise<string> {
+  const target = resolveSqliteFilePath();
+  if (_db?.driver === "sqlite") {
+    await _db.close();
+    _db = null;
+    _init = null;
+  }
+  if (!fs.existsSync(backupDbPath)) {
+    throw new Error(`physical backup missing: ${backupDbPath}`);
+  }
+  fs.copyFileSync(backupDbPath, target);
+  for (const suffix of ["-wal", "-shm"]) {
+    const src = `${backupDbPath}${suffix}`;
+    const dest = `${target}${suffix}`;
+    if (fs.existsSync(src)) fs.copyFileSync(src, dest);
+    else {
+      try {
+        fs.unlinkSync(dest);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  _db = createSqlite();
+  return target;
 }
 
 const bootChoice = resolveDriverChoice();

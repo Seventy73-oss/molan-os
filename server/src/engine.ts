@@ -1,5 +1,11 @@
 import { db, type BookRow, type ChapterRow, type RouteRow } from "./db";
 import { HttpError } from "./httpError";
+import {
+  DEFAULT_LEASE_TTL_MS,
+  SQLITE_ACQUIRE_SQL,
+  SQLITE_RELEASE_SQL,
+  leaseUntilIso,
+} from "./jobs/lease";
 export { HttpError } from "./httpError";
 import { deleteBookFiles, syncBook, wipeChapterDirs } from "./manuscripts";
 import { sceneKind, type SceneId } from "./agent/adapter";
@@ -1652,26 +1658,16 @@ export function getJob(id: string) {
 
 
 /** SQLite-backed lease: prevents double-tick across HTTP + worker (same DB file). */
-export function tryAcquireJobLease(id: string, owner: string, ttlMs = 120_000): boolean {
+export function tryAcquireJobLease(id: string, owner: string, ttlMs = DEFAULT_LEASE_TTL_MS): boolean {
   getJob(id);
-  const until = new Date(Date.now() + ttlMs).toISOString();
+  const until = leaseUntilIso(ttlMs);
   const nowIso = now();
-  const result = db
-    .prepare(
-      `UPDATE writing_jobs SET lease_owner = ?, lease_until = ?
-       WHERE id = ?
-         AND status = 'running'
-         AND (lease_until IS NULL OR lease_until < ? OR lease_owner = ?)`,
-    )
-    .run(owner, until, id, nowIso, owner);
+  const result = db.prepare(SQLITE_ACQUIRE_SQL).run(owner, until, id, nowIso, owner);
   return result.changes > 0;
 }
 
 export function releaseJobLease(id: string, owner: string) {
-  db.prepare(
-    `UPDATE writing_jobs SET lease_owner = NULL, lease_until = NULL
-     WHERE id = ? AND lease_owner = ?`,
-  ).run(id, owner);
+  db.prepare(SQLITE_RELEASE_SQL).run(id, owner);
 }
 
 export function setJobStatus(id: string, status: string) {

@@ -293,7 +293,7 @@ export function Models() {
           <div className="provider-head">
             <div>
               <h2>写作运行时</h2>
-              <p>当前可用的适配器。已安装 @earendil-works/pi-agent-core 时可在路由或 MOLAN_AGENT_RUNTIME=pi（兼容 CHANGJUAN_AGENT_RUNTIME）启用。</p>
+              <p>当前可用的适配器。pi-agent 仅为模型代调（不是自主工具编排）。已安装时可在路由或 MOLAN_AGENT_RUNTIME=pi 启用。</p>
             </div>
             {runtime.envRuntime ? <span className="pill">env: {runtime.envRuntime}</span> : <span className="pill">按场景路由</span>}
           </div>
@@ -307,6 +307,11 @@ export function Models() {
             ))}
           </ul>
           <p className="muted runtime-note">{runtime.note}</p>
+          {runtime.pi ? (
+            <p className="muted runtime-note" data-testid="pi-boundary">
+              pi 边界：{runtime.pi.note}（autonomous={String(runtime.pi.autonomous)} / tools={String(runtime.pi.toolsSupported)}）
+            </p>
+          ) : null}
         </section>
       ) : null}
 

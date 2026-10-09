@@ -37,7 +37,11 @@ async function main() {
     __isValidSnapshotForTest,
     __cleanupOrphanTmpFilesForTest,
     recoverInterruptedImports,
+    recoverPhysicalImportBackups,
     importRecoveryDir,
+    __physicalBackupDbPathForTest,
+    __writePhysicalSqliteBackupForTest,
+    __clearPhysicalSqliteBackupForTest,
   } = await import("../src/importBook");
   const { db } = await import("../src/db");
   const {
@@ -713,6 +717,85 @@ z.close()
     peeked === baseCompleted.revisionId || typeof peeked === "string",
     `peeked=${peeked}`,
   );
+
+  // --- Phase9: physical SQLite backup ---
+  const physWritten = __writePhysicalSqliteBackupForTest(bookId);
+  const physMain = __physicalBackupDbPathForTest(bookId);
+  const pendingMarker = path.join(importRecoveryDir(), `${bookId}.phys.pending`);
+  check("E2E 物理库备份文件已写入", !!physWritten && fs.existsSync(physMain), physMain);
+  check("E2E 物理备份路径约定", physMain.endsWith(`${bookId}.sqlite.phys`), physMain);
+  check("E2E 物理备份 pending 标记", fs.existsSync(pendingMarker), pendingMarker);
+  __clearPhysicalSqliteBackupForTest(bookId);
+  check("E2E 清除物理备份", !fs.existsSync(physMain) && !fs.existsSync(pendingMarker));
+
+  const markerBody = "PHYSICAL_BACKUP_MARKER_正文";
+  engine.saveRevision({
+    bookId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: markerBody,
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    skipMemory: true,
+  });
+  __writePhysicalSqliteBackupForTest(bookId);
+  __clearDurableSnapshotForTest(bookId);
+  engine.saveRevision({
+    bookId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "应被物理备份覆盖掉的脏数据",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    skipMemory: true,
+  });
+  const physRecover = await recoverPhysicalImportBackups();
+  check(
+    "E2E 无 JSON 时物理库恢复",
+    physRecover.restored.includes(bookId),
+    JSON.stringify(physRecover),
+  );
+  const bodyPhys = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         LEFT JOIN chapters c ON c.id = a.chapter_id
+         WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = 1`,
+      )
+      .get(bookId) as { body: string } | undefined
+  )?.body;
+  check("E2E 物理恢复后正文回到备份", bodyPhys === markerBody, (bodyPhys || "").slice(0, 80));
+  check("E2E 物理恢复后清除备份文件", !fs.existsSync(__physicalBackupDbPathForTest(bookId)));
+
+  // --- Phase9: pi orchestration boundary ---
+  const { assertPiModelRelayOnly, piOrchestrationBoundary, probePiCapability } = await import("../src/agent/piAdapter");
+  const { listAgentCapabilities } = await import("../src/agent/runtime");
+  const boundary = piOrchestrationBoundary();
+  check("E2E pi 边界非自主", boundary.autonomous === false && boundary.toolsSupported === false);
+  let refusedTools = false;
+  try {
+    assertPiModelRelayOnly({
+      scene: "chat",
+      skillTexts: [],
+      context: "x",
+      tools: [{ name: "shell" }],
+    } as never);
+  } catch {
+    refusedTools = true;
+  }
+  check("E2E pi 拒绝 tools 字段", refusedTools);
+  const caps = listAgentCapabilities();
+  check(
+    "E2E runtime 暴露 pi 边界",
+    caps.pi?.autonomous === false &&
+      (/非自主|模型代调/.test(caps.note) || /非自主|模型代调/.test(caps.pi.note) || /非自主|模型代调/.test(probePiCapability().reason)),
+    caps.note.slice(0, 100),
+  );
+
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

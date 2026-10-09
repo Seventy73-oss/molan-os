@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.env.*
+data/*.sqlite
+data/*.sqlite-*
+data/changjuan-pglite/
+data/books/
+shots/
+*.bak
+.vite/
+coverage/

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>长卷</title>
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='1.5' width='10' height='13' rx='1' fill='none' stroke='%231c1915' stroke-width='1.5'/%3E%3Cpath d='M6 1.5v13' stroke='%231c1915' stroke-width='1.5'/%3E%3C/svg%3E" />
+    <!-- Single active font stylesheet to avoid duplicate unicode-range faces.
+         Prefer China-friendly mirror; fall back to Google Fonts if mirror fails. -->
+    <link rel="preconnect" href="https://fonts.loli.net" crossorigin />
+    <link rel="preconnect" href="https://gstatic.loli.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      id="cj-fonts"
+      rel="stylesheet"
+      href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600&amp;family=Noto+Serif+SC:wght@400;500;600;700&amp;display=swap"
+    />
+    <script>
+      (function () {
+        var link = document.getElementById("cj-fonts");
+        if (!link) return;
+        var fallback =
+          "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700&display=swap";
+        var done = false;
+        function useFallback() {
+          if (done) return;
+          done = true;
+          link.href = fallback;
+        }
+        link.addEventListener("error", useFallback);
+        // If mirror returns empty/opaque CSS, switch after a short probe.
+        fetch(link.href, { mode: "cors" })
+          .then(function (r) {
+            return r.text().then(function (t) {
+              if (!r.ok || !t || t.length < 80) useFallback();
+            });
+          })
+          .catch(useFallback);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/web/main.tsx"></script>
+  </body>
+</html>

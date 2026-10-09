@@ -1,7 +1,7 @@
 # molan-os 审查修复第六阶段报告
 
 基线续作：`ef886f9`（阶段 5 之后）  
-本阶段提交：见文末 HEAD  
+本阶段提交：`7e359e5`（HEAD）  
 测试：`npm run typecheck` 通过；`npm run test:regression` → **26/26**；`npm run test:e2e` → **36/36**；`npm run test:e2e:browser` → **32/32**。  
 默认存储仍为 SQLite；Markdown 导出布局未改；正式生成仍无服务端静默本地降级。
 
@@ -44,3 +44,5 @@ npm run test:audit
 ```bash
 npm run test:audit   # regression + e2e + e2e:browser
 ```
+
+本阶段 HEAD：`7e359e5`。

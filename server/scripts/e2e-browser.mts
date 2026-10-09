@@ -195,15 +195,15 @@ async function main() {
     check("创建新书进入工作室", onStudio, page.url());
 
     await page.locator("footer.composer textarea").waitFor({ state: "visible", timeout: 20_000 });
-    await page.waitForFunction(
-      () => {
-        const el = document.querySelector(".crumb-current");
-        const t = el?.textContent?.trim() || "";
-        return t.length > 0 && t !== "…";
-      },
-      { timeout: 20_000 },
-    );
-    const crumb = await page.locator(".crumb-current").textContent().catch(() => "");
+    const crumbLoc = page.locator(".crumb-current");
+    await crumbLoc.waitFor({ state: "visible", timeout: 20_000 });
+    // Wait until Studio finishes loading title (placeholder is "…").
+    for (let i = 0; i < 40; i++) {
+      const cur = ((await crumbLoc.textContent()) || "").trim();
+      if (cur && cur !== "…") break;
+      await page.waitForTimeout(250);
+    }
+    const crumb = await crumbLoc.textContent().catch(() => "");
     check("工作室显示书名", (crumb || "").includes("浏览器E2E"), crumb || undefined);
 
     const composer = await page.locator("footer.composer textarea").isVisible().catch(() => false);

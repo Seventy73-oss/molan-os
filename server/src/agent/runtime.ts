@@ -12,15 +12,6 @@ import type { RouteRow } from "../db";
 import { getDbInfo } from "../db";
 import { resolveProvider } from "../provider";
 
-class NotedLocalAdapter implements AgentRuntimeAdapter {
-  constructor(private readonly reason: string) {}
-
-  async runScene(input: Parameters<AgentRuntimeAdapter["runScene"]>[0]) {
-    const local = await new LocalDraftAdapter().runScene(input);
-    return { text: local.text, modelUsed: `local-draft (${this.reason})` };
-  }
-}
-
 let piAdapterCache: PiAgentAdapter | null | undefined;
 
 async function getPiAdapterCached(): Promise<PiAgentAdapter | null> {
@@ -47,16 +38,14 @@ export function getAdapter(route: RouteRow): AgentRuntimeAdapter {
 
   if (provider !== "openai") return new LocalDraftAdapter();
 
-  try {
-    const { apiKey, baseUrl, model } = resolveProvider(route);
-    if (!apiKey || !baseUrl || !model) {
-      return new NotedLocalAdapter("还没有可用的 API Key、接口地址或模型 ID，已回退本地草稿");
-    }
-    return new OpenAICompatibleAdapter({ baseUrl, apiKey, model });
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : "接口地址不安全";
-    return new NotedLocalAdapter(reason);
+  // OpenAI route must fail loudly — never silently swap in local-draft.
+  const { apiKey, baseUrl, model } = resolveProvider(route);
+  if (!apiKey || !baseUrl || !model) {
+    throw new Error(
+      "该场景已选 OpenAI 兼容，但还没有可用的 API Key、接口地址或模型 ID。请到「模型」页配置，或把该场景改回本地草稿。",
+    );
   }
+  return new OpenAICompatibleAdapter({ baseUrl, apiKey, model });
 }
 
 export function listAgentCapabilities(): {

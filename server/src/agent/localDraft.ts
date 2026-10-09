@@ -409,15 +409,13 @@ export function normalizeDialogueQuotes(text: string): string {
   return out;
 }
 
-function dialogueEnabled(skills: SkillText[]): boolean {
-  if (skills.length === 0) return true;
-  return skills.some((skill) => skill.id === "dialogue" || skill.name.includes("对白"));
+function dialogueEnabled(_skills: SkillText[]): boolean {
+  // Always keep spoken lines in “…” — never strip quotes when user packs are attached.
+  return true;
 }
 
-function applyDialogue(text: string, enabled: boolean): string {
-  const normalized = normalizeDialogueQuotes(text);
-  if (enabled) return normalized;
-  return normalized.replace(/“([^”]*)”/g, "$1");
+function applyDialogue(text: string, _enabled: boolean): string {
+  return normalizeDialogueQuotes(text);
 }
 
 function renderBody(world: World, number: number, skills: SkillText[]): string {

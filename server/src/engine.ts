@@ -808,7 +808,12 @@ const KIND_LABEL: Record<string, string> = {
 
 function modelLabel(modelUsed: string): string {
   if (modelUsed === "local-draft") return "本地草稿引擎";
-  if (modelUsed.startsWith("local-draft")) return "本地草稿引擎（远端模型失败，已回退）";
+  // Intentional local runs use local-draft/<thinking>; never imply a silent remote fallback.
+  if (/^local-draft\//i.test(modelUsed)) return "本地草稿引擎";
+  if (/local-draft/i.test(modelUsed) && /失败|回退|openai failed|模型调用失败/i.test(modelUsed)) {
+    return "本地草稿引擎（配置不完整提示）";
+  }
+  if (modelUsed.startsWith("local-draft")) return "本地草稿引擎";
   return modelUsed;
 }
 

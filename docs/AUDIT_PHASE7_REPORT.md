@@ -1,7 +1,7 @@
 # molan-os 审查修复第七阶段报告
 
 基线续作：`acda3c4`（阶段 6 之后）  
-本阶段提交：代码 `eaf249d`；文档链至 HEAD `3379154`  
+本阶段提交：代码 `eaf249d`；文档链至 HEAD `2e4bc40`  
 测试：`npm run typecheck` 通过；`npm run test:regression` → **26/26**；`npm run test:e2e` → **44/44**；`npm run test:e2e:browser` → **36/36**。  
 默认存储仍为 SQLite；Markdown 导出布局未改；正式生成仍无服务端静默本地降级。
 
@@ -45,4 +45,4 @@ npm run test:audit
 npm run test:audit   # regression + e2e + e2e:browser
 ```
 
-本阶段 HEAD：`3379154`。
+本阶段 HEAD：`2e4bc40`。

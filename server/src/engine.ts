@@ -4,7 +4,7 @@ export { HttpError } from "./httpError";
 import { deleteBookFiles, syncBook, wipeChapterDirs } from "./manuscripts";
 import { sceneKind, type SceneId } from "./agent/adapter";
 import { getAdapter } from "./agent/runtime";
-import { rewriteSelectionLocal } from "./agent/localDraft";
+import { normalizeDialogueQuotes, rewriteSelectionLocal } from "./agent/localDraft";
 import {
   formatBibleForContext,
   formatMemoriesForContext,
@@ -435,6 +435,16 @@ export function saveRevision(input: {
   scene: string | null;
   skipMemory?: boolean;
 }) {
+  let body = input.body;
+  if (
+    input.kind === "chapter_body" ||
+    input.scene === "chapter_body" ||
+    input.scene === "humanize"
+  ) {
+    body = normalizeDialogueQuotes(body);
+  }
+  input = { ...input, body };
+
   mustBook(input.bookId);
   const chapter = input.chapterNumber
     ? (db.prepare("SELECT * FROM chapters WHERE book_id = ? AND number = ?").get(input.bookId, input.chapterNumber) as
@@ -861,24 +871,32 @@ export function listMessages(bookId: string) {
   });
 }
 
-function routeMessage(message: string): SceneId | null {
+/** Exported for smoke tests — keep intents narrow (no bare 写/生成 → 正文). */
+export function routeMessage(message: string): SceneId | null {
   // A question ("这一章写得怎样？") must not be treated as a write command,
   // unless it actually names a document to produce.
   const asks = /[？?]\s*$/.test(message);
-  const ordersDraft = /(写|生成|重写|续写).{0,12}(大纲|细纲|正文)|(大纲|细纲|正文).{0,8}(写|生成)/.test(message);
-  if (asks && !ordersDraft && !/去\s*AI|润色|审核/.test(message)) return null;
+  const ordersDraft =
+    /(写|生成|重写|续写|起草|扩写).{0,16}(大纲|细纲|正文|档案|设定|审核)|(大纲|细纲|正文|档案|设定).{0,10}(写|生成|重写|续写|起草|扩写)/.test(
+      message,
+    );
+  // Avoid「这一章写得怎样？」— require imperative write, not 写得/写的.
+  const chapterWrite =
+    /(写|生成|重写|续写|起草|扩写)\s*(一?下)?\s*(这一章|本章|这章)/.test(message) ||
+    /(这一章|本章|这章).{0,8}(写出来|写完|重写|生成|续写|起草|扩写)/.test(message);
+  if (asks && !ordersDraft && !chapterWrite && !/去\s*AI|润色|审核/.test(message)) return null;
+
   if (/去\s*AI|润色/.test(message)) return "humanize";
   if (message.includes("审核")) return "review";
-  if (/档案|建书|设定/.test(message)) return "book_setup";
-  if (message.includes("细纲")) return "chapter_outline";
-  // 「写全书大纲」contains 写 — check 大纲 before bare 写/正文.
-  if (message.includes("大纲")) return "outline";
-  if (message.includes("正文")) return "chapter_body";
-  // 「写这一章 / 写本章」走正文；纯提问不进这里（上面已排除）。
-  if (/(写|生成|重写|续写).{0,8}(这一章|本章)|(这一章|本章).{0,6}(写|生成|重写|续写)/.test(message)) {
-    return "chapter_body";
+  if (/建书|新建一本|建一本/.test(message) || (/(档案|设定)/.test(message) && (ordersDraft || !asks))) {
+    return "book_setup";
   }
-  if (message.includes("写") || message.includes("生成") || message.includes("重写")) return "chapter_body";
+  if (message.includes("细纲") && (ordersDraft || !asks)) return "chapter_outline";
+  // 「写全书大纲」— check 大纲 before 正文.
+  if (message.includes("大纲") && (ordersDraft || !asks)) return "outline";
+  if (message.includes("正文") && (ordersDraft || chapterWrite || !asks)) return "chapter_body";
+  // 「写这一章 / 写本章」走正文；不再把裸「写/生成」当成写正文。
+  if (chapterWrite) return "chapter_body";
   return null;
 }
 
@@ -928,21 +946,23 @@ export async function rewriteSelection(input: {
         .filter(Boolean)
         .join("\n"),
     });
-    let text = result.text.replace(/\r\n?/g, "\n").trim();
-    // Drop accidental whole-document dumps: keep closer to selection length.
+    let text = normalizeDialogueQuotes(result.text.replace(/\r\n?/g, "\n").trim());
+    // Drop accidental whole-document dumps — surface error instead of silent local swap.
     if (text.length > Math.max(selection.length * 4, 1200) && !/续写/.test(instruction)) {
-      text = rewriteSelectionLocal(selection, instruction);
-      return { text, modelUsed: `local-draft (openai span too long: ${result.modelUsed})`, local: true, ...skillInfo };
+      throw new HttpError(502, "模型返回过长，已拒绝替换选区（请缩短指令或重试）");
     }
     if (!text) {
-      text = rewriteSelectionLocal(selection, instruction);
-      return { text, modelUsed: `local-draft (openai empty: ${result.modelUsed})`, local: true, ...skillInfo };
+      throw new HttpError(502, "模型返回为空");
+    }
+    if (/local-draft/i.test(result.modelUsed) && /openai failed|模型调用失败|模型流式/i.test(result.modelUsed)) {
+      throw new HttpError(502, result.modelUsed);
     }
     const local = /local-draft/i.test(result.modelUsed);
     return { text, modelUsed: result.modelUsed, local, ...skillInfo };
   } catch (error) {
+    if (error instanceof HttpError) throw error;
     const reason = error instanceof Error ? error.message : "未知错误";
-    return { text: rewriteSelectionLocal(selection, instruction), modelUsed: `local-draft (openai failed: ${reason})`, local: true, ...skillInfo };
+    throw new HttpError(502, `选区改写失败：${reason}`);
   }
 }
 

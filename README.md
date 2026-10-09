@@ -66,11 +66,12 @@ DATABASE_URL=postgres://localhost:5432/molan npm run dev:server
 
 ## 安全（本机默认）
 
-接口默认只监听 **127.0.0.1**（可用 `MOLAN_HOST=0.0.0.0` 开局域网）。CORS 仅允许本地 Vite 源（`127.0.0.1` / `localhost` 的 5173/5174；额外源用 `MOLAN_CORS_ORIGINS`）。
+接口默认只监听 **127.0.0.1**（可用 `MOLAN_HOST=0.0.0.0` 开局域网）。前端 Vite 默认也只绑 **127.0.0.1**（可用 `MOLAN_WEB_HOST=0.0.0.0` 开局域网预览），避免局域网经 `/api` 反代绕开本机 API 绑定。CORS 仅允许本地 Vite 源（`127.0.0.1` / `localhost` 的 5173/5174；额外源用 `MOLAN_CORS_ORIGINS`）。
 
 | 环境变量 | 作用 |
 |---|---|
 | `MOLAN_HOST` / `HOST` | API 绑定地址，默认 `127.0.0.1` |
+| `MOLAN_WEB_HOST` | Vite 绑定地址，默认 `127.0.0.1` |
 | `MOLAN_CORS_ORIGINS` | 额外允许的 Origin，逗号分隔 |
 | `MOLAN_API_KEY` | 运行时 API Key（优先于库内密钥；勿提交进仓库） |
 | `OPENAI_API_KEY` | 同上兼容名 |
@@ -78,7 +79,7 @@ DATABASE_URL=postgres://localhost:5432/molan npm run dev:server
 | `MOLAN_ALLOWED_BASE_HOSTS` | 额外允许的 Base URL 主机名 |
 | `MOLAN_ALLOW_LOCAL_LLM` | `1` 时允许本机/内网 LLM（仍建议把主机写入白名单） |
 
-库内 API Key 使用 AES-256-GCM 加密存储；`GET /api/settings/provider` **永不返回完整密钥**，只给尾号提示。使用已保存密钥时，Base URL 必须在白名单内，禁止把密钥发到任意地址或内网/元数据 IP（SSRF 防护）。错误信息会脱敏 `Authorization` / `sk-…` 等。
+库内 API Key 使用 AES-256-GCM 加密存储；`GET /api/settings/provider` **永不返回完整密钥**，只给尾号提示。**环境变量密钥与已保存密钥**在调用时都要求 Base URL 在白名单内，禁止把密钥发到任意地址或内网/元数据 IP（SSRF 防护）。OpenAI/pi 调用失败会直接报错，不再静默回退本地草稿。错误信息会脱敏 `Authorization` / `sk-…` 等。
 
 ## 其它
 

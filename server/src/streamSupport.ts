@@ -152,23 +152,22 @@ export async function streamSelectionRewrite(
             await emit({ type: "token", text: delta });
           },
         );
-        let text = result.text.replace(/\r\n?/g, "\n").trim();
+        const { normalizeDialogueQuotes } = await import("./agent/localDraft");
+        let text = normalizeDialogueQuotes(result.text.replace(/\r\n?/g, "\n").trim());
         const selection = input.selection.replace(/\r\n?/g, "\n").trim();
-        let local = false;
         if (text.length > Math.max(selection.length * 4, 1200) && !/续写/.test(input.instruction)) {
-          const { rewriteSelectionLocal } = await import("./agent/localDraft");
-          text = rewriteSelectionLocal(selection, input.instruction);
-          local = true;
+          throw new HttpError(502, "模型返回过长，已拒绝替换选区（请缩短指令或重试）");
         }
         if (!text) {
-          const { rewriteSelectionLocal } = await import("./agent/localDraft");
-          text = rewriteSelectionLocal(selection, input.instruction);
-          local = true;
+          throw new HttpError(502, "模型返回为空");
         }
-        await emit({ type: "done", payload: { text, modelUsed: local ? `local-draft (${result.modelUsed})` : result.modelUsed, local, skills: skillRows.map((s) => ({ id: s.id, name: s.name, role: s.role })), skillPromptMeta: skillPromptMeta(skillTexts) } });
+        await emit({ type: "done", payload: { text, modelUsed: result.modelUsed, local: false, skills: skillRows.map((s) => ({ id: s.id, name: s.name, role: s.role })), skillPromptMeta: skillPromptMeta(skillTexts) } });
         return;
-      } catch {
-        // fall through to sync rewrite
+      } catch (error) {
+        // Surface model failures — do not silently fall back to local-draft.
+        if (error instanceof HttpError) throw error;
+        const reason = error instanceof Error ? error.message : "流式改写失败";
+        throw new HttpError(502, reason);
       }
     }
   }

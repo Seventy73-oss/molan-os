@@ -1,5 +1,5 @@
 import type { AgentRuntimeAdapter, RunInput, RunOutput, SceneId } from "./adapter";
-import { LocalDraftAdapter } from "./localDraft";
+import { normalizeDialogueQuotes } from "./localDraft";
 import {
   maxTokensHint,
   modelLikelySupportsReasoning,
@@ -27,6 +27,15 @@ function stripFence(text: string): string {
   const match = text.match(/^```(?:\w+)?\n([\s\S]*?)\n```$/);
   return (match?.[1] ?? text).trim();
 }
+
+function finalizeModelText(scene: SceneId, text: string): string {
+  const cleaned = stripFence(text);
+  if (scene === "chapter_body" || scene === "humanize") {
+    return normalizeDialogueQuotes(cleaned);
+  }
+  return cleaned;
+}
+
 
 function intensityOf(input: RunInput): ThinkingIntensity {
   return normalizeThinking(input.thinkingIntensity);
@@ -102,7 +111,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         choices?: { message?: { content?: string } }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
-      const text = stripFence(data.choices?.[0]?.message?.content ?? "");
+      const text = finalizeModelText(input.scene, data.choices?.[0]?.message?.content ?? "");
       if (!text) throw new Error("空响应");
       return {
         text,
@@ -116,13 +125,12 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
           : undefined,
       };
     } catch (error) {
-      const local = await new LocalDraftAdapter().runScene(input);
       const reason = redactSecrets(error instanceof Error ? error.message : "未知错误");
-      return { text: local.text, modelUsed: `local-draft (openai failed: ${reason})` };
+      throw new Error(`模型调用失败：${reason}`);
     }
   }
 
-  /** Stream tokens when the provider supports SSE chat completions. Falls back to local on failure. */
+  /** Stream tokens when the provider supports SSE chat completions. Errors surface — no silent local fallback. */
   async runSceneStream(input: RunInput, onToken: (delta: string) => void | Promise<void>): Promise<RunOutput> {
     const model =
       input.model && input.model.trim() && input.model.trim() !== "local-draft"
@@ -173,14 +181,12 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
           }
         }
       }
-      const text = stripFence(assembled);
+      const text = finalizeModelText(input.scene, assembled);
       if (!text) throw new Error("空流式响应");
       return { text, modelUsed: model };
     } catch (error) {
-      const local = await new LocalDraftAdapter().runScene(input);
       const reason = redactSecrets(error instanceof Error ? error.message : "未知错误");
-      await emitChunked(local.text, onToken);
-      return { text: local.text, modelUsed: `local-draft (openai stream failed: ${reason})` };
+      throw new Error(`模型流式调用失败：${reason}`);
     }
   }
 }

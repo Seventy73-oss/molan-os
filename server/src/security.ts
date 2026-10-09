@@ -114,8 +114,13 @@ export function isPrivateOrReservedHost(hostname: string): boolean {
 }
 
 export type SafeUrlOptions = {
-  /** When true, host must be on the public allowlist (or MOLAN_ALLOWED_BASE_HOSTS). */
+  /**
+   * When true, host must be on the public allowlist (or MOLAN_ALLOWED_BASE_HOSTS)
+   * because an API key (env MOLAN_API_KEY / OPENAI_API_KEY or stored) will be attached.
+   */
   withStoredKey?: boolean;
+  /** Preferred alias of withStoredKey. */
+  withApiKey?: boolean;
   /** Allow private/loopback hosts when MOLAN_ALLOW_LOCAL_LLM=1 and host is localhost-like. */
   allowLocalLlm?: boolean;
 };
@@ -129,7 +134,7 @@ function localLlmAllowed(): boolean {
  * Validate a provider Base URL before attaching credentials.
  * - http/https only, no userinfo
  * - blocks private/metadata hosts unless local LLM mode + allowlisted host
- * - when using a *stored* API key, host must be on the allowlist (prevents key exfil to arbitrary URLs)
+ * - when an API key will be attached (env or stored), host must be on the allowlist (prevents key exfil)
  */
 export function assertSafeBaseUrl(raw: string, options: SafeUrlOptions = {}): string {
   const text = raw.trim();
@@ -159,13 +164,14 @@ export function assertSafeBaseUrl(raw: string, options: SafeUrlOptions = {}): st
     }
   }
 
-  if (options.withStoredKey) {
+  const requireAllowlist = Boolean(options.withApiKey ?? options.withStoredKey);
+  if (requireAllowlist) {
     const allowed = allowedBaseHosts();
     if (allowLocal && (host === "127.0.0.1" || host === "localhost")) {
       // ok when local LLM mode is on
     } else if (!allowed.has(host)) {
       throw new Error(
-        `使用已保存的 API Key 时，Base URL 主机必须在白名单内（当前 ${host} 不在）。可设 MOLAN_ALLOWED_BASE_HOSTS，或先清空/改用环境变量密钥后再试自定义地址`,
+        `携带 API Key（环境变量或已保存）时，Base URL 主机必须在白名单内（当前 ${host} 不在）。可设 MOLAN_ALLOWED_BASE_HOSTS，或改用不带密钥的探测`,
       );
     }
   }

@@ -119,8 +119,8 @@ export function resolveProvider(route?: { base_url?: string | null; model_id?: s
 
   let baseUrl = (route?.base_url || storedBase || process.env.OPENAI_BASE_URL || process.env.MOLAN_BASE_URL || "https://api.openai.com/v1").trim();
   if (baseUrl) {
-    // Validate before callers attach the key. Stored-key mode requires allowlisted host.
-    baseUrl = assertSafeBaseUrl(baseUrl, { withStoredKey: usingStoredKey && Boolean(apiKey) });
+    // Validate before callers attach the key. Env or stored key both require allowlisted host.
+    baseUrl = assertSafeBaseUrl(baseUrl, { withApiKey: Boolean(apiKey) });
   }
 
   const routeModel = route?.model_id?.trim() ?? "";
@@ -174,7 +174,8 @@ export function saveProvider(input: {
     const willHaveStoredKey =
       input.clearApiKey !== true &&
       ((typeof input.apiKey === "string" && Boolean(input.apiKey.trim())) || Boolean(readStoredApiKey()));
-    if (nextBase && willHaveStoredKey && !envApiKey()) {
+    // Env MOLAN_API_KEY also requires allowlist — key would travel with this Base URL at runtime.
+    if (nextBase && (willHaveStoredKey || Boolean(envApiKey()))) {
       cleanBase(nextBase, true);
     }
     write(KEYS.baseUrl, nextBase);
@@ -220,7 +221,7 @@ export async function refreshModels(force = true): Promise<ModelsList> {
     const reason = redact(error instanceof Error ? error.message : "配置无效");
     return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: reason };
   }
-  const { apiKey, baseUrl, usingStoredKey } = resolved;
+  const { apiKey, baseUrl } = resolved;
   if (!apiKey) return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: "还没有 API Key" };
   if (!baseUrl) return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: "还没有 Base URL" };
 
@@ -231,7 +232,7 @@ export async function refreshModels(force = true): Promise<ModelsList> {
 
   let safeUrl: string;
   try {
-    safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withStoredKey: usingStoredKey });
+    safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withApiKey: Boolean(apiKey) });
   } catch (error) {
     const reason = redact(error instanceof Error ? error.message : "地址不安全");
     return { models: existing?.models ?? [], fetchedAt: existing?.fetchedAt ?? null, error: reason };
@@ -303,13 +304,14 @@ export async function testProvider(input: { baseUrl?: unknown; apiKey?: unknown;
 
   const typedKey = typeof input.apiKey === "string" && input.apiKey.trim() ? input.apiKey.trim() : "";
   const apiKey = typedKey || saved.apiKey;
-  const usingStoredKey = !typedKey && Boolean(saved.hasStoredKey) && !envApiKey();
+  // Any key that will be attached (typed, env, or stored) requires Base URL allowlist.
+  const withApiKey = Boolean(apiKey);
 
   let baseUrl = saved.baseUrl;
   if (typeof input.baseUrl === "string" && input.baseUrl.trim()) {
-    baseUrl = assertSafeBaseUrl(input.baseUrl, { withStoredKey: usingStoredKey });
+    baseUrl = assertSafeBaseUrl(input.baseUrl, { withApiKey });
   } else if (baseUrl) {
-    baseUrl = assertSafeBaseUrl(baseUrl, { withStoredKey: usingStoredKey });
+    baseUrl = assertSafeBaseUrl(baseUrl, { withApiKey });
   }
 
   const model =
@@ -321,7 +323,7 @@ export async function testProvider(input: { baseUrl?: unknown; apiKey?: unknown;
   if (!apiKey) return { ok: false as const, model, error: "还没有 API Key" };
   if (!baseUrl) return { ok: false as const, model, error: "还没有 Base URL" };
 
-  const safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withStoredKey: usingStoredKey });
+  const safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withApiKey });
   const url = `${safeUrl.replace(/\/$/, "")}/chat/completions`;
   try {
     const response = await fetch(url, {

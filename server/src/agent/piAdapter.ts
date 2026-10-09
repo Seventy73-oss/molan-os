@@ -8,7 +8,7 @@
  */
 import { createRequire } from "node:module";
 import type { AgentRuntimeAdapter, RunInput, RunOutput } from "./adapter";
-import { LocalDraftAdapter } from "./localDraft";
+import { LocalDraftAdapter, normalizeDialogueQuotes } from "./localDraft";
 import { OpenAICompatibleAdapter } from "./openai";
 import { resolveProvider } from "../provider";
 
@@ -102,22 +102,19 @@ export class PiAgentAdapter implements AgentRuntimeAdapter {
       .join("\n\n");
 
     // Produce draft text first (openai if configured, else local), then run it through Agent.
+    // OpenAI failures must surface — never silently swap in local-draft.
+    const resolved = resolveProvider({
+      base_url: null,
+      model_id: input.model || null,
+    });
     let draft: RunOutput;
-    try {
-      const resolved = resolveProvider({
-        base_url: null,
-        model_id: input.model || null,
-      });
-      if (resolved.apiKey && resolved.baseUrl && resolved.model) {
-        draft = await new OpenAICompatibleAdapter({
-          baseUrl: resolved.baseUrl,
-          apiKey: resolved.apiKey,
-          model: resolved.model,
-        }).runScene(input);
-      } else {
-        draft = await new LocalDraftAdapter().runScene(input);
-      }
-    } catch {
+    if (resolved.apiKey && resolved.baseUrl && resolved.model) {
+      draft = await new OpenAICompatibleAdapter({
+        baseUrl: resolved.baseUrl,
+        apiKey: resolved.apiKey,
+        model: resolved.model,
+      }).runScene(input);
+    } else {
       draft = await new LocalDraftAdapter().runScene(input);
     }
 
@@ -139,8 +136,11 @@ export class PiAgentAdapter implements AgentRuntimeAdapter {
 
     await agent.prompt(prompt.slice(0, 12000));
     await agent.waitForIdle();
-    const text = extractAssistantText(agent.state.messages as Array<{ role?: string; content?: unknown }>);
+    let text = extractAssistantText(agent.state.messages as Array<{ role?: string; content?: unknown }>);
     if (!text) throw new Error("pi-agent 返回空文本");
+    if (input.scene === "chapter_body" || input.scene === "humanize") {
+      text = normalizeDialogueQuotes(text);
+    }
     return {
       text,
       modelUsed: `pi-agent/${draft.modelUsed}`,

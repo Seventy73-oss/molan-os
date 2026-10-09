@@ -29,6 +29,17 @@ type PackSpec = {
   markers?: Record<string, (text: string) => boolean>;
 };
 
+/** Per-scene user-pack attach matrix (stage → packs).
+ * topic:        novel-craft, opening-cards
+ * book_setup:   opening-cards, structure-skeleton, novel-craft
+ * outline:      volume-arcs, structure-skeleton, novel-craft
+ * chapter_outline: opening-cards, novel-craft  (no humanize / style — not prose)
+ * chapter_body: humanize, style-corpus
+ * humanize:     humanize, style-corpus
+ * review:       humanize (恶人编辑 + 病灶)
+ * chat:         novel-craft, opening-cards
+ * memory_extract: scene skill only
+ */
 const USER_PACKS: PackSpec[] = [
   {
     id: "humanize",
@@ -40,7 +51,8 @@ const USER_PACKS: PackSpec[] = [
       "references/01_规则书_V0.40.md",
       "references/11_恶人编辑_子代理审核包.md",
     ],
-    attachScenes: new Set(["humanize", "chapter_body", "review", "chapter_outline"]),
+    // Prose + review only — never chapter_outline / outline / setup.
+    attachScenes: new Set(["humanize", "chapter_body", "review"]),
     defaultMaxChars: 48000,
     markers: {
       menSpeedCheck: (t) => t.includes("门速查"),
@@ -79,7 +91,8 @@ const USER_PACKS: PackSpec[] = [
     id: "structure-skeleton",
     title: "结构骨架（用户包 03-结构骨架_1983本）",
     inject: ["inject/00_方法论.md", "inject/01_题材统计与样例.md"],
-    attachScenes: new Set(["outline", "chapter_outline", "book_setup"]),
+    // Book-level sizing / chapter naming — outline + setup, not per-chapter beats.
+    attachScenes: new Set(["outline", "book_setup"]),
     defaultMaxChars: 36000,
     markers: {
       skeletonMethod: (t) => t.includes("结构骨架"),
@@ -103,7 +116,8 @@ const USER_PACKS: PackSpec[] = [
     id: "novel-craft",
     title: "选题创作（用户包 novel-craft）",
     inject: ["inject/01_关键卡.md"],
-    attachScenes: new Set(["topic", "book_setup", "outline", "chapter_outline", "chapter_body", "chat"]),
+    // Planning stages only — not chapter_body (style-corpus + humanize own prose).
+    attachScenes: new Set(["topic", "book_setup", "outline", "chapter_outline", "chat"]),
     defaultMaxChars: 48000,
     markers: {
       craftOverview: (t) => t.includes("跨题材总览") || t.includes("novel-craft") || t.includes("选题与创作"),

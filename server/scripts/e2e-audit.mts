@@ -2,7 +2,7 @@
  * Phase-3 audit E2E (API-level, mock models / local-draft only).
  * Covers: slow/concurrent CAS, SSE lost receipt, process restart, late candidate,
  * job pause/cancel, overwrite-import rollback, durable import recovery, AbortSignal cancel,
- * SQLite lease, worker storage policy, corrupt recovery quarantine.
+ * SQLite lease, worker storage policy, corrupt recovery quarantine, mid-stream cancel no overwrite.
  *
  * Run: npm run test:e2e
  */
@@ -430,6 +430,67 @@ z.close()
     cancelReuse = e instanceof Error && /取消/.test(e.message);
   }
   check("E2E 已取消 generation 不可重放成写入", cancelReuse);
+
+  // --- Mid-stream abort: cancel before save; current outline must stay ---
+  const seedOutline = "PHASE6_SEED_OUTLINE\n1. 开篇不改\n因果固定。";
+  engine.saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: seedOutline,
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "outline",
+    skipMemory: true,
+  });
+  const midGid = crypto.randomUUID();
+  const midAc = new AbortController();
+  process.env.MOLAN_STREAM_PRE_DELAY_MS = "400";
+  const midPromise = engine.chat(bookId, "写全书大纲", 1, midGid, midAc.signal);
+  await new Promise((r) => setTimeout(r, 80));
+  engine.cancelGeneration(midGid);
+  midAc.abort();
+  let midAborted = false;
+  try {
+    await midPromise;
+  } catch (e) {
+    midAborted = isAbortError(e);
+  }
+  delete process.env.MOLAN_STREAM_PRE_DELAY_MS;
+  const outlineAfter = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline'`,
+      )
+      .get(bookId) as { body: string } | undefined
+  )?.body;
+  const genAfter = engine.getGeneration(midGid);
+  check(
+    "E2E 中途取消抛出 Abort",
+    midAborted,
+    genAfter ? `status=${genAfter.status}` : "no generation",
+  );
+  check(
+    "E2E 中途取消不覆盖当前大纲",
+    outlineAfter === seedOutline,
+    `body=${(outlineAfter || "").slice(0, 80)} gen=${genAfter?.status}`,
+  );
+  check(
+    "E2E 中途取消 generation 为 cancelled",
+    genAfter?.status === "cancelled",
+    genAfter?.status,
+  );
+
+  // Late completed must not resurrect cancelled
+  engine.completeGeneration(midGid, { status: "completed", result: { hacked: true } });
+  const stillCancelled = engine.getGeneration(midGid);
+  check(
+    "E2E 已取消 generation 不被迟到 completed 复活",
+    stillCancelled?.status === "cancelled",
+    stillCancelled?.status,
+  );
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

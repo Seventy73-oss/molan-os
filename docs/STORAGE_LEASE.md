@@ -29,4 +29,5 @@
 ## 取消与暂停语义（回顾）
 
 - **暂停**：当前阶段可完成推进指针，状态保持 `paused`，不会偷偷变回 `running`。
-- **取消**：不再推进；阶段结束时若已取消，成稿以候选修订写入（`asCandidate`），不覆盖当前稿。
+- **取消（批量任务）**：不再推进；阶段结束时若已取消，成稿以候选修订写入（`asCandidate`），不覆盖当前稿。
+- **取消（流式 generation）**：客户端「停止」会 abort 拉流并 `POST /api/generations/:id/cancel`；服务端在落盘前检查 signal / cancelled，避免已取消任务覆盖当前稿；已 `cancelled` 的记录不会被迟到的 `completed` 复活。测试可用 `MOLAN_STREAM_PRE_DELAY_MS` 拉开窗口（默认 0）。

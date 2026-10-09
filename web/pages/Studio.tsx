@@ -178,6 +178,7 @@ export function Studio() {
   const jobAutoRef = useRef(false);
   const revealAbort = useRef<AbortController | null>(null);
   const streamAbort = useRef<AbortController | null>(null);
+  const activeGenerationId = useRef<string | null>(null);
   /** Protects against slow save responses overwriting newer edits. */
   const editorSessionRef = useRef(0);
   const editEpochRef = useRef(0);
@@ -207,6 +208,10 @@ export function Studio() {
   function cancelStream() {
     streamAbort.current?.abort();
     revealAbort.current?.abort();
+    const gid = activeGenerationId.current;
+    if (gid) {
+      void api.cancelGeneration(gid).catch(() => undefined);
+    }
   }
 
 
@@ -521,6 +526,7 @@ export function Studio() {
       // Persist current edits first so chat generation cannot clobber an unsaved draft.
       await persist();
       const generationId = crypto.randomUUID();
+      activeGenerationId.current = generationId;
       let result;
       let live = "";
       try {
@@ -582,6 +588,7 @@ export function Studio() {
       setStreamPreview("");
       setStreamStatus("");
       if (streamAbort.current === abort) streamAbort.current = null;
+      if (activeGenerationId.current) activeGenerationId.current = null;
       release();
     }
   }

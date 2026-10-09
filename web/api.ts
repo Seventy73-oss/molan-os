@@ -269,6 +269,13 @@ export const api = {
       result: unknown;
       error: string | null;
     }>(`/api/generations/${generationId}`),
+  cancelGeneration: (generationId: string) =>
+    request<{
+      id: string;
+      status: string;
+      result: unknown;
+      error: string | null;
+    }>(`/api/generations/${generationId}/cancel`, { method: "POST", body: "{}" }),
   sceneRun: (
     id: string,
     body: { scene: string; chapterNumber: number | null; instruction: string; skillIds?: string[] },

@@ -44,3 +44,36 @@ export function combineSignals(
     },
   };
 }
+
+/** Resolve after ms, or reject AbortError if signal aborts first. */
+export function sleepAbortable(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      const err = new Error("已取消");
+      err.name = "AbortError";
+      reject(err);
+    };
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
+/** Optional test-only pre-delay (MOLAN_STREAM_PRE_DELAY_MS). No-op in production. */
+export async function optionalStreamPreDelay(signal?: AbortSignal | null): Promise<void> {
+  const ms = Number(process.env.MOLAN_STREAM_PRE_DELAY_MS || 0);
+  if (!Number.isFinite(ms) || ms <= 0) return;
+  await sleepAbortable(ms, signal);
+}

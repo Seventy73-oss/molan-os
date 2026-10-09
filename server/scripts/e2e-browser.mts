@@ -1,7 +1,7 @@
 /**
  * Phase-4 browser E2E (Playwright Chromium).
  * Spawns API + Vite on free ports with a temp SQLite DB; exercises Library → Studio →
- * selection rewrite bubble + streaming chat write (local-draft) → Skills/Models.
+ * selection bubble action matrix + mid-stream abort + streaming chat write (local-draft) → Skills/Models.
  *
  * Run: npm run test:e2e:browser
  */
@@ -126,6 +126,7 @@ async function main() {
         MOLAN_HOST: "127.0.0.1",
         MOLAN_JOB_INTERVAL_MS: "60000",
         MOLAN_CORS_ORIGINS: webUrl,
+        MOLAN_STREAM_PRE_DELAY_MS: "700",
         DATABASE_URL: "",
         MOLAN_DB: "",
       },
@@ -149,6 +150,9 @@ async function main() {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     page.setDefaultTimeout(20_000);
+    page.on("dialog", (dialog) => {
+      void dialog.accept().catch(() => undefined);
+    });
 
     await page.goto(webUrl, { waitUntil: "networkidle" });
     const hasLibrary = await page.getByRole("heading", { name: "书稿" }).isVisible().catch(() => false);
@@ -210,79 +214,202 @@ async function main() {
     const composer = await page.locator("footer.composer textarea").isVisible().catch(() => false);
     check("工作室对话输入框可见", composer);
 
-    // --- Selection rewrite bubble (local-draft) ---
+    // --- Selection bubble action matrix (local-draft) ---
     const bookIdMatch = page.url().match(/\/books\/([0-9a-f-]+)/i);
     const bookId = bookIdMatch?.[1] || "";
     check("工作室 URL 含书 id", Boolean(bookId), page.url());
-    const seedBody =
-      "他不禁看着远方，宛如陷入沉思。茶还没凉，门外已经安静下来。";
-    if (bookId) {
+
+    async function seedChapterBody(body: string) {
       const put = await fetch(`${apiUrl}/api/books/${bookId}/artifacts`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           kind: "chapter_body",
           chapterNumber: 1,
-          body: seedBody,
+          body,
           source: "human",
           scene: "chapter_body",
         }),
       });
-      check("API 预置第1章正文", put.ok, String(put.status));
+      if (!put.ok) throw new Error(`seed body ${put.status}`);
       await page.reload({ waitUntil: "networkidle" });
       await page.locator("footer.composer textarea").waitFor({ state: "visible", timeout: 20_000 });
-      // defaultDoc prefers chapter_body with content
       const ms = page.locator(".manuscript.ProseMirror, .manuscript").first();
       await ms.waitFor({ state: "visible", timeout: 20_000 });
       for (let i = 0; i < 40; i++) {
         const t = ((await ms.innerText().catch(() => "")) || "").trim();
-        if (t.includes("不禁") || t.includes("远方")) break;
+        if (t.length > 8) break;
         await page.waitForTimeout(250);
       }
-      const beforeText = ((await ms.innerText().catch(() => "")) || "").trim();
-      check("正文载入编辑器", beforeText.includes("不禁") || beforeText.includes("远方"), beforeText.slice(0, 80));
+      return ms;
+    }
 
+    async function selectAllAndBubble(ms: ReturnType<typeof page.locator>) {
       await ms.click();
       await page.keyboard.press("Control+A");
       const bubble = page.locator(".sel-bubble");
       await bubble.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
-      const bubbleVisible = await bubble.isVisible().catch(() => false);
+      return bubble;
+    }
+
+    if (bookId) {
+      const seedRewrite =
+        "他不禁看着远方，宛如陷入沉思。茶还没凉，门外已经安静下来。";
+      let ms = await seedChapterBody(seedRewrite);
+      check("API 预置第1章正文", true);
+      const beforeRewrite = ((await ms.innerText().catch(() => "")) || "").trim();
+      check("正文载入编辑器", beforeRewrite.includes("不禁") || beforeRewrite.includes("远方"), beforeRewrite.slice(0, 80));
+
+      let bubble = await selectAllAndBubble(ms);
+      let bubbleVisible = await bubble.isVisible().catch(() => false);
       check("选区改写气泡出现", bubbleVisible);
 
-      if (bubbleVisible) {
-        const rewriteResp = page.waitForResponse(
-          (r) =>
-            r.url().includes("/selection-rewrite") &&
-            (r.request().method() === "POST"),
-          { timeout: 30_000 },
-        );
-        await bubble.getByRole("button", { name: "改写", exact: true }).click();
-        let rewriteOk = false;
+      const matrix: {
+        label: string;
+        name: string;
+        seed: string;
+        assert: (before: string, after: string) => boolean;
+        hint: string;
+      }[] = [
+        {
+          label: "改写",
+          name: "选区「改写」",
+          seed: seedRewrite,
+          assert: (before, after) =>
+            Boolean(after) &&
+            (after !== before || !after.includes("不禁") || after.includes("望着") || after.includes("像")),
+          hint: "rewrite",
+        },
+        {
+          label: "续写",
+          name: "选区「续写」",
+          seed: "门轴轻响了一下。",
+          assert: (before, after) =>
+            after.length > before.length && (/茶杯|窗外|话还没落完|旧板/.test(after) || after.includes(before.slice(0, 4))),
+          hint: "continue",
+        },
+        {
+          label: "润色",
+          name: "选区「润色」",
+          seed: "他不禁看着远方，宛如陷入沉思。",
+          assert: (_b, after) => !after.includes("不禁") && (after.includes("像") || after.includes("看着") || after.includes("望着") || after.length > 0),
+          hint: "polish",
+        },
+        {
+          label: "加强对白",
+          name: "选区「加强对白」",
+          seed: "她站在廊檐下，风把衣角掀起一点。",
+          assert: (_b, after) => /[“”]/.test(after) || after.includes("你就说一句实话"),
+          hint: "dialogue",
+        },
+      ];
+
+      for (let i = 0; i < matrix.length; i++) {
+        const item = matrix[i]!;
         try {
-          const resp = await rewriteResp;
-          rewriteOk = resp.ok();
-          check("选区改写流式/API 响应", rewriteOk, `status=${resp.status()}`);
+          if (i > 0) {
+            ms = await seedChapterBody(item.seed);
+          }
+          const beforeText = ((await ms.innerText().catch(() => "")) || "").trim();
+          bubble = await selectAllAndBubble(ms);
+          bubbleVisible = await bubble.isVisible().catch(() => false);
+          if (!bubbleVisible) {
+            check(`${item.name} 气泡`, false, "bubble missing");
+            check(`${item.name} API`, false, "bubble missing");
+            check(`${item.name} 写回`, false, "bubble missing");
+            continue;
+          }
+          if (i !== 0) check(`${item.name} 气泡`, true);
+          const btn = bubble.getByRole("button", { name: item.label, exact: true });
+          await btn.waitFor({ state: "visible", timeout: 5_000 });
+          const respPromise = page.waitForResponse(
+            (r) => r.url().includes("/selection-rewrite") && r.request().method() === "POST",
+            { timeout: 45_000 },
+          ).catch((e: unknown) => e);
+          await btn.click({ force: true });
+          const respOrErr = await respPromise;
+          if (respOrErr && typeof respOrErr === "object" && "ok" in respOrErr && typeof (respOrErr as { ok: () => boolean }).ok === "function") {
+            const resp = respOrErr as { ok: () => boolean; status: () => number };
+            check(`${item.name} API`, resp.ok(), `status=${resp.status()}`);
+          } else {
+            const msg = respOrErr instanceof Error ? respOrErr.message : String(respOrErr);
+            check(`${item.name} API`, false, msg.slice(0, 120));
+          }
+          for (let j = 0; j < 80; j++) {
+            const after = ((await ms.innerText().catch(() => "")) || "").trim();
+            if (after && item.assert(beforeText, after)) break;
+            await page.waitForTimeout(250);
+          }
+          const afterText = ((await ms.innerText().catch(() => "")) || "").trim();
+          check(`${item.name} 写回`, item.assert(beforeText, afterText), afterText.slice(0, 100));
         } catch (e) {
-          check("选区改写流式/API 响应", false, e instanceof Error ? e.message : String(e));
+          const msg = e instanceof Error ? e.message : String(e);
+          check(`${item.name} 气泡`, false, msg.slice(0, 120));
+          check(`${item.name} API`, false, msg.slice(0, 120));
+          check(`${item.name} 写回`, false, msg.slice(0, 120));
         }
-        // Wait for local-draft notice or text change
-        for (let i = 0; i < 60; i++) {
-          const notice = ((await page.locator(".toast-notice").textContent().catch(() => "")) || "");
-          const after = ((await ms.innerText().catch(() => "")) || "").trim();
-          if (/本地草稿|选区/.test(notice) || (after && after !== beforeText && !after.includes("不禁"))) break;
-          await page.waitForTimeout(250);
-        }
-        const afterText = ((await ms.innerText().catch(() => "")) || "").trim();
-        const changed =
-          Boolean(afterText) &&
-          (afterText !== beforeText || !afterText.includes("不禁") || afterText.includes("望着") || afterText.includes("像"));
-        check("选区改写写回正文", changed, afterText.slice(0, 100));
-      } else {
-        check("选区改写流式/API 响应", false, "bubble missing");
-        check("选区改写写回正文", false, "bubble missing");
       }
 
-      // --- Streaming chat write (local-draft outline) ---
+      // --- Mid-stream abort: seed outline, start write, click 停止 before delay ends ---
+      const seedOutline = "PHASE6_BROWSER_SEED\n1. 开篇保留\n因果不动。";
+      const putOutline = await fetch(`${apiUrl}/api/books/${bookId}/artifacts`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "book_outline",
+          chapterNumber: null,
+          body: seedOutline,
+          source: "human",
+          scene: "outline",
+        }),
+      });
+      check("API 预置全书大纲", putOutline.ok, String(putOutline.status));
+
+      const chatBoxAbort = page.locator("footer.composer textarea");
+      await chatBoxAbort.fill("写全书大纲");
+      const streamStarted = page
+        .waitForResponse(
+          (r) => r.url().includes("/chat/stream") && r.request().method() === "POST",
+          { timeout: 30_000 },
+        )
+        .catch(() => null);
+      await page.locator("footer.composer button.send").click();
+      // Wait for stop control during PRE_DELAY window
+      const stopBtn = page.locator("button.stream-stop-inline").filter({ hasText: "停止" });
+      const stopSeen = await stopBtn
+        .first()
+        .waitFor({ state: "visible", timeout: 8_000 })
+        .then(() => true)
+        .catch(() => false);
+      check("流式中途出现停止按钮", stopSeen);
+      if (stopSeen) {
+        await stopBtn.first().click({ force: true });
+      }
+      await streamStarted;
+      for (let i = 0; i < 40; i++) {
+        const busy = await page.locator("footer.composer .composer-box.busy").isVisible().catch(() => false);
+        const notice = ((await page.locator(".toast-notice").textContent().catch(() => "")) || "");
+        if (!busy || /已停止/.test(notice)) break;
+        await page.waitForTimeout(200);
+      }
+      const stopNotice = ((await page.locator(".toast-notice").textContent().catch(() => "")) || "");
+      const bookAfterAbort = (await (await fetch(`${apiUrl}/api/books/${bookId}`)).json()) as {
+        artifacts: { kind: string; body?: string }[];
+      };
+      const outlineAfterAbort = bookAfterAbort.artifacts.find((a) => a.kind === "book_outline");
+      const outlineKept = (outlineAfterAbort?.body || "").includes("PHASE6_BROWSER_SEED");
+      check(
+        "中途停止后大纲未被覆盖",
+        outlineKept,
+        `notice=${stopNotice.slice(0, 60)} body=${(outlineAfterAbort?.body || "").slice(0, 60)}`,
+      );
+      check(
+        "中途停止提示或忙态解除",
+        /已停止/.test(stopNotice) || !(await page.locator("footer.composer .composer-box.busy").isVisible().catch(() => false)),
+        stopNotice.slice(0, 80),
+      );
+
+      // --- Streaming chat write (local-draft outline) after abort window ---
       const chatBox = page.locator("footer.composer textarea");
       await chatBox.fill("写全书大纲");
       const chatResp = page.waitForResponse(
@@ -290,7 +417,6 @@ async function main() {
         { timeout: 90_000 },
       );
       await page.locator("footer.composer button.send").click();
-      // Stream status should appear
       const statusSeen = await page
         .getByText(/助手正在写|本地草稿|正在写/)
         .first()
@@ -306,7 +432,6 @@ async function main() {
       } catch (e) {
         check("流式对话 chat/stream 响应", false, e instanceof Error ? e.message : String(e));
       }
-      // Wait until busy clears / notice or outline opens
       for (let i = 0; i < 120; i++) {
         const notice = ((await page.locator(".toast-notice").textContent().catch(() => "")) || "");
         const busy = await page.locator("footer.composer .composer-box.busy").isVisible().catch(() => false);
@@ -314,22 +439,37 @@ async function main() {
         await page.waitForTimeout(500);
       }
       const writeNotice = ((await page.locator(".toast-notice").textContent().catch(() => "")) || "");
-      // Also verify outline via API
       const bookPayload = (await (await fetch(`${apiUrl}/api/books/${bookId}`)).json()) as {
         artifacts: { kind: string; body?: string }[];
       };
       const outline = bookPayload.artifacts.find((a) => a.kind === "book_outline" && (a.body || "").trim());
+      const outlineFresh =
+        Boolean(outline?.body && outline.body.trim().length > 20 && !outline.body.includes("PHASE6_BROWSER_SEED")) ||
+        /已写入/.test(writeNotice);
       check(
         "流式对话写入全书大纲",
-        Boolean(outline?.body && outline.body.trim().length > 20) || /已写入/.test(writeNotice),
+        outlineFresh,
         writeNotice.slice(0, 80) || `outlineLen=${outline?.body?.length ?? 0}`,
       );
     } else {
       check("API 预置第1章正文", false, "no bookId");
       check("正文载入编辑器", false);
       check("选区改写气泡出现", false);
-      check("选区改写流式/API 响应", false);
-      check("选区改写写回正文", false);
+      check("选区「改写」 API", false);
+      check("选区「改写」 写回", false);
+      check("选区「续写」 气泡", false);
+      check("选区「续写」 API", false);
+      check("选区「续写」 写回", false);
+      check("选区「润色」 气泡", false);
+      check("选区「润色」 API", false);
+      check("选区「润色」 写回", false);
+      check("选区「加强对白」 气泡", false);
+      check("选区「加强对白」 API", false);
+      check("选区「加强对白」 写回", false);
+      check("API 预置全书大纲", false);
+      check("流式中途出现停止按钮", false);
+      check("中途停止后大纲未被覆盖", false);
+      check("中途停止提示或忙态解除", false);
       check("流式对话出现状态提示", false);
       check("流式对话 chat/stream 响应", false);
       check("流式对话写入全书大纲", false);

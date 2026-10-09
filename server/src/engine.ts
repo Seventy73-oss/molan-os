@@ -14,7 +14,7 @@ import { formatOpenHooksForContext, formatOpenHooksForReview } from "./hooks";
 import { estimateTokensFromText, recordUsage } from "./usage";
 import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { normalizeThinking } from "./thinking";
-import { throwIfAborted } from "./abortUtil";
+import { isAbortError, optionalStreamPreDelay, throwIfAborted } from "./abortUtil";
 
 
 const CN: Record<string, number> = {
@@ -778,7 +778,7 @@ export async function executeScene(input: {
   }
   const context = buildContext(input.bookId, chapterNumber, instruction);
   const route = routeFor(input.scene);
-  throwIfAborted(input.signal);
+  throwIfGenerationCancelled(input.generationId, input.signal);
   const result = await getAdapter(route).runScene({
     scene: input.scene,
     model: route.model_id,
@@ -788,7 +788,7 @@ export async function executeScene(input: {
     instruction,
     signal: input.signal,
   });
-  throwIfAborted(input.signal);
+  throwIfGenerationCancelled(input.generationId, input.signal);
   try {
     const local = /local/i.test(result.modelUsed);
     const promptTokens = result.usage?.promptTokens ?? estimateTokensFromText(context + instruction);
@@ -981,6 +981,19 @@ export function listMessages(bookId: string) {
 
 export type GenerationStatus = "running" | "completed" | "failed" | "cancelled";
 
+
+/** Abort if client signal fired or generation was cancelled via API. */
+export function throwIfGenerationCancelled(generationId?: string | null, signal?: AbortSignal | null) {
+  throwIfAborted(signal);
+  if (!generationId) return;
+  const row = getGeneration(generationId);
+  if (row?.status === "cancelled") {
+    const err = new Error("已取消");
+    err.name = "AbortError";
+    throw err;
+  }
+}
+
 export function beginGeneration(input: {
   id: string;
   bookId: string;
@@ -1055,6 +1068,15 @@ export function completeGeneration(
   id: string,
   patch: { status: GenerationStatus; resultRevisionId?: string | null; result?: unknown; error?: string | null },
 ) {
+  const existing = getGeneration(id);
+  // Late completed/failed must not resurrect a cancelled generation (mid-stream abort won).
+  if (
+    existing &&
+    existing.status === "cancelled" &&
+    (patch.status === "completed" || patch.status === "failed")
+  ) {
+    return existing;
+  }
   const ts = now();
   db.prepare(
     `UPDATE generations SET status = ?, result_revision_id = COALESCE(?, result_revision_id),
@@ -1226,7 +1248,9 @@ export async function chat(
       }
     }
   }
-  throwIfAborted(signal);
+  throwIfGenerationCancelled(generationId, signal);
+  await optionalStreamPreDelay(signal);
+  throwIfGenerationCancelled(generationId, signal);
   insertMessage(bookId, "user", text, null);
   const scene = routeMessage(text);
   if (!scene) {
@@ -1279,6 +1303,7 @@ export async function chat(
       });
       return { message: assistant, saved: null, ...skillInfo };
     } catch (error) {
+      if (isAbortError(error)) throw error;
       const fallback = `我可以按《${book.title}》往下写。你可以直接说：写全书大纲、写第 3 章细纲、写第 1 章正文、审核这一章、把正文去 AI 味。`;
       const content = error instanceof Error ? `${fallback}\n（对话模型未接通：${error.message}）` : fallback;
       const assistant = insertMessage(bookId, "assistant", content, { scene: chatScene, saved: null, ...skillInfo });
@@ -1296,8 +1321,8 @@ export async function chat(
       ? null
       : (mentioned ?? fallbackChapter);
   try {
-    throwIfAborted(signal);
-    const result = await executeScene({ bookId, scene, chapterNumber, instruction: text, signal });
+    throwIfGenerationCancelled(generationId, signal);
+    const result = await executeScene({ bookId, scene, chapterNumber, instruction: text, signal, generationId });
     const label = result.saved ? KIND_LABEL[result.saved.kind] ?? "稿件" : "稿件";
     const where = result.saved?.chapterNumber ? `第 ${result.saved.chapterNumber} 章` : "";
     const content = `已写入${where}${label}，修订 ${result.saved?.revision ?? 1}。用的是${modelLabel(result.modelUsed)}。\n${replyBody(result.text)}`;
@@ -1311,6 +1336,7 @@ export async function chat(
     const assistant = insertMessage(bookId, "assistant", content, meta);
     return { message: assistant, saved: result.saved, skills: result.skills, skillPromptMeta: result.skillPromptMeta };
   } catch (error) {
+    if (isAbortError(error)) throw error;
     const content = error instanceof Error ? error.message : "这次没有写成";
     const assistant = insertMessage(bookId, "assistant", content, { scene, saved: null });
     return { message: assistant, saved: null };

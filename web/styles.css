@@ -3713,28 +3713,60 @@ label {
 }
 .generate-row {
   display: flex;
-  align-items: stretch;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
 }
 .generate-row .generate {
   flex: 1;
+  min-width: 0;
+  width: auto;
+  height: 42px;
 }
 .thinking-inline {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  min-width: 72px;
-  font-size: 10.5px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  box-sizing: border-box;
+  height: 42px;
+  padding: 0 8px 0 12px;
+  margin: 0;
+  border-radius: var(--radius, 12px);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 12px;
   color: var(--muted);
   letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.thinking-inline > span {
+  flex: none;
+  line-height: 1;
 }
 .thinking-inline select {
-  height: 36px;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 100%;
+  min-width: 2.6em;
+  margin: 0;
+  padding: 0 18px 0 2px;
+  border: none;
+  border-radius: 0;
+  background: transparent
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23665f56' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    no-repeat right 2px center;
   font-size: 13px;
-  padding: 0 8px;
-  border-radius: 10px;
-  background: var(--paper);
-  border: 1px solid var(--line);
+  font-weight: 500;
   color: var(--ink);
+  line-height: 1;
+  cursor: pointer;
+}
+.thinking-inline select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.thinking-inline:focus-within {
+  border-color: color-mix(in srgb, var(--ink) 28%, var(--line));
 }

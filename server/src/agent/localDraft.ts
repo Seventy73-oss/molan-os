@@ -137,8 +137,8 @@ function sceneBlocks(rows: string[][]): SceneBlock[] {
 function presetProfile(): string {
   return [
     `${preset.protagonist}，三十二岁，在${preset.city}${preset.place}做${preset.role}。铺子没有招牌，常客叫它慢修。他修表、修锁、修断过的伞骨，不替别人把话说圆。九年前他的父亲死在工作台上，记录写成台灯短路。他不再在子时开工。`,
-    `${preset.client}是钟表匠${preset.father}的女儿。${preset.father}失踪前一夜见过古董商${preset.antagonist}。她拿来的怀表停在十一点五十七分，后盖新刻着「勿在子时打开」，机芯里还有一套不带动指针的齿轮。`,
-    `${preset.antagonist}经营画廊，账上登记过十二只表。他认「慢针」是沈家工坊的印记，不觉得自己在藏人。他的条件始终是：表先回来。`,
+    `${preset.client}是钟表匠${preset.father}的女儿。${preset.father}失踪前一夜见过古董商${preset.antagonist}。她拿来的怀表停在十一点五十七分，后盖新刻着“勿在子时打开”，机芯里还有一套不带动指针的齿轮。`,
+    `${preset.antagonist}经营画廊，账上登记过十二只表。他认“慢针”是沈家工坊的印记，不觉得自己在藏人。他的条件始终是：表先回来。`,
     "这本书写城市里的手艺和隐瞒。线索只放在物件上：断口、镀层、刻字深浅、工具朝向。不写通灵，不写全知内心。每章收在一个具体动作上。",
   ].join("\n\n");
 }
@@ -547,7 +547,7 @@ export class LocalDraftAdapter implements AgentRuntimeAdapter {
         text = renderMemory(input.context);
         break;
       case "chat":
-        text = `关于《${world.title}》：我可以按场景帮你写全书大纲、细纲、正文或审核。直接说「写第 1 章正文」「审核第 2 章」之类即可。`;
+        text = `关于《${world.title}》：我可以按场景帮你写全书大纲、细纲、正文或审核。直接说“写第 1 章正文”“审核第 2 章”之类即可。`;
         break;
       default:
         text = renderProfile(world);
@@ -558,7 +558,9 @@ export class LocalDraftAdapter implements AgentRuntimeAdapter {
     } else if (level === "off" && input.scene === "chat") {
       text = text.trim();
     }
-    return { text: text.trim(), modelUsed: `local-draft/${level}` };
+    // Spoken dialogue everywhere: “…” only (never 「」 / （）).
+    text = normalizeDialogueQuotes(text.trim());
+    return { text, modelUsed: `local-draft/${level}` };
   }
 }
 
@@ -571,14 +573,14 @@ export function rewriteSelectionLocal(selection: string, instruction: string): s
   if (/续写/.test(ask)) {
     const tail = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).at(-1) ?? text;
     const hint = Array.from(tail).slice(-24).join("");
-    return `${hint}——话还没落完，对面已经把茶杯放下。窗外的声响近了一寸，像有人故意踩着旧板。`;
+    return normalizeDialogueQuotes(`${hint}——话还没落完，对面已经把茶杯放下。窗外的声响近了一寸，像有人故意踩着旧板。`);
   }
 
   if (/缩短|精简|压缩/.test(ask)) {
     const parts = text.split(/(?<=[。！？!?])/).map((part) => part.trim()).filter(Boolean);
-    if (parts.length <= 2) return text;
+    if (parts.length <= 2) return normalizeDialogueQuotes(text);
     const keep = Math.max(2, Math.ceil(parts.length * 0.55));
-    return parts.slice(0, keep).join("");
+    return normalizeDialogueQuotes(parts.slice(0, keep).join(""));
   }
 
   if (/对白|对话/.test(ask)) {

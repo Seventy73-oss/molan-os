@@ -355,14 +355,16 @@ app.post("/api/books/:id/selection-rewrite/stream", async (c) => {
 app.post("/api/books/:id/chat", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const message = typeof body.message === "string" ? body.message : "";
-  return c.json(await chat(c.req.param("id"), message));
+  const chapterNumber = typeof body.chapterNumber === "number" ? body.chapterNumber : null;
+  return c.json(await chat(c.req.param("id"), message, chapterNumber));
 });
 
 app.post("/api/books/:id/chat/stream", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const message = typeof body.message === "string" ? body.message : "";
+  const chapterNumber = typeof body.chapterNumber === "number" ? body.chapterNumber : null;
   return sseJson(c, async (emit) => {
-    await streamChat(emit, c.req.param("id"), message);
+    await streamChat(emit, c.req.param("id"), message, chapterNumber);
   });
 });
 

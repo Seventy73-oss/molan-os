@@ -3711,6 +3711,21 @@ label {
   border: 1px solid var(--line);
   white-space: nowrap;
 }
+.composer-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.composer-hint {
+  margin: 0;
+  flex: 1;
+  min-width: 10em;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
 .generate-row {
   display: flex;
   align-items: center;
@@ -3729,7 +3744,7 @@ label {
   gap: 6px;
   flex: none;
   box-sizing: border-box;
-  height: 42px;
+  height: 34px;
   padding: 0 8px 0 12px;
   margin: 0;
   border-radius: var(--radius, 12px);

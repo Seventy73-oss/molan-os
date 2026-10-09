@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useBlocker, useParams } from "react-router-dom";
 import { api, streamApi, type Artifact, type BookPayload, type ChatMessage, type ModelInfo, type ProviderSettings, type Route, type Skill, type WritingJob, THINKING_OPTIONS, thinkingLabel, type ThinkingIntensity } from "../api";
-import { prefersReducedMotion, revealText } from "../lib/reveal";
+import { prefersReducedMotion } from "../lib/reveal";
 import { ModelPicker } from "../components/ModelPicker";
 import { useBookTitle } from "../App";
 import { Manuscript, mirror, type AssistAction } from "../components/Manuscript";
@@ -158,7 +158,7 @@ export function Studio() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
   const [chatText, setChatText] = useState("");
-  const [busy, setBusy] = useState<"" | "generate" | "chat" | "assist">("");
+  const [busy, setBusy] = useState<"" | "chat" | "assist">("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -393,7 +393,7 @@ export function Studio() {
 
   const chapterTitle = data?.chapters.find((chapter) => chapter.number === doc.chapterNumber)?.title;
 
-  function claim(kind: "generate" | "chat" | "assist") {
+  function claim(kind: "chat" | "assist") {
     if (busyRef.current) return false;
     busyRef.current = true;
     setBusy(kind);
@@ -470,85 +470,6 @@ export function Studio() {
     return true;
   }
 
-  /** Runs the current scene for the current document, or for `target` right after switching to it. */
-  async function generate(target?: Doc) {
-    if (!claim("generate")) return;
-    setError("");
-    setStreamPreview("");
-    setStreamStatus("正在生成…");
-    const runDoc = target ?? doc;
-    const runScene = target ? sceneFor(target) : scene;
-    const runSkills = target ? skills.filter((skill) => skill.scene === runScene && skill.enabled).map((skill) => skill.id) : checked;
-    revealAbort.current?.abort();
-    streamAbort.current?.abort();
-    const abort = new AbortController();
-    revealAbort.current = abort;
-    streamAbort.current = abort;
-    try {
-      if (!target) await persist();
-      setWriting(true);
-      let assembled = "";
-      let result;
-      try {
-        result = await streamApi.sceneRun(
-          id,
-          { scene: runScene, chapterNumber: runDoc.chapterNumber, instruction: "", skillIds: runSkills },
-          (event) => {
-            if (event.type === "status" && event.message) setStreamStatus(event.message);
-            if (event.type === "token" && event.text) {
-              assembled += event.text;
-              setStreamPreview(assembled);
-              setDraft(assembled);
-            }
-          },
-          abort.signal,
-        );
-      } catch (err) {
-        if (isAbort(err)) throw err;
-        // Fallback to classic JSON if SSE unavailable.
-        result = await api.sceneRun(id, {
-          scene: runScene,
-          chapterNumber: runDoc.chapterNumber,
-          instruction: "",
-          skillIds: runSkills,
-        });
-        assembled = result.text;
-        await revealText(assembled, (partial) => {
-          setDraft(partial);
-          setStreamPreview(partial);
-        }, { signal: abort.signal });
-      }
-      const payload = await api.book(id);
-      dataRef.current = payload;
-      setData(payload);
-      const artifact = findArtifact(payload, runDoc);
-      const nextText = artifact?.body || result.text || assembled;
-      setDraft(nextText);
-      setSavedText(nextText);
-      setRevision(artifact?.revision ?? result.saved?.revision ?? 0);
-      setNotice(`已生成${KIND_NAME[runDoc.kind] ?? "稿件"}`);
-    } catch (err) {
-      if (isAbort(err)) {
-        setNotice("已停止生成。当前内容留在编辑区，可继续改或保存。");
-      } else {
-        setError(err instanceof Error ? err.message : "生成失败");
-      }
-    } finally {
-      setStreamPreview("");
-      setStreamStatus("");
-      if (streamAbort.current === abort) streamAbort.current = null;
-      release();
-    }
-  }
-
-  async function generateInto(next: Doc) {
-    if (busyRef.current) return;
-    const sameDoc = next.kind === doc.kind && next.chapterNumber === doc.chapterNumber;
-    if (sameDoc) return generate();
-    const switched = await open(next);
-    if (switched) await generate(next);
-  }
-
   async function send(text = chatText) {
     const message = text.trim();
     if (!message || !claim("chat")) return;
@@ -572,10 +493,10 @@ export function Studio() {
             live += event.text;
             setStreamPreview(live);
           }
-        }, abort.signal);
+        }, abort.signal, doc.chapterNumber);
       } catch (err) {
         if (isAbort(err)) throw err;
-        result = await api.chat(id, message);
+        result = await api.chat(id, message, doc.chapterNumber);
       }
       const msgs = await api.messages(id);
       setMessages(msgs.messages);
@@ -963,7 +884,6 @@ export function Studio() {
   const showEmpty = isEmptyDoc && !writing;
   const outlineDoc: Doc | null = chapterNo ? { kind: "chapter_outline", chapterNumber: chapterNo, label: "细纲" } : null;
   const needsOutline = doc.kind === "chapter_body" && outlineDoc !== null && !hasBody("chapter_outline", chapterNo);
-  const generateLabel = `生成${KIND_NAME[doc.kind] ?? "此稿"}`;
   const suggestions = suggestionsFor(doc, !isEmptyDoc, data.chapters.length);
   const settingsExpanded = settingsOpen ?? messages.length === 0;
   const activeSkills = sceneSkills.filter((skill) => checked.includes(skill.id));
@@ -1202,26 +1122,56 @@ export function Studio() {
               <h2>{doc.kind === "chapter_body" ? "这一章还空着" : `${KIND_NAME[doc.kind]}还空着`}</h2>
               <p>
                 {needsOutline
-                  ? "建议先写细纲，定下场景和冲突，再按细纲生成正文。"
+                  ? "建议先在右侧对话说「写细纲」，定下场景和冲突，再写正文。"
                   : doc.kind === "review_report"
-                    ? "正文写好后，可以让墨兰写作按设定逐条核对，生成一份审核报告。"
-                    : "让墨兰写作按档案和大纲先起一稿，再慢慢改。"}
+                    ? "正文写好后，在右侧对话说「审核这一章」，墨兰会按设定逐条核对。"
+                    : "在右侧对话框里说要写什么，例如「写这一章正文」或「写全书大纲」。"}
               </p>
               <div className="doc-empty-actions">
                 {needsOutline && outlineDoc ? (
                   <>
-                    <button type="button" className={busy === "generate" ? "btn primary working" : "btn primary"} disabled={Boolean(busy)} onClick={() => void generateInto(outlineDoc)}>
-                      {busy === "generate" ? <Spinner /> : null}
-                      生成细纲
+                    <button
+                      type="button"
+                      className={busy === "chat" ? "btn primary working" : "btn primary"}
+                      disabled={Boolean(busy)}
+                      onClick={() => void send(`写第 ${doc.chapterNumber ?? 1} 章细纲`)}
+                    >
+                      {busy === "chat" ? <Spinner /> : null}
+                      写细纲
                     </button>
-                    <button type="button" className="btn" disabled={Boolean(busy)} onClick={() => void generate()}>
-                      直接生成正文
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={Boolean(busy)}
+                      onClick={() => void send(`写第 ${doc.chapterNumber ?? 1} 章正文`)}
+                    >
+                      写正文
                     </button>
                   </>
                 ) : (
-                  <button type="button" className={busy === "generate" ? "btn primary working" : "btn primary"} disabled={Boolean(busy)} onClick={() => void generate()}>
-                    {busy === "generate" ? <Spinner /> : null}
-                    {busy === "generate" ? "正在生成…" : generateLabel}
+                  <button
+                    type="button"
+                    className={busy === "chat" ? "btn primary working" : "btn primary"}
+                    disabled={Boolean(busy)}
+                    onClick={() => {
+                      const n = doc.chapterNumber ?? 1;
+                      const intent =
+                        doc.kind === "book_outline"
+                          ? "写全书大纲"
+                          : doc.kind === "book_profile"
+                            ? "写建书档案"
+                            : doc.kind === "chapter_outline"
+                              ? `写第 ${n} 章细纲`
+                              : doc.kind === "review_report"
+                                ? `审核第 ${n} 章`
+                                : doc.kind === "chapter_memory"
+                                  ? `写第 ${n} 章正文`
+                                  : `写第 ${n} 章正文`;
+                      void send(intent);
+                    }}
+                  >
+                    {busy === "chat" ? <Spinner /> : null}
+                    {busy === "chat" ? "正在写…" : `用对话写${KIND_NAME[doc.kind] ?? "此稿"}`}
                   </button>
                 )}
                 <button type="button" className="btn ghost" disabled={Boolean(busy)} onClick={() => setWriting(true)}>
@@ -1230,17 +1180,7 @@ export function Studio() {
               </div>
             </div>
           ) : (
-            <div className={busy === "generate" ? "doc-body generating streaming" : "doc-body"}>
-              {busy === "generate" && streamStatus ? (
-                <div className="stream-status" role="status">
-                  <span className="stream-pulse" aria-hidden="true" />
-                  <span className="stream-status-text">{streamStatus}</span>
-                  {streamPreview ? <span className="stream-count">{streamPreview.replace(/\s/g, "").length} 字</span> : null}
-                  <button type="button" className="btn small ghost stream-stop" onClick={() => cancelStream()}>
-                    停止
-                  </button>
-                </div>
-              ) : null}
+            <div className="doc-body">
               <Manuscript
                 key={`${doc.kind}-${doc.chapterNumber ?? "book"}`}
                 mode={doc.kind === "chapter_body" ? "prose" : "plain"}
@@ -1518,7 +1458,7 @@ export function Studio() {
             <div className="chat-empty">
               <div className="chat-empty-mark">长</div>
               <p className="chat-empty-title">想让墨兰写作做什么？</p>
-              <p className="chat-empty-sub">选一条开头，或直接输入。</p>
+              <p className="chat-empty-sub">写作、审核、去 AI 味都在这里说；点一条开头，或自己输入。</p>
               <div className="suggestions">
                 {suggestions.map((item) => (
                   <button
@@ -1527,8 +1467,7 @@ export function Studio() {
                     className="suggestion"
                     disabled={Boolean(busy)}
                     onClick={() => {
-                      setChatText(item);
-                      composerRef.current?.focus();
+                      void send(item);
                     }}
                   >
                     {item}
@@ -1589,12 +1528,12 @@ export function Studio() {
                   <i />
                 </span>
                 {streamStatus
-                  || (busy === "generate"
-                  ? `正在${generateLabel.replace("生成", "写")}…`
-                  : busy === "assist"
+                  || (busy === "assist"
                     ? "正在改选区…"
-                    : "正在想…")}
-                {(busy === "generate" || busy === "chat" || busy === "assist") ? (
+                    : busy === "chat"
+                      ? "正在写…"
+                      : "正在想…")}
+                {(busy === "chat" || busy === "assist") ? (
                   <button type="button" className="text-link stream-stop-inline" onClick={() => cancelStream()}>
                     停止
                   </button>
@@ -1745,7 +1684,7 @@ export function Studio() {
                 ref={composerRef}
                 rows={1}
                 value={chatText}
-                placeholder="让墨兰写作改写、续写，或问点什么…"
+                placeholder="例如：写这一章正文、写全书大纲、审核这一章…"
                 onChange={(event) => setChatText(event.target.value)}
                 onCompositionStart={() => {
                   composerComposing.current = true;
@@ -1788,7 +1727,7 @@ export function Studio() {
               )}
             </button>
           </div>
-          <div className="generate-row">
+          <div className="composer-meta">
             <label className="thinking-inline" title="当前场景的思考强度，可在上方模型菜单或「模型」页修改">
               <span>思考</span>
               <select
@@ -1806,19 +1745,7 @@ export function Studio() {
                 ))}
               </select>
             </label>
-            <button
-              type="button"
-              className={busy === "generate" ? "btn primary generate working" : "btn primary generate"}
-              onClick={() => {
-                if (busy === "generate") cancelStream();
-                else void generate();
-              }}
-              disabled={Boolean(busy) && busy !== "generate"}
-              aria-busy={busy === "generate"}
-            >
-              {busy === "generate" ? <Spinner /> : null}
-              {busy === "generate" ? "停止生成" : "生成此稿"}
-            </button>
+            <p className="composer-hint">写作请直接在上面说；Enter 发送，Shift+Enter 换行</p>
           </div>
         </footer>
       </aside>

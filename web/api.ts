@@ -250,10 +250,10 @@ export const api = {
       `/api/books/${id}/scene-runs`,
       { method: "POST", body: JSON.stringify(body) },
     ),
-  chat: (id: string, message: string) =>
+  chat: (id: string, message: string, chapterNumber?: number | null) =>
     request<{ message: ChatMessage; saved: Saved | null }>(`/api/books/${id}/chat`, {
       method: "POST",
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, chapterNumber: chapterNumber ?? null }),
     }),
   addChapter: (id: string, title?: string) =>
     request<BookPayload>(`/api/books/${id}/chapters`, {
@@ -441,8 +441,14 @@ export const streamApi = {
     message: string,
     onEvent: (event: { type: string; text?: string; message?: string; payload?: unknown }) => void,
     signal?: AbortSignal,
+    chapterNumber?: number | null,
   ) =>
-    postStream(`/api/books/${id}/chat/stream`, { message }, onEvent, signal) as Promise<{
+    postStream(
+      `/api/books/${id}/chat/stream`,
+      { message, chapterNumber: chapterNumber ?? null },
+      onEvent,
+      signal,
+    ) as Promise<{
       message: ChatMessage;
       saved: Saved | null;
     }>,

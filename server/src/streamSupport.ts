@@ -180,10 +180,10 @@ export async function streamSelectionRewrite(
   await emit({ type: "done", payload: result });
 }
 
-export async function streamChat(emit: Emit, bookId: string, message: string) {
+export async function streamChat(emit: Emit, bookId: string, message: string, preferredChapter?: number | null) {
   // Chat persistence + routing is complex; stream status then run sync chat, then chunk the assistant body.
   await emit({ type: "status", message: "助手正在写…" });
-  const result = await chat(bookId, message);
+  const result = await chat(bookId, message, preferredChapter);
   const body = result.message.content;
   // Prefer streaming the manuscript body after the first line if saved.
   const newline = body.indexOf("\n");

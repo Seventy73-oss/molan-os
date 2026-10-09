@@ -869,10 +869,15 @@ function routeMessage(message: string): SceneId | null {
   if (asks && !ordersDraft && !/去\s*AI|润色|审核/.test(message)) return null;
   if (/去\s*AI|润色/.test(message)) return "humanize";
   if (message.includes("审核")) return "review";
+  if (/档案|建书|设定/.test(message)) return "book_setup";
   if (message.includes("细纲")) return "chapter_outline";
   // 「写全书大纲」contains 写 — check 大纲 before bare 写/正文.
   if (message.includes("大纲")) return "outline";
   if (message.includes("正文")) return "chapter_body";
+  // 「写这一章 / 写本章」走正文；纯提问不进这里（上面已排除）。
+  if (/(写|生成|重写|续写).{0,8}(这一章|本章)|(这一章|本章).{0,6}(写|生成|重写|续写)/.test(message)) {
+    return "chapter_body";
+  }
   if (message.includes("写") || message.includes("生成") || message.includes("重写")) return "chapter_body";
   return null;
 }
@@ -940,7 +945,7 @@ export async function rewriteSelection(input: {
   }
 }
 
-export async function chat(bookId: string, message: string) {
+export async function chat(bookId: string, message: string, preferredChapter?: number | null) {
   const book = mustBook(bookId);
   const text = message.trim();
   if (!text) throw new HttpError(400, "要说一句");
@@ -999,8 +1004,16 @@ export async function chat(bookId: string, message: string) {
       return { message: assistant, saved: null, ...skillInfo };
     }
   }
+  const mentioned = parseChapterMention(text);
+  const fallbackChapter =
+    typeof preferredChapter === "number" && preferredChapter > 0
+      ? preferredChapter
+      : 1;
+  // 「这一章 / 本章」或未点名时，用写作台当前章；显式「第 N 章」优先。
   const chapterNumber =
-    scene === "outline" ? null : (parseChapterMention(text) ?? 1);
+    scene === "outline" || scene === "book_setup"
+      ? null
+      : (mentioned ?? fallbackChapter);
   try {
     const result = await executeScene({ bookId, scene, chapterNumber, instruction: text });
     const label = result.saved ? KIND_LABEL[result.saved.kind] ?? "稿件" : "稿件";

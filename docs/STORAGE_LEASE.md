@@ -19,10 +19,12 @@
 
 ## 覆盖导入与崩溃恢复
 
-- 覆盖导入前会把原书逻辑快照落到 `data/import-recovery/<bookId>.json`（先写临时文件再 rename）。
+- 覆盖导入前会把原书逻辑快照落到 `data/import-recovery/<bookId>.json`（先写临时文件、尽量 fsync，再 rename）。
 - 导入成功或内存回滚成功后删除该文件。
 - 若进程在 wipe 与 restore 之间被杀死，下次启动 `recoverInterruptedImports()` 会尝试从该文件还原书库并 `syncBook`。
-- **人工恢复**：若启动恢复仍失败，保留该 JSON，核对 `data/books/<bookId>/` 与 SQLite 后，可把文件移出目录再重启，或在维护环境用快照回灌逻辑恢复。
+- 启动时会清理孤儿 `.*.tmp`；JSON 损坏或 schema/id 不符时移入 `data/import-recovery/corrupt/` 并跳过，避免反复失败。
+- **仍是逻辑快照**，不是整库物理备份；磁盘满或损坏时需人工核对。
+- **人工恢复**：若启动恢复仍失败，保留该 JSON（或 corrupt 目录内文件），核对 `data/books/<bookId>/` 与 SQLite 后，可把文件移出目录再重启，或在维护环境用快照回灌逻辑恢复。
 
 ## 取消与暂停语义（回顾）
 

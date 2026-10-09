@@ -166,7 +166,18 @@ function writeDurableSnapshot(snap: BookSnapshot) {
   const bookId = String(snap.book.id);
   const finalPath = recoveryFile(bookId);
   const tmpPath = path.join(dir, `.${bookId}.${process.pid}.${Date.now()}.tmp`);
-  fs.writeFileSync(tmpPath, JSON.stringify(snap), "utf8");
+  const payload = JSON.stringify(snap);
+  const fd = fs.openSync(tmpPath, "w");
+  try {
+    fs.writeFileSync(fd, payload, "utf8");
+    try {
+      fs.fsyncSync(fd);
+    } catch {
+      /* some FS (e.g. certain tmpfs) may not support fsync; rename still best-effort */
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
   fs.renameSync(tmpPath, finalPath);
 }
 
@@ -178,13 +189,61 @@ function clearDurableSnapshot(bookId: string) {
   }
 }
 
+function isValidSnapshot(snap: unknown, expectBookId?: string): snap is BookSnapshot {
+  if (!snap || typeof snap !== "object") return false;
+  const s = snap as Record<string, unknown>;
+  const book = s.book as Record<string, unknown> | undefined;
+  if (!book || typeof book !== "object" || typeof book.id !== "string" || !book.id) return false;
+  if (expectBookId && book.id !== expectBookId) return false;
+  for (const key of ["chapters", "artifacts", "revisions", "messages", "bible", "hooks", "jobs"] as const) {
+    if (!Array.isArray(s[key])) return false;
+  }
+  return true;
+}
+
+function quarantineCorrupt(bookId: string, reason: string) {
+  const file = recoveryFile(bookId);
+  if (!fs.existsSync(file)) return;
+  const qdir = path.join(importRecoveryDir(), "corrupt");
+  fs.mkdirSync(qdir, { recursive: true });
+  const dest = path.join(qdir, `${bookId}.${Date.now()}.json`);
+  try {
+    fs.renameSync(file, dest);
+    console.error(`[import] quarantined corrupt recovery ${bookId} → ${dest} (${reason})`);
+  } catch (error) {
+    console.error(`[import] failed to quarantine ${bookId}`, error);
+  }
+}
+
+function cleanupOrphanTmpFiles() {
+  const dir = importRecoveryDir();
+  if (!fs.existsSync(dir)) return 0;
+  let n = 0;
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.startsWith(".") || !name.endsWith(".tmp")) continue;
+    try {
+      fs.unlinkSync(path.join(dir, name));
+      n += 1;
+    } catch {
+      /* ignore */
+    }
+  }
+  return n;
+}
+
 function readDurableSnapshot(bookId: string): BookSnapshot | null {
   const file = recoveryFile(bookId);
   if (!fs.existsSync(file)) return null;
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8")) as BookSnapshot;
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+    if (!isValidSnapshot(parsed, bookId)) {
+      quarantineCorrupt(bookId, "schema/id mismatch");
+      return null;
+    }
+    return parsed;
   } catch (error) {
     console.error("[import] corrupt recovery snapshot", bookId, error);
+    quarantineCorrupt(bookId, error instanceof Error ? error.message : "parse error");
     return null;
   }
 }
@@ -193,13 +252,16 @@ function readDurableSnapshot(bookId: string): BookSnapshot | null {
  * On startup: if an overwrite-import left a recovery file, restore DB+md from it.
  * Manual recovery: copy `data/import-recovery/<bookId>.json` aside, then call this or restore via test helper.
  */
-export function recoverInterruptedImports(): { restored: string[]; skipped: string[] } {
+export function recoverInterruptedImports(): { restored: string[]; skipped: string[]; cleanedTmp: number } {
   const dir = importRecoveryDir();
   const restored: string[] = [];
   const skipped: string[] = [];
-  if (!fs.existsSync(dir)) return { restored, skipped };
+  const cleanedTmp = cleanupOrphanTmpFiles();
+  if (!fs.existsSync(dir)) return { restored, skipped, cleanedTmp };
   for (const name of fs.readdirSync(dir)) {
     if (!name.endsWith(".json") || name.startsWith(".")) continue;
+    // Skip nested corrupt/ directory entries (readdir is not recursive, but be explicit).
+    if (name === "corrupt") continue;
     const bookId = name.slice(0, -".json".length);
     const snap = readDurableSnapshot(bookId);
     if (!snap?.book?.id) {
@@ -216,7 +278,7 @@ export function recoverInterruptedImports(): { restored: string[]; skipped: stri
       skipped.push(bookId);
     }
   }
-  return { restored, skipped };
+  return { restored, skipped, cleanedTmp };
 }
 
 function snapshotBook(bookId: string): BookSnapshot {
@@ -611,4 +673,13 @@ export function __clearDurableSnapshotForTest(bookId: string) {
 }
 export function __recoveryFileForTest(bookId: string) {
   return recoveryFile(bookId);
+}
+export function __isValidSnapshotForTest(snap: unknown, expectBookId?: string) {
+  return isValidSnapshot(snap, expectBookId);
+}
+export function __cleanupOrphanTmpFilesForTest() {
+  return cleanupOrphanTmpFiles();
+}
+export function __quarantineCorruptForTest(bookId: string, reason: string) {
+  quarantineCorrupt(bookId, reason);
 }

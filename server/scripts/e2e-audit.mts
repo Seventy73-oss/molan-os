@@ -2,7 +2,7 @@
  * Phase-3 audit E2E (API-level, mock models / local-draft only).
  * Covers: slow/concurrent CAS, SSE lost receipt, process restart, late candidate,
  * job pause/cancel, overwrite-import rollback, durable import recovery, AbortSignal cancel,
- * SQLite lease, worker storage policy.
+ * SQLite lease, worker storage policy, corrupt recovery quarantine.
  *
  * Run: npm run test:e2e
  */
@@ -34,7 +34,10 @@ async function main() {
     __writeDurableSnapshotForTest,
     __clearDurableSnapshotForTest,
     __recoveryFileForTest,
+    __isValidSnapshotForTest,
+    __cleanupOrphanTmpFilesForTest,
     recoverInterruptedImports,
+    importRecoveryDir,
   } = await import("../src/importBook");
   const { db } = await import("../src/db");
   const {
@@ -43,6 +46,7 @@ async function main() {
     releaseJobLease,
     assertJobWorkerStoragePolicy,
     experimentalPgWorkerAllowed,
+    jobWorkerAllowedForDriver,
   } = await import("../src/jobs/worker").then(async () => {
     const worker = await import("../src/jobs/worker");
     return {
@@ -51,6 +55,7 @@ async function main() {
       releaseJobLease: engine.releaseJobLease,
       assertJobWorkerStoragePolicy: worker.assertJobWorkerStoragePolicy,
       experimentalPgWorkerAllowed: worker.experimentalPgWorkerAllowed,
+      jobWorkerAllowedForDriver: worker.jobWorkerAllowedForDriver,
     };
   });
   const { throwIfAborted, isAbortError } = await import("../src/abortUtil");
@@ -386,6 +391,36 @@ z.close()
   check("E2E PG worker 显式允许开关", experimentalPgWorkerAllowed() === true);
   if (prevFlag === undefined) delete process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER;
   else process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER = prevFlag;
+
+  // Pure driver refuse (no cluster lease claim)
+  const pgRefuse = jobWorkerAllowedForDriver("postgres", false);
+  check("E2E Postgres 驱动默认拒开 worker", !pgRefuse.allowed && /拒绝/.test(pgRefuse.reason), pgRefuse.reason);
+  const pgliteRefuse = jobWorkerAllowedForDriver("pglite", false);
+  check("E2E PGlite 驱动默认拒开 worker", !pgliteRefuse.allowed, pgliteRefuse.reason);
+  const pgOptIn = jobWorkerAllowedForDriver("postgres", true);
+  check("E2E Postgres 显式 opt-in 才允许", pgOptIn.allowed && /single-process/.test(pgOptIn.reason), pgOptIn.reason);
+
+  // Corrupt recovery quarantine + orphan tmp cleanup
+  check("E2E 快照 schema 校验拒绝空对象", __isValidSnapshotForTest({}) === false);
+  const badId = `corrupt-e2e-${Date.now()}`;
+  const badPath = __recoveryFileForTest(badId);
+  fs.mkdirSync(path.dirname(badPath), { recursive: true });
+  fs.writeFileSync(badPath, "{not-json", "utf8");
+  const afterCorrupt = recoverInterruptedImports();
+  check(
+    "E2E 损坏恢复文件被跳过并隔离",
+    afterCorrupt.skipped.includes(badId) && !fs.existsSync(badPath),
+    JSON.stringify(afterCorrupt),
+  );
+  const corruptDir = path.join(importRecoveryDir(), "corrupt");
+  const quarantined = fs.existsSync(corruptDir)
+    ? fs.readdirSync(corruptDir).some((n) => n.startsWith(badId))
+    : false;
+  check("E2E 损坏快照进入 corrupt 目录", quarantined, corruptDir);
+  const tmpOrphan = path.join(importRecoveryDir(), `.orphan.${process.pid}.tmp`);
+  fs.writeFileSync(tmpOrphan, "x", "utf8");
+  const cleaned = __cleanupOrphanTmpFilesForTest();
+  check("E2E 清理孤儿 tmp 恢复文件", cleaned >= 1 && !fs.existsSync(tmpOrphan), String(cleaned));
 
   // Cancelled generation reuse
   let cancelReuse = false;

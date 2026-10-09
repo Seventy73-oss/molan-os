@@ -15,23 +15,33 @@ export function experimentalPgWorkerAllowed(): boolean {
   return (process.env.MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER || "").trim() === "1";
 }
 
-export function assertJobWorkerStoragePolicy(): { allowed: boolean; reason: string } {
-  const info = getDbInfo();
-  if (info.driver === "sqlite") {
+/**
+ * Pure policy for tests: Postgres/PGlite refuse worker unless explicit opt-in.
+ * Does NOT implement cross-process lease — only documents refuse-by-default.
+ */
+export function jobWorkerAllowedForDriver(
+  driver: string,
+  experimentalFlag = experimentalPgWorkerAllowed(),
+): { allowed: boolean; reason: string } {
+  if (driver === "sqlite") {
     return { allowed: true, reason: "sqlite" };
   }
-  if (experimentalPgWorkerAllowed()) {
+  if (experimentalFlag) {
     return {
       allowed: true,
-      reason: `${info.driver}: MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1 (single-process only)`,
+      reason: `${driver}: MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1 (single-process only)`,
     };
   }
   return {
     allowed: false,
     reason:
-      `${info.driver} 为实验性镜像刷盘，多进程租约未验证；默认拒绝启动任务 worker。` +
+      `${driver} 为实验性镜像刷盘，多进程租约未验证；默认拒绝启动任务 worker。` +
       `单进程可设 MOLAN_ALLOW_EXPERIMENTAL_PG_WORKER=1。详见 docs/STORAGE_LEASE.md`,
   };
+}
+
+export function assertJobWorkerStoragePolicy(): { allowed: boolean; reason: string } {
+  return jobWorkerAllowedForDriver(getDbInfo().driver);
 }
 
 let timer: NodeJS.Timeout | null = null;

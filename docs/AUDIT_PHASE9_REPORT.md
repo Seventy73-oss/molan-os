@@ -52,4 +52,4 @@ npm run test:audit         # regression + e2e + browser + pg-lease（不含 live
 - `docs/PI_RUNTIME.md` — pi 模型代调边界
 - `docs/LIVE_MODEL.md` — 可选 live 验收
 
-本阶段 HEAD：`acd26cd`。
+本阶段代码 `acd26cd`；文档链至 HEAD `d3813b7`。

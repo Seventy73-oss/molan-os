@@ -1,6 +1,7 @@
 # molan-os 审查修复第四阶段报告
 
 基线续作：`f0769ff`（阶段 3 之后）  
+本阶段提交：`0d92f0e` + `918c318`（HEAD）  
 测试：`npm run typecheck` 通过；`npm run test:regression` → **26/26**；`npm run test:e2e` → **25/25**；`npm run test:e2e:browser` → **10/10**。  
 默认存储仍为 SQLite；Markdown 导出布局未改；正式生成仍无服务端静默本地降级。
 

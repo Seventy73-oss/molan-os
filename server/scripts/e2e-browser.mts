@@ -1,7 +1,7 @@
 /**
  * Phase-4 browser E2E (Playwright Chromium).
  * Spawns API + Vite on free ports with a temp SQLite DB; exercises Library → Studio →
- * selection bubble matrix +「对助手说」custom + mid-stream abort + streaming chat write (local-draft) → Skills/Models.
+ * selection bubble matrix +「对助手说」custom + mid-stream abort + streaming chat write + completed-stop / restore-previous (local-draft) → Skills/Models.
  *
  * Run: npm run test:e2e:browser
  */
@@ -510,6 +510,158 @@ async function main() {
         outlineFresh,
         writeNotice.slice(0, 80) || `outlineLen=${outline?.body?.length ?? 0}`,
       );
+
+      // --- Phase8: restore-previous from history + cancel on completed (no demote) ---
+      const prevSeed = "PHASE8_BROWSER_PREV\n上一版浏览器还原。";
+      const putPrev = await fetch(`${apiUrl}/api/books/${bookId}/artifacts`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "book_outline",
+          chapterNumber: null,
+          body: prevSeed,
+          source: "human",
+          scene: "outline",
+        }),
+      });
+      check("API 预置还原用上一版大纲", putPrev.ok, String(putPrev.status));
+      const putCurr = await fetch(`${apiUrl}/api/books/${bookId}/artifacts`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "book_outline",
+          chapterNumber: null,
+          body: "PHASE8_BROWSER_CURRENT\n当前已完成结果，停止不得静默退回。",
+          source: "human",
+          scene: "outline",
+        }),
+      });
+      check("API 预置当前已完成大纲", putCurr.ok, String(putCurr.status));
+
+      // Ensure studio is on 全书大纲 so VersionHistory targets book_outline
+      const outlineNav = page.getByRole("button", { name: /大纲/ }).or(page.locator("button.tree-item").filter({ hasText: /大纲/ }));
+      if (await outlineNav.first().isVisible().catch(() => false)) {
+        await outlineNav.first().click().catch(() => undefined);
+      }
+
+      const drawerToggle = page.getByRole("button", { name: "工具", exact: true });
+      let drawerOpened = false;
+      if (await drawerToggle.first().isVisible().catch(() => false)) {
+        await drawerToggle.first().click();
+        drawerOpened = true;
+      }
+      const drawerVisible = await page.locator(".tools-drawer").first().isVisible().catch(() => false);
+      check("打开工具抽屉", drawerOpened && drawerVisible, `opened=${drawerOpened} visible=${drawerVisible}`);
+
+      const histTab = page.getByRole("button", { name: "版本", exact: true });
+      const histTabSeen = await histTab
+        .first()
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (histTabSeen) await histTab.first().click();
+      check("切换到版本历史", histTabSeen);
+
+      const restorePrevBtn = page.locator('[data-testid="restore-previous"]');
+      const restoreSeen = await restorePrevBtn
+        .first()
+        .waitFor({ state: "visible", timeout: 8_000 })
+        .then(() => true)
+        .catch(() => false);
+      check("版本历史出现还原上一版", restoreSeen);
+      if (restoreSeen) {
+        const dialogWait = page.waitForEvent("dialog", { timeout: 5_000 }).catch(() => null);
+        await restorePrevBtn.first().click();
+        const dlg = await dialogWait;
+        if (dlg) {
+          try {
+            await dlg.accept();
+          } catch {
+            /* already handled */
+          }
+        }
+        for (let i = 0; i < 40; i++) {
+          const notice = ((await page.locator(".toast-notice").textContent().catch(() => "")) || "");
+          if (/已还原/.test(notice)) break;
+          await page.waitForTimeout(200);
+        }
+      }
+      const restoreNotice = ((await page.locator(".toast-notice").textContent().catch(() => "")) || "");
+      const bookAfterRestore = (await (await fetch(`${apiUrl}/api/books/${bookId}`)).json()) as {
+        artifacts: { kind: string; body?: string }[];
+      };
+      const outlineRestored = bookAfterRestore.artifacts.find((a) => a.kind === "book_outline");
+      const restoredOk =
+        (outlineRestored?.body || "").includes("PHASE8_BROWSER_PREV") || /已还原/.test(restoreNotice);
+      check(
+        "浏览器还原上一版成功",
+        restoredOk,
+        `notice=${restoreNotice.slice(0, 60)} body=${(outlineRestored?.body || "").slice(0, 60)}`,
+      );
+
+      // After a completed stream write, cancel must stay accepted (no demote)
+      const knownGid = crypto.randomUUID();
+      let completedCancelOk = false;
+      let completedCancelDetail = "";
+      try {
+        const streamRes = await fetch(`${apiUrl}/api/books/${bookId}/chat/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "text/event-stream" },
+          body: JSON.stringify({
+            message: "写全书大纲",
+            chapterNumber: null,
+            generationId: knownGid,
+          }),
+        });
+        const streamBody = await streamRes.text();
+        const statusBefore = (await (await fetch(`${apiUrl}/api/generations/${knownGid}`)).json()) as {
+          status?: string;
+          resultRevisionId?: string | null;
+        };
+        const bookBeforeCancel = (await (await fetch(`${apiUrl}/api/books/${bookId}`)).json()) as {
+          artifacts: { kind: string; body?: string }[];
+        };
+        const outlineBefore = bookBeforeCancel.artifacts.find((a) => a.kind === "book_outline")?.body || "";
+        const cancelRes = (await (
+          await fetch(`${apiUrl}/api/generations/${knownGid}/cancel`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          })
+        ).json()) as {
+          status?: string;
+          alreadyTerminal?: boolean;
+          accepted?: boolean;
+          previousRevisionId?: string | null;
+          revert?: { demoted?: boolean } | null;
+        };
+        const bookAfterCancel = (await (await fetch(`${apiUrl}/api/books/${bookId}`)).json()) as {
+          artifacts: { kind: string; body?: string }[];
+        };
+        const outlineAfter = bookAfterCancel.artifacts.find((a) => a.kind === "book_outline")?.body || "";
+        completedCancelOk =
+          streamRes.ok &&
+          statusBefore?.status === "completed" &&
+          cancelRes?.status === "completed" &&
+          Boolean(cancelRes?.alreadyTerminal) &&
+          Boolean(cancelRes?.accepted) &&
+          !cancelRes?.revert?.demoted &&
+          outlineAfter === outlineBefore;
+        completedCancelDetail = JSON.stringify({
+          streamStatus: streamRes.status,
+          streamLen: streamBody.length,
+          before: statusBefore?.status,
+          after: cancelRes?.status,
+          alreadyTerminal: cancelRes?.alreadyTerminal,
+          accepted: cancelRes?.accepted,
+          demoted: cancelRes?.revert?.demoted,
+          prev: cancelRes?.previousRevisionId,
+          outlineSame: outlineAfter === outlineBefore,
+        });
+      } catch (e) {
+        completedCancelDetail = e instanceof Error ? e.message : String(e);
+      }
+      check("完成后再取消不 demote（API）", completedCancelOk, completedCancelDetail.slice(0, 240));
     } else {
       check("API 预置第1章正文", false, "no bookId");
       check("正文载入编辑器", false);
@@ -532,6 +684,13 @@ async function main() {
       check("流式对话出现状态提示", false);
       check("流式对话 chat/stream 响应", false);
       check("流式对话写入全书大纲", false);
+      check("API 预置还原用上一版大纲", false);
+      check("API 预置当前已完成大纲", false);
+      check("打开工具抽屉", false);
+      check("切换到版本历史", false);
+      check("版本历史出现还原上一版", false);
+      check("浏览器还原上一版成功", false);
+      check("完成后再取消不 demote（API）", false);
     }
 
     await page.getByRole("link", { name: "技能" }).click();

@@ -275,6 +275,10 @@ export const api = {
         restoredRevisionId: string | null;
         artifactId: string | null;
       } | null;
+      alreadyTerminal?: boolean;
+      accepted?: boolean;
+      previousRevisionId?: string | null;
+      note?: string | null;
     }>(`/api/generations/${generationId}`),
   cancelGeneration: (generationId: string) =>
     request<{
@@ -289,6 +293,10 @@ export const api = {
         restoredRevisionId: string | null;
         artifactId: string | null;
       } | null;
+      alreadyTerminal?: boolean;
+      accepted?: boolean;
+      previousRevisionId?: string | null;
+      note?: string | null;
     }>(`/api/generations/${generationId}/cancel`, { method: "POST", body: "{}" }),
   sceneRun: (
     id: string,

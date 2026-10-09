@@ -2,7 +2,7 @@
  * Phase-3 audit E2E (API-level, mock models / local-draft only).
  * Covers: slow/concurrent CAS, SSE lost receipt, process restart, late candidate,
  * job pause/cancel, overwrite-import rollback, durable import recovery, AbortSignal cancel,
- * SQLite lease, worker storage policy, corrupt recovery quarantine, mid-stream cancel no overwrite, post-save cancel demote / agent_cancelled.
+ * SQLite lease, worker storage policy, corrupt recovery quarantine, mid-stream cancel no overwrite, post-save cancel demote / agent_cancelled, completed-stop no demote + restore-previous.
  *
  * Run: npm run test:e2e
  */
@@ -594,6 +594,124 @@ z.close()
     "E2E 候选保存不覆盖退回后的当前稿",
     (stillKeep || "").includes("PHASE7_KEEP_OUTLINE"),
     (stillKeep || "").slice(0, 60),
+  );
+
+  // --- Phase8: cancel after already completed → no demote; offer previousRevisionId ---
+  const keepCompleted = "PHASE8_KEEP_COMPLETED\n已接受结果，停止不可静默退回。";
+  const baseCompleted = engine.saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: "PHASE8_PREVIOUS\n上一版保留。",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "outline",
+    skipMemory: true,
+  });
+  const doneGid = crypto.randomUUID();
+  engine.beginGeneration({ id: doneGid, bookId, scene: "outline" });
+  const completedSaved = engine.saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: keepCompleted,
+    source: "agent",
+    model: "local-draft",
+    skillIds: [],
+    scene: "outline",
+    skipMemory: true,
+  });
+  engine.completeGeneration(doneGid, {
+    status: "completed",
+    resultRevisionId: completedSaved.revisionId,
+    result: { saved: completedSaved, message: { content: "ok" } },
+  });
+  const curBeforeStop = (
+    db
+      .prepare(
+        `SELECT r.id AS id, r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline'`,
+      )
+      .get(bookId) as { id: string; body: string } | undefined
+  );
+  check(
+    "E2E 完成态当前稿为已接受结果",
+    curBeforeStop?.id === completedSaved.revisionId && (curBeforeStop?.body || "").includes("PHASE8_KEEP_COMPLETED"),
+    curBeforeStop?.id,
+  );
+  const stopCompleted = engine.cancelGeneration(doneGid);
+  check(
+    "E2E 完成后再停止 alreadyTerminal+accepted",
+    Boolean(stopCompleted.alreadyTerminal && stopCompleted.accepted && stopCompleted.status === "completed"),
+    JSON.stringify({ status: stopCompleted.status, alreadyTerminal: stopCompleted.alreadyTerminal, accepted: stopCompleted.accepted }),
+  );
+  check(
+    "E2E 完成后再停止不 demote",
+    stopCompleted.revert == null || stopCompleted.revert.demoted === false,
+    JSON.stringify(stopCompleted.revert),
+  );
+  check(
+    "E2E 完成后再停止给出 previousRevisionId",
+    stopCompleted.previousRevisionId === baseCompleted.revisionId,
+    `prev=${stopCompleted.previousRevisionId} base=${baseCompleted.revisionId}`,
+  );
+  const curAfterStop = (
+    db
+      .prepare(
+        `SELECT r.id AS id, r.body AS body, r.source AS source FROM artifacts a
+         JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline'`,
+      )
+      .get(bookId) as { id: string; body: string; source: string } | undefined
+  );
+  check(
+    "E2E 完成后再停止当前稿不变",
+    curAfterStop?.id === completedSaved.revisionId && (curAfterStop?.body || "").includes("PHASE8_KEEP_COMPLETED"),
+    `cur=${curAfterStop?.id} src=${curAfterStop?.source}`,
+  );
+  const completedSrc = db
+    .prepare("SELECT source FROM artifact_revisions WHERE id = ?")
+    .get(completedSaved.revisionId) as { source: string } | undefined;
+  check(
+    "E2E 完成后再停止不标 agent_cancelled",
+    completedSrc?.source === "agent",
+    completedSrc?.source,
+  );
+  // Optional restore-previous (same as version history「还原」— creates new revision)
+  const { getRevisionBody } = await import("../src/features");
+  const prevBody = getRevisionBody(bookId, baseCompleted.revisionId);
+  const restoredRev = engine.saveRevision({
+    bookId,
+    kind: prevBody.kind,
+    chapterNumber: prevBody.chapterNumber,
+    body: prevBody.body,
+    source: "human",
+    model: "restore",
+    skillIds: [],
+    scene: null,
+    skipMemory: true,
+  });
+  check("E2E 手动还原上一版写入新修订", restoredRev.current === true, `current=${restoredRev.current}`);
+  const curAfterRestore = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline'`,
+      )
+      .get(bookId) as { body: string } | undefined
+  )?.body;
+  check(
+    "E2E 手动还原后当前为上一版内容",
+    (curAfterRestore || "").includes("PHASE8_PREVIOUS"),
+    (curAfterRestore || "").slice(0, 60),
+  );
+  // peekPreviousRevisionId helper
+  const peeked = engine.peekPreviousRevisionId(completedSaved.revisionId);
+  check(
+    "E2E peekPreviousRevisionId",
+    peeked === baseCompleted.revisionId || typeof peeked === "string",
+    `peeked=${peeked}`,
   );
 
   const failed = results.filter((r) => !r.ok);

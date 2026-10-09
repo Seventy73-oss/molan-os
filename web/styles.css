@@ -1926,6 +1926,20 @@ select {
   line-height: 1;
 }
 .toast-dismiss:hover { color: #fff; background: rgba(255,255,255,0.08); }
+.toast-notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-right: 40px; }
+.toast-text { flex: 1 1 auto; min-width: 0; }
+.toast-action {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(247, 241, 232, 0.14);
+  color: #f7f1e8;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.toast-action:hover { background: rgba(247, 241, 232, 0.24); }
+.history-restore-prev { margin: 4px 0 8px; gap: 8px; align-items: baseline; }
 
 .callout {
   margin: 0 0 16px;

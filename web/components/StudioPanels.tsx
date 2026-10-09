@@ -140,6 +140,12 @@ export function VersionHistory({ bookId, kind, chapterNumber, onRestored }: Hist
     }
   }
 
+  const current = revisions.find((r) => r.isCurrent);
+  const previousOfCurrent = current
+    ? revisions.find((r) => !r.isCurrent && r.revision === current.revision - 1) ||
+      revisions.filter((r) => !r.isCurrent && r.revision < current.revision).sort((a, b) => b.revision - a.revision)[0]
+    : undefined;
+
   return (
     <div className="panel-block history-panel">
       <div className="panel-row">
@@ -148,6 +154,20 @@ export function VersionHistory({ bookId, kind, chapterNumber, onRestored }: Hist
           刷新
         </button>
       </div>
+      {previousOfCurrent ? (
+        <div className="panel-row history-restore-prev">
+          <span className="panel-muted">当前稿可退回上一版（生成新修订，不删历史）</span>
+          <button
+            type="button"
+            className="text-link"
+            disabled={busy}
+            data-testid="restore-previous"
+            onClick={() => void restore(previousOfCurrent.id)}
+          >
+            还原上一版
+          </button>
+        </div>
+      ) : null}
       {error ? <p className="panel-error">{error}</p> : null}
       {!revisions.length ? <p className="panel-muted">还没有修订记录</p> : null}
       <ul className="rev-list">

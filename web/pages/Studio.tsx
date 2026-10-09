@@ -168,6 +168,7 @@ export function Studio() {
   const [pendingUser, setPendingUser] = useState("");
   const [confirmDeleteChapter, setConfirmDeleteChapter] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
+  const [restoreOfferId, setRestoreOfferId] = useState<string | null>(null);
   const [assistLocal, setAssistLocal] = useState(false);
   const [jobs, setJobs] = useState<WritingJob[]>([]);
   const [jobOpen, setJobOpen] = useState(false);
@@ -205,7 +206,12 @@ export function Studio() {
   function isAbort(err: unknown) {
     return err instanceof Error && (err.name === "AbortError" || err.message === "已取消");
   }
-  const cancelRevertRef = useRef<{ demoted: boolean } | null>(null);
+  const cancelRevertRef = useRef<{
+    demoted: boolean;
+    accepted: boolean;
+    previousRevisionId: string | null;
+    note: string | null;
+  } | null>(null);
   function cancelStream() {
     streamAbort.current?.abort();
     revealAbort.current?.abort();
@@ -214,9 +220,34 @@ export function Studio() {
       void api
         .cancelGeneration(gid)
         .then((res) => {
-          if (res.revert?.demoted) cancelRevertRef.current = { demoted: true };
+          cancelRevertRef.current = {
+            demoted: Boolean(res.revert?.demoted),
+            accepted: Boolean(res.accepted) || res.status === "completed",
+            previousRevisionId: res.previousRevisionId ?? null,
+            note: res.note ?? null,
+          };
         })
         .catch(() => undefined);
+    }
+  }
+
+  async function applyRestoreOffer(revId: string) {
+    setRestoreOfferId(null);
+    try {
+      const res = await api.restoreRevision(id, revId);
+      const payload = await api.book(id);
+      dataRef.current = payload;
+      setData(payload);
+      setTitle(payload.book.title);
+      const kind = (res.body.kind || doc.kind) as Kind;
+      const chapterNumber = res.body.chapterNumber ?? null;
+      const label =
+        CHILDREN.find((child) => child.kind === kind)?.label ??
+        (kind === "book_outline" ? "大纲" : kind === "book_profile" ? "档案" : "稿件");
+      show(payload, { kind, chapterNumber, label });
+      setNotice("已还原上一版（已写入新修订）");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "还原失败");
     }
   }
 
@@ -322,9 +353,13 @@ export function Studio() {
 
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 3200);
+    const ms = restoreOfferId ? 12_000 : 3200;
+    const timer = window.setTimeout(() => {
+      setNotice("");
+      setRestoreOfferId(null);
+    }, ms);
     return () => window.clearTimeout(timer);
-  }, [notice]);
+  }, [notice, restoreOfferId]);
 
   useEffect(() => {
     if (!data) return;
@@ -579,23 +614,38 @@ export function Studio() {
           label,
         };
         show(payload, nextDoc);
+        setRestoreOfferId(null);
         setNotice(`已写入${savedLabel(result.saved.kind, result.saved.chapterNumber)}，并打开该稿`);
       }
     } catch (err) {
       if (isAbort(err)) {
         const gid = activeGenerationId.current;
         let demoted = Boolean(cancelRevertRef.current?.demoted);
+        let accepted = Boolean(cancelRevertRef.current?.accepted);
+        let previousRevisionId = cancelRevertRef.current?.previousRevisionId ?? null;
+        let cancelNote = cancelRevertRef.current?.note ?? null;
         cancelRevertRef.current = null;
-        if (!demoted && gid) {
+        if (gid && (!demoted || !accepted)) {
           try {
-            const status = await api.getGeneration(gid);
+            const status = await api.cancelGeneration(gid);
             const result = status.result as { cancelRevert?: unknown } | null;
-            demoted = Boolean(status.revert?.demoted || result?.cancelRevert);
+            demoted = demoted || Boolean(status.revert?.demoted || result?.cancelRevert);
+            accepted = accepted || Boolean(status.accepted) || status.status === "completed";
+            previousRevisionId = previousRevisionId || status.previousRevisionId || null;
+            cancelNote = cancelNote || status.note || null;
           } catch {
-            /* ignore */
+            try {
+              const status = await api.getGeneration(gid);
+              const result = status.result as { cancelRevert?: unknown } | null;
+              demoted = demoted || Boolean(status.revert?.demoted || result?.cancelRevert);
+              accepted = accepted || status.status === "completed";
+              previousRevisionId = previousRevisionId || status.previousRevisionId || null;
+            } catch {
+              /* ignore */
+            }
           }
         }
-        if (demoted) {
+        if (accepted && !demoted) {
           try {
             const payload = await api.book(id);
             dataRef.current = payload;
@@ -605,8 +655,25 @@ export function Studio() {
           } catch {
             /* ignore */
           }
+          setRestoreOfferId(previousRevisionId);
+          setNotice(
+            cancelNote ||
+              "生成已完成，结果已保留；停止不会撤回。可在「版本历史」还原上一版",
+          );
+        } else if (demoted) {
+          try {
+            const payload = await api.book(id);
+            dataRef.current = payload;
+            setData(payload);
+            setTitle(payload.book.title);
+            show(payload, doc);
+          } catch {
+            /* ignore */
+          }
+          setRestoreOfferId(null);
           setNotice("已停止：取消前写入的修订已退回上一版，可在「版本历史」查看或还原该次结果");
         } else {
+          setRestoreOfferId(null);
           setNotice("已停止本次对话");
         }
         setChatText(message);
@@ -980,8 +1047,25 @@ export function Studio() {
     <div className="studio page-enter">
       {notice ? (
         <div className="toast-notice" role="status">
-          {notice}
-          <button type="button" className="toast-dismiss" aria-label="关闭" onClick={() => setNotice("")}>
+          <span className="toast-text">{notice}</span>
+          {restoreOfferId ? (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => void applyRestoreOffer(restoreOfferId)}
+            >
+              还原上一版
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="toast-dismiss"
+            aria-label="关闭"
+            onClick={() => {
+              setNotice("");
+              setRestoreOfferId(null);
+            }}
+          >
             ×
           </button>
         </div>

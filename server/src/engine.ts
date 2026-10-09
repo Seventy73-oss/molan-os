@@ -1118,6 +1118,45 @@ export type CancelRevertInfo = {
   artifactId: string | null;
 };
 
+/** Previous revision id for an artifact revision (by revision number), or null. */
+export function peekPreviousRevisionId(revisionId: string | null | undefined): string | null {
+  if (!revisionId) return null;
+  const row = db
+    .prepare(
+      `SELECT r.artifact_id AS artifact_id, r.revision AS revision_num
+       FROM artifact_revisions r WHERE r.id = ?`,
+    )
+    .get(revisionId) as { artifact_id: string; revision_num: number } | undefined;
+  if (!row) return null;
+  const prev = db
+    .prepare(
+      `SELECT id FROM artifact_revisions
+       WHERE artifact_id = ? AND revision < ?
+       ORDER BY revision DESC LIMIT 1`,
+    )
+    .get(row.artifact_id, row.revision_num) as { id: string } | undefined;
+  return prev?.id ?? null;
+}
+
+export type CancelGenerationResult = {
+  id: string;
+  bookId: string;
+  scene: string;
+  status: GenerationStatus;
+  result: unknown;
+  error: string | null;
+  resultRevisionId: string | null;
+  baseRevisionId: string | null;
+  revert: CancelRevertInfo | null;
+  /** True when cancel hit an already-terminal generation (completed/failed). */
+  alreadyTerminal?: boolean;
+  /** True when status was already completed — result is kept; no silent demote. */
+  accepted?: boolean;
+  /** Immediate previous revision of the linked result, for optional manual restore. */
+  previousRevisionId?: string | null;
+  note?: string | null;
+};
+
 /** Link a saved revision to a still-running generation so cancel can demote it. */
 export function linkGenerationResultRevision(generationId: string, revisionId: string) {
   const ts = now();
@@ -1219,17 +1258,39 @@ export function completeGeneration(
 }
 
 /** Mark a running generation cancelled. Idempotent for already-terminal states.
- *  If a revision was already linked/saved as current, demote it back to the previous revision.
+ *  If a revision was already linked/saved as current *while still running*, demote it.
+ *  If already `completed`, never demote — result is treated as accepted; return
+ *  `previousRevisionId` so the client can offer optional restore-from-history.
  */
-export function cancelGeneration(id: string) {
+export function cancelGeneration(id: string): CancelGenerationResult {
   const row = getGeneration(id);
   if (!row) throw new HttpError(404, "生成记录不存在");
   if (row.status === "completed" || row.status === "failed") {
-    return { ...row, revert: null as CancelRevertInfo | null };
+    const previousRevisionId = peekPreviousRevisionId(row.resultRevisionId);
+    const accepted = row.status === "completed";
+    return {
+      ...row,
+      revert: null,
+      alreadyTerminal: true,
+      accepted,
+      previousRevisionId,
+      note: accepted
+        ? "生成已完成，结果已保留；停止不会撤回。可在版本历史还原上一版。"
+        : "生成已失败结束；停止不会改动稿面。",
+    };
   }
   if (row.status === "cancelled") {
     const revert = row.resultRevisionId ? demoteCancelledResultRevision(row.resultRevisionId) : null;
-    return { ...getGeneration(id)!, revert };
+    return {
+      ...getGeneration(id)!,
+      revert,
+      alreadyTerminal: true,
+      accepted: false,
+      previousRevisionId: peekPreviousRevisionId(row.resultRevisionId),
+      note: revert?.demoted
+        ? "已取消（已退回上一版修订）"
+        : "生成已取消。",
+    };
   }
   completeGeneration(id, { status: "cancelled", error: "已取消" });
   const after = getGeneration(id)!;
@@ -1247,7 +1308,16 @@ export function cancelGeneration(id: string) {
       id,
     );
   }
-  return { ...getGeneration(id)!, revert };
+  return {
+    ...getGeneration(id)!,
+    revert,
+    alreadyTerminal: false,
+    accepted: false,
+    previousRevisionId: peekPreviousRevisionId(after.resultRevisionId),
+    note: revert?.demoted
+      ? "取消前已写入的修订已退回上一版；该次结果保留在版本历史（来源 agent_cancelled），可手动还原。"
+      : "已取消。",
+  };
 }
 
 /** Exported for smoke tests — keep intents narrow (no bare 写/生成 → 正文). */

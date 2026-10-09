@@ -84,3 +84,12 @@ DATABASE_URL=postgres://localhost:5432/molan npm run dev:server
 ## 其它
 
 选区改写、TipTap 稿纸、流式 SSE、章节改名删除、未保存离开提醒等见界面。
+
+
+## 审查回归
+
+```bash
+npm run test:regression
+npm run test:e2e
+npm run test:audit
+```

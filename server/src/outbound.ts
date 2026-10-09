@@ -4,6 +4,7 @@
  */
 import { lookup } from "node:dns/promises";
 import { assertSafeBaseUrl, assertSafeBaseUrlResolved, isPrivateOrReservedHost, redactSecrets } from "./security";
+import { combineSignals } from "./abortUtil";
 
 export type SecureFetchOptions = {
   method?: string;
@@ -59,14 +60,13 @@ export async function secureFetch(rawUrl: string, options: SecureFetchOptions = 
   let redirects = 0;
 
   while (true) {
-    const signal =
-      options.signal ??
-      AbortSignal.timeout(timeoutMs);
+    const combined = combineSignals(options.signal, timeoutMs);
+    try {
     const response = await fetch(current.toString(), {
       method,
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : body,
-      signal,
+      signal: combined.signal,
       redirect: "manual",
     });
 
@@ -85,10 +85,16 @@ export async function secureFetch(rawUrl: string, options: SecureFetchOptions = 
       if (response.status === 303) {
         body = undefined;
       }
+      combined.dispose();
       continue;
     }
 
+    combined.dispose();
     return response;
+    } catch (error) {
+      combined.dispose();
+      throw error;
+    }
   }
 }
 

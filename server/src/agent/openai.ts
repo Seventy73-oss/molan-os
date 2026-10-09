@@ -11,6 +11,7 @@ import {
 } from "../thinking";
 import { redactSecrets } from "../security";
 import { secureFetch } from "../outbound";
+import { isAbortError, throwIfAborted } from "../abortUtil";
 
 const CONTRACT: Record<SceneId, string> = {
   topic: "交付题材方案：读者、冲突、不写什么、书名和两句简介。",
@@ -95,6 +96,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         : this.options.model;
     const url = `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`;
     try {
+      throwIfAborted(input.signal);
       const response = await secureFetch(url, {
         method: "POST",
         headers: {
@@ -104,7 +106,9 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         body: JSON.stringify(buildCompletionBody(input, model, false)),
         withApiKey: Boolean(this.options.apiKey),
         timeoutMs: 60_000,
+        signal: input.signal,
       });
+      throwIfAborted(input.signal);
       if (!response.ok) {
         const detail = redactSecrets(await response.text());
         throw new Error(`HTTP ${response.status} ${detail}`);
@@ -127,6 +131,11 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
           : undefined,
       };
     } catch (error) {
+      if (isAbortError(error)) {
+        const err = new Error("已取消");
+        err.name = "AbortError";
+        throw err;
+      }
       const reason = redactSecrets(error instanceof Error ? error.message : "未知错误");
       throw new Error(`模型调用失败：${reason}`);
     }
@@ -140,6 +149,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         : this.options.model;
     const url = `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`;
     try {
+      throwIfAborted(input.signal);
       const response = await secureFetch(url, {
         method: "POST",
         headers: {
@@ -149,6 +159,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         body: JSON.stringify(buildCompletionBody(input, model, true)),
         withApiKey: Boolean(this.options.apiKey),
         timeoutMs: 120_000,
+        signal: input.signal,
       });
       if (!response.ok) {
         const detail = redactSecrets(await response.text());
@@ -156,10 +167,23 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
       }
       if (!response.body) throw new Error("无流式响应体");
       const reader = response.body.getReader();
+      const onAbort = () => {
+        try {
+          void reader.cancel();
+        } catch {
+          /* ignore */
+        }
+      };
+      if (input.signal) {
+        if (input.signal.aborted) onAbort();
+        else input.signal.addEventListener("abort", onAbort, { once: true });
+      }
       const decoder = new TextDecoder();
       let buffer = "";
       let assembled = "";
+      try {
       while (true) {
+        throwIfAborted(input.signal);
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -187,15 +211,29 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
       const text = finalizeModelText(input.scene, assembled);
       if (!text) throw new Error("空流式响应");
       return { text, modelUsed: model };
+      } finally {
+        if (input.signal) input.signal.removeEventListener("abort", onAbort);
+      }
     } catch (error) {
+      if (isAbortError(error)) {
+        const err = new Error("已取消");
+        err.name = "AbortError";
+        throw err;
+      }
       const reason = redactSecrets(error instanceof Error ? error.message : "未知错误");
       throw new Error(`模型流式调用失败：${reason}`);
     }
   }
 }
 
-export async function emitChunked(text: string, onToken: (delta: string) => void | Promise<void>, chunkSize = 24) {
+export async function emitChunked(
+  text: string,
+  onToken: (delta: string) => void | Promise<void>,
+  chunkSize = 24,
+  signal?: AbortSignal,
+) {
   for (let i = 0; i < text.length; i += chunkSize) {
+    throwIfAborted(signal);
     await onToken(text.slice(i, i + chunkSize));
   }
 }

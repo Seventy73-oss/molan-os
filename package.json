@@ -8,7 +8,9 @@
     "dev": "concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm run dev:web\"",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "test:regression": "tsx server/scripts/regression-audit.mts"
+    "test:regression": "tsx server/scripts/regression-audit.mts",
+    "test:e2e": "tsx server/scripts/e2e-audit.mts",
+    "test:audit": "npm run test:regression && npm run test:e2e"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.1.0",

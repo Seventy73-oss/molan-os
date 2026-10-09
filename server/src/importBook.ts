@@ -136,6 +136,131 @@ function wipeBookContent(bookId: string) {
   db.prepare("DELETE FROM hook_marks WHERE book_id = ?").run(bookId);
 }
 
+type BookSnapshot = {
+  book: Record<string, unknown>;
+  chapters: Record<string, unknown>[];
+  artifacts: Record<string, unknown>[];
+  revisions: Record<string, unknown>[];
+  messages: Record<string, unknown>[];
+  bible: Record<string, unknown>[];
+  hooks: Record<string, unknown>[];
+  jobs: Record<string, unknown>[];
+};
+
+function snapshotBook(bookId: string): BookSnapshot {
+  const book = db.prepare("SELECT * FROM books WHERE id = ?").get(bookId) as Record<string, unknown>;
+  const chapters = db.prepare("SELECT * FROM chapters WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+  const artifacts = db.prepare("SELECT * FROM artifacts WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+  const artIds = artifacts.map((a) => String(a.id));
+  const revisions: Record<string, unknown>[] = [];
+  if (artIds.length) {
+    const placeholders = artIds.map(() => "?").join(",");
+    revisions.push(
+      ...(db.prepare(`SELECT * FROM artifact_revisions WHERE artifact_id IN (${placeholders})`).all(...artIds) as Record<
+        string,
+        unknown
+      >[]),
+    );
+  }
+  const messages = db.prepare("SELECT * FROM messages WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+  const bible = db.prepare("SELECT * FROM bible_cards WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+  const hooks = db.prepare("SELECT * FROM hook_marks WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+  const jobs = db.prepare("SELECT * FROM writing_jobs WHERE book_id = ?").all(bookId) as Record<string, unknown>[];
+  return { book, chapters, artifacts, revisions, messages, bible, hooks, jobs };
+}
+
+function restoreBookSnapshot(snap: BookSnapshot) {
+  const bookId = String(snap.book.id);
+  db.transaction(() => {
+    wipeBookContent(bookId);
+    db.prepare("DELETE FROM writing_jobs WHERE book_id = ?").run(bookId);
+    // restore book row fields
+    db.prepare(
+      `UPDATE books SET title = ?, genre = ?, logline = ?, style = ?, target_chapters = ?, words_per_chapter = ? WHERE id = ?`,
+    ).run(
+      snap.book.title,
+      snap.book.genre,
+      snap.book.logline,
+      snap.book.style,
+      snap.book.target_chapters,
+      snap.book.words_per_chapter,
+      bookId,
+    );
+    const insCh = db.prepare(
+      "INSERT INTO chapters (id, book_id, number, title, status) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (const ch of snap.chapters) {
+      insCh.run(ch.id, ch.book_id, ch.number, ch.title, ch.status);
+    }
+    const insArt = db.prepare(
+      "INSERT INTO artifacts (id, book_id, chapter_id, kind, current_revision_id) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (const a of snap.artifacts) {
+      insArt.run(a.id, a.book_id, a.chapter_id, a.kind, null);
+    }
+    const insRev = db.prepare(
+      `INSERT INTO artifact_revisions
+        (id, artifact_id, revision, body, source, model, skill_ids, scene, created_at, source_revision_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const r of snap.revisions) {
+      insRev.run(
+        r.id,
+        r.artifact_id,
+        r.revision,
+        r.body,
+        r.source,
+        r.model,
+        r.skill_ids,
+        r.scene,
+        r.created_at,
+        r.source_revision_id ?? null,
+      );
+    }
+    for (const a of snap.artifacts) {
+      db.prepare("UPDATE artifacts SET current_revision_id = ? WHERE id = ?").run(a.current_revision_id, a.id);
+    }
+    const insMsg = db.prepare(
+      "INSERT INTO messages (id, book_id, role, content, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    for (const m of snap.messages) {
+      insMsg.run(m.id, m.book_id, m.role, m.content, m.meta_json, m.created_at);
+    }
+    const insBible = db.prepare(
+      `INSERT INTO bible_cards (id, book_id, kind, name, summary, details, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const b of snap.bible) {
+      insBible.run(b.id, b.book_id, b.kind, b.name, b.summary, b.details, b.sort_order, b.created_at, b.updated_at);
+    }
+    const insHook = db.prepare(
+      `INSERT INTO hook_marks (id, book_id, hook_key, status, recycled_chapter, note, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const h of snap.hooks) {
+      insHook.run(h.id, h.book_id, h.hook_key, h.status, h.recycled_chapter, h.note, h.updated_at);
+    }
+    // Restore jobs as cancelled/paused snapshot rows (do not auto-resume).
+    if (snap.jobs.length) {
+      const cols = Object.keys(snap.jobs[0]!);
+      const placeholders = cols.map(() => "?").join(",");
+      const insJob = db.prepare(
+        `INSERT INTO writing_jobs (${cols.join(",")}) VALUES (${placeholders})`,
+      );
+      for (const j of snap.jobs) {
+        const row: Record<string, unknown> = { ...j, status: j.status === "running" ? "paused" : j.status };
+        insJob.run(...cols.map((c) => row[c]));
+      }
+    }
+  })();
+  try {
+    syncBook(bookId);
+  } catch (error) {
+    console.error("restore sync failed", error);
+  }
+}
+
+
 /**
  * Import a zip (or already-extracted folder) of molan/墨兰写作 markdown layout into a book.
  * Layout: optional book folder containing 00-档案.md / 00-全书大纲.md / NN-章名/{细纲,正文,审核,记忆}.md
@@ -227,8 +352,16 @@ export function importBookFromFolder(
     };
   }
 
-  let bookId: string;
+  let bookId: string = "";
   let reused = false;
+  let overwriteSnapshot: BookSnapshot | null = null;
+  if (existingId && conflict === "overwrite") {
+    overwriteSnapshot = snapshotBook(existingId);
+  }
+
+  const imported: ImportResult["imported"] = [];
+
+  try {
   if (existingId && conflict === "overwrite") {
     bookId = existingId;
     reused = true;
@@ -236,6 +369,9 @@ export function importBookFromFolder(
       `UPDATE writing_jobs SET status = 'cancelled', error = COALESCE(error, '导入覆盖前取消') WHERE book_id = ? AND status IN ('running', 'paused', 'error')`,
     ).run(bookId);
     wipeBookContent(bookId);
+    if (process.env.MOLAN_IMPORT_FAIL_AFTER_WIPE === "1") {
+      throw new Error("injected import failure after wipe");
+    }
     db.prepare(
       `UPDATE books SET title = ?, genre = ?, logline = ?, style = ?, target_chapters = ?, words_per_chapter = ? WHERE id = ?`,
     ).run(
@@ -278,8 +414,6 @@ export function importBookFromFolder(
       db.prepare("UPDATE chapters SET title = ? WHERE book_id = ? AND number = ?").run(t, bookId, index + 1);
     }
   }
-
-  const imported: ImportResult["imported"] = [];
 
   if (profile.trim()) {
     saveRevision({
@@ -356,9 +490,31 @@ export function importBookFromFolder(
     imported,
     chapters: payload.chapters.length,
   };
+  } catch (error) {
+    if (overwriteSnapshot) {
+      try {
+        restoreBookSnapshot(overwriteSnapshot);
+      } catch (restoreError) {
+        console.error("import overwrite restore failed", restoreError);
+      }
+      throw new HttpError(
+        500,
+        `覆盖导入失败，已尝试回滚原书：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 /** Keep booksRoot referenced for typecheck / future disk import. */
 export function booksRootPath() {
   return booksRoot;
+}
+
+/** Test-only: expose snapshot helpers. */
+export function __snapshotBookForTest(bookId: string) {
+  return snapshotBook(bookId);
+}
+export function __restoreBookSnapshotForTest(snap: ReturnType<typeof snapshotBook>) {
+  restoreBookSnapshot(snap);
 }

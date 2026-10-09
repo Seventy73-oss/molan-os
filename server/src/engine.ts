@@ -14,6 +14,7 @@ import { formatOpenHooksForContext, formatOpenHooksForReview } from "./hooks";
 import { estimateTokensFromText, recordUsage } from "./usage";
 import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { normalizeThinking } from "./thinking";
+import { throwIfAborted } from "./abortUtil";
 
 
 const CN: Record<string, number> = {
@@ -440,8 +441,8 @@ export function saveRevision(input: {
   skipMemory?: boolean;
   /** Optimistic concurrency: must match current revision id (or null if none). */
   expectedRevisionId?: string | null;
-  /** When true, insert revision but do not set as current (candidate / late AI). */
-  asCandidate?: boolean;
+  /** When true (or returns true at commit time), insert revision but do not set as current (candidate / late AI). */
+  asCandidate?: boolean | (() => boolean);
   /** Bind derived artifacts (review/memory) to a body revision. */
   sourceRevisionId?: string | null;
 }) {
@@ -454,6 +455,9 @@ export function saveRevision(input: {
     body = normalizeDialogueQuotes(body);
   }
   input = { ...input, body };
+
+  const asCandidate =
+    typeof input.asCandidate === "function" ? Boolean(input.asCandidate()) : Boolean(input.asCandidate);
 
   mustBook(input.bookId);
   let chapter: ChapterRow | undefined;
@@ -513,7 +517,7 @@ export function saveRevision(input: {
       now(),
       input.sourceRevisionId ?? null,
     );
-    if (!input.asCandidate) {
+    if (!asCandidate) {
       db.prepare("UPDATE artifacts SET current_revision_id = ? WHERE id = ?").run(revId, artifact.id);
       if (chapterId && input.kind === "chapter_outline") {
         db.prepare("UPDATE chapters SET status = CASE WHEN status = 'empty' THEN 'outlined' ELSE status END WHERE id = ?").run(
@@ -529,7 +533,7 @@ export function saveRevision(input: {
     }
     return { revision: next, revisionId: revId, artifactId: artifact.id, chapterId, chapterNumber };
   })();
-  if (!input.asCandidate) {
+  if (!asCandidate) {
     applyDerived(input.bookId, input.kind, input.scene, input.body);
     try {
       syncBook(input.bookId);
@@ -553,7 +557,7 @@ export function saveRevision(input: {
     artifactId: saved.artifactId,
     chapterId: saved.chapterId,
     chapterNumber: saved.chapterNumber,
-    current: !input.asCandidate,
+    current: !asCandidate,
   };
 }
 
@@ -752,8 +756,9 @@ export async function executeScene(input: {
   /** When saving review/memory, bind to this body revision. */
   sourceRevisionId?: string | null;
   expectedRevisionId?: string | null;
-  asCandidate?: boolean;
+  asCandidate?: boolean | (() => boolean);
   generationId?: string | null;
+  signal?: AbortSignal;
 }) {
   mustBook(input.bookId);
   const needsChapter = input.scene === "chapter_outline" || input.scene === "chapter_body" || input.scene === "review" || input.scene === "humanize" || input.scene === "memory_extract";
@@ -773,6 +778,7 @@ export async function executeScene(input: {
   }
   const context = buildContext(input.bookId, chapterNumber, instruction);
   const route = routeFor(input.scene);
+  throwIfAborted(input.signal);
   const result = await getAdapter(route).runScene({
     scene: input.scene,
     model: route.model_id,
@@ -780,7 +786,9 @@ export async function executeScene(input: {
     skillTexts,
     context,
     instruction,
+    signal: input.signal,
   });
+  throwIfAborted(input.signal);
   try {
     const local = /local/i.test(result.modelUsed);
     const promptTokens = result.usage?.promptTokens ?? estimateTokensFromText(context + instruction);
@@ -1061,6 +1069,17 @@ export function completeGeneration(
   );
 }
 
+/** Mark a running generation cancelled. Idempotent for already-terminal states. */
+export function cancelGeneration(id: string) {
+  const row = getGeneration(id);
+  if (!row) throw new HttpError(404, "生成记录不存在");
+  if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
+    return row;
+  }
+  completeGeneration(id, { status: "cancelled", error: "已取消" });
+  return getGeneration(id)!;
+}
+
 /** Exported for smoke tests — keep intents narrow (no bare 写/生成 → 正文). */
 export function routeMessage(message: string): SceneId | null {
   const text = message.trim();
@@ -1180,6 +1199,7 @@ export async function chat(
   message: string,
   preferredChapter?: number | null,
   generationId?: string | null,
+  signal?: AbortSignal,
 ) {
   const book = mustBook(bookId);
   const text = message.trim();
@@ -1201,8 +1221,12 @@ export async function chat(
       if (began.status === "failed") {
         throw new HttpError(502, began.error || "上次生成失败");
       }
+      if (began.status === "cancelled") {
+        throw new HttpError(409, "该生成已取消");
+      }
     }
   }
+  throwIfAborted(signal);
   insertMessage(bookId, "user", text, null);
   const scene = routeMessage(text);
   if (!scene) {
@@ -1218,6 +1242,7 @@ export async function chat(
     };
     try {
       const context = buildContext(bookId, null, text);
+      throwIfAborted(signal);
       const result = await getAdapter(route).runScene({
         scene: chatScene,
         model: route.model_id,
@@ -1225,7 +1250,9 @@ export async function chat(
         skillTexts,
         context,
         instruction: text,
+        signal,
       });
+      throwIfAborted(signal);
       try {
         const local = /local/i.test(result.modelUsed);
         const promptTokens = result.usage?.promptTokens ?? estimateTokensFromText(context + text);
@@ -1269,7 +1296,8 @@ export async function chat(
       ? null
       : (mentioned ?? fallbackChapter);
   try {
-    const result = await executeScene({ bookId, scene, chapterNumber, instruction: text });
+    throwIfAborted(signal);
+    const result = await executeScene({ bookId, scene, chapterNumber, instruction: text, signal });
     const label = result.saved ? KIND_LABEL[result.saved.kind] ?? "稿件" : "稿件";
     const where = result.saved?.chapterNumber ? `第 ${result.saved.chapterNumber} 章` : "";
     const content = `已写入${where}${label}，修订 ${result.saved?.revision ?? 1}。用的是${modelLabel(result.modelUsed)}。\n${replyBody(result.text)}`;
@@ -1304,6 +1332,8 @@ type JobRow = {
   max_retries?: number;
   retry_count?: number;
   log_json?: string | null;
+  lease_owner?: string | null;
+  lease_until?: string | null;
 };
 
 function parseJobLog(raw: string | null | undefined): { at: string; stage: string; chapter: number; message: string }[] {
@@ -1337,6 +1367,8 @@ function jobJson(row: JobRow) {
     maxRetries: row.max_retries ?? 1,
     retryCount: row.retry_count ?? 0,
     log: parseJobLog(row.log_json),
+    leaseOwner: row.lease_owner ?? null,
+    leaseUntil: row.lease_until ?? null,
   };
 }
 
@@ -1372,6 +1404,30 @@ export function getJob(id: string) {
   const row = db.prepare("SELECT * FROM writing_jobs WHERE id = ?").get(id) as JobRow | undefined;
   if (!row) throw new HttpError(404, "没有这个任务");
   return jobJson(row);
+}
+
+
+/** SQLite-backed lease: prevents double-tick across HTTP + worker (same DB file). */
+export function tryAcquireJobLease(id: string, owner: string, ttlMs = 120_000): boolean {
+  getJob(id);
+  const until = new Date(Date.now() + ttlMs).toISOString();
+  const nowIso = now();
+  const result = db
+    .prepare(
+      `UPDATE writing_jobs SET lease_owner = ?, lease_until = ?
+       WHERE id = ?
+         AND status = 'running'
+         AND (lease_until IS NULL OR lease_until < ? OR lease_owner = ?)`,
+    )
+    .run(owner, until, id, nowIso, owner);
+  return result.changes > 0;
+}
+
+export function releaseJobLease(id: string, owner: string) {
+  db.prepare(
+    `UPDATE writing_jobs SET lease_owner = NULL, lease_until = NULL
+     WHERE id = ? AND lease_owner = ?`,
+  ).run(id, owner);
 }
 
 export function setJobStatus(id: string, status: string) {
@@ -1464,6 +1520,7 @@ export async function tickJob(id: string) {
         scene: "chapter_outline",
         chapterNumber: job.currentChapter,
         instruction: `写第 ${job.currentChapter} 章细纲`,
+        asCandidate: () => jobLease(id, "chapter_outline") === "stop",
       });
       appendJobLog(id, "chapter_outline", job.currentChapter, `第 ${job.currentChapter} 章细纲完成`);
       const lease_chapter_outline = jobLease(id, "chapter_outline");
@@ -1483,8 +1540,8 @@ export async function tickJob(id: string) {
         scene: "chapter_body",
         chapterNumber: job.currentChapter,
         instruction: `写第 ${job.currentChapter} 章正文`,
-        // If cancelled mid-flight, still may have saved — lease check drops advance.
-        expectedRevisionId: undefined,
+        // Cancelled mid-flight → candidate only, never becomes current.
+        asCandidate: () => jobLease(id, "chapter_body") === "stop",
       });
       appendJobLog(id, "chapter_body", job.currentChapter, `第 ${job.currentChapter} 章正文完成`);
       void bodyBefore;
@@ -1514,6 +1571,7 @@ export async function tickJob(id: string) {
         scene: "review",
         chapterNumber: job.currentChapter,
         instruction: `审核第 ${job.currentChapter} 章正文，列出问题清单`,
+        asCandidate: () => jobLease(id, "review") === "stop",
       });
       appendJobLog(id, "review", job.currentChapter, `第 ${job.currentChapter} 章审核完成`);
       const lease_review = jobLease(id, "review");

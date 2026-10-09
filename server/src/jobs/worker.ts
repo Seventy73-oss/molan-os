@@ -1,10 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { db } from "../db";
-import { tickJob } from "../engine";
+import { releaseJobLease, tickJob, tryAcquireJobLease } from "../engine";
 
 const DEFAULT_INTERVAL_MS = 2500;
+const WORKER_OWNER = `worker-${process.pid}-${randomUUID().slice(0, 8)}`;
 
 let timer: NodeJS.Timeout | null = null;
 let busy = false;
+/** In-process guard still useful; DB lease is the durable guard. */
 const locked = new Set<string>();
 
 export type WorkerStatus = {
@@ -16,6 +19,7 @@ export type WorkerStatus = {
   lastAdvanced: boolean | null;
   lastError: string | null;
   ticks: number;
+  leaseOwner: string;
 };
 
 const status: WorkerStatus = {
@@ -27,20 +31,30 @@ const status: WorkerStatus = {
   lastAdvanced: null,
   lastError: null,
   ticks: 0,
+  leaseOwner: WORKER_OWNER,
 };
 
 export function getWorkerStatus(): WorkerStatus {
   return { ...status, busy };
 }
 
-/** Prevent double-tick of the same job from HTTP + worker. */
-export async function withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T | null> {
+/**
+ * Prevent double-tick of the same job from HTTP + worker.
+ * Uses in-process Set + SQLite lease so two entry points on the same DB file cannot both advance.
+ */
+export async function withJobLock<T>(jobId: string, fn: () => Promise<T>, owner = WORKER_OWNER): Promise<T | null> {
   if (locked.has(jobId)) return null;
+  if (!tryAcquireJobLease(jobId, owner)) return null;
   locked.add(jobId);
   try {
     return await fn();
   } finally {
     locked.delete(jobId);
+    try {
+      releaseJobLease(jobId, owner);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -89,11 +103,7 @@ export function startJobWorker(intervalMs = DEFAULT_INTERVAL_MS) {
   timer = setInterval(() => {
     void tickOnce();
   }, intervalMs);
-  // Allow process to exit naturally in tests if needed; keep alive with server.
-  if (typeof timer.unref === "function") {
-    // keep referenced so server stays active with jobs — do NOT unref
-  }
-  console.log(`[jobs] server worker started (every ${intervalMs}ms)`);
+  console.log(`[jobs] server worker started (every ${intervalMs}ms) owner=${WORKER_OWNER}`);
   void tickOnce();
   return status;
 }

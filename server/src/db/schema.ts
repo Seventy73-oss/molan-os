@@ -361,6 +361,8 @@ CREATE TABLE IF NOT EXISTS hook_marks (
     ["max_retries", "INTEGER NOT NULL DEFAULT 1"],
     ["retry_count", "INTEGER NOT NULL DEFAULT 0"],
     ["log_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["lease_owner", "TEXT"],
+    ["lease_until", "TEXT"],
   ] as const;
   for (const [name, type] of cols) {
     try {
@@ -436,6 +438,8 @@ DO $$ BEGIN
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS log_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT;
+  ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS lease_until TEXT;
   ALTER TABLE scene_routes ADD COLUMN IF NOT EXISTS thinking_intensity TEXT NOT NULL DEFAULT 'medium';
   ALTER TABLE artifact_revisions ADD COLUMN IF NOT EXISTS source_revision_id TEXT;
 EXCEPTION WHEN others THEN NULL;

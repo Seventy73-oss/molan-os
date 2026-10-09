@@ -15,6 +15,7 @@ import { db, type RouteRow } from "./db";
 import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { sceneKind } from "./agent/adapter";
 import { normalizeThinking } from "./thinking";
+import { isAbortError, throwIfAborted } from "./abortUtil";
 
 type Emit = (event: Record<string, unknown>) => Promise<void>;
 
@@ -23,46 +24,75 @@ function routeFor(scene: string): RouteRow {
   return route ?? { scene, provider: "local", model_id: "local-draft", base_url: null, thinking_intensity: "medium" };
 }
 
-
 async function streamAdapterRun(
   route: RouteRow,
   input: Parameters<ReturnType<typeof getAdapter>["runScene"]>[0],
   emit: Emit,
 ) {
+  throwIfAborted(input.signal);
   const adapter = getAdapter(route);
   if (adapter instanceof OpenAICompatibleAdapter) {
     await emit({ type: "status", message: "正在连接模型…" });
     const result = await adapter.runSceneStream(input, async (delta) => {
+      throwIfAborted(input.signal);
       await emit({ type: "token", text: delta });
     });
     return result;
   }
   await emit({ type: "status", message: "本地草稿生成中…" });
   const result = await adapter.runScene(input);
-  await emitChunked(result.text, async (delta) => {
-    await emit({ type: "token", text: delta });
-  });
+  throwIfAborted(input.signal);
+  await emitChunked(
+    result.text,
+    async (delta) => {
+      await emit({ type: "token", text: delta });
+    },
+    24,
+    input.signal,
+  );
   return result;
 }
 
-export function sseJson(c: Context, run: (emit: Emit) => Promise<void>) {
+export function sseJson(c: Context, run: (emit: Emit, signal: AbortSignal) => Promise<void>) {
+  const signal = c.req.raw.signal;
   return streamSSE(c, async (stream) => {
     let seq = 0;
     const emit: Emit = async (event) => {
+      throwIfAborted(signal);
       await stream.writeSSE({ data: JSON.stringify(event), id: String(++seq) });
     };
     try {
-      await run(emit);
+      await run(emit, signal);
     } catch (error) {
+      if (isAbortError(error) || signal.aborted) {
+        try {
+          await emit({ type: "error", message: "已取消" });
+        } catch {
+          /* client already gone */
+        }
+        return;
+      }
       const message = error instanceof HttpError ? error.message : error instanceof Error ? error.message : "流式失败";
-      await emit({ type: "error", message });
+      try {
+        await emit({ type: "error", message });
+      } catch {
+        /* ignore */
+      }
     }
   });
 }
 
 export async function streamSceneRun(
   emit: Emit,
-  input: { bookId: string; scene: SceneId; chapterNumber: number | null; instruction?: string; skillIds?: string[] },
+  input: {
+    bookId: string;
+    scene: SceneId;
+    chapterNumber: number | null;
+    instruction?: string;
+    skillIds?: string[];
+    signal?: AbortSignal;
+    generationId?: string | null;
+  },
 ) {
   const book = db.prepare("SELECT id FROM books WHERE id = ?").get(input.bookId) as { id: string } | undefined;
   if (!book) throw new HttpError(404, "没有这本书");
@@ -81,50 +111,84 @@ export async function streamSceneRun(
     if (!chapter) throw new HttpError(400, `没有第 ${chapterNumber} 章`);
   }
 
-  const skills = skillsForScene(input.scene, input.skillIds);
-  const skillTexts = toSkillTexts(skills);
-  const instruction = input.instruction?.trim() ?? "";
-  const context = buildContext(input.bookId, chapterNumber, instruction);
-  const route = routeFor(input.scene);
-  const result = await streamAdapterRun(route, {
-    scene: input.scene,
-    model: route.model_id,
-    thinkingIntensity: normalizeThinking(route.thinking_intensity),
-    skillTexts,
-    context,
-    instruction,
-  }, emit);
-
-  const kind = sceneKind(input.scene);
-  const saved = kind
-    ? saveRevision({
-        bookId: input.bookId,
-        kind,
-        chapterNumber: kind === "book_profile" || kind === "book_outline" ? null : chapterNumber,
-        body: result.text,
-        source: "agent",
-        model: result.modelUsed,
-        skillIds: skills.map((skill) => skill.id),
+  try {
+    const skills = skillsForScene(input.scene, input.skillIds);
+    const skillTexts = toSkillTexts(skills);
+    const instruction = input.instruction?.trim() ?? "";
+    const context = buildContext(input.bookId, chapterNumber, instruction);
+    const route = routeFor(input.scene);
+    const result = await streamAdapterRun(
+      route,
+      {
         scene: input.scene,
-      })
-    : null;
+        model: route.model_id,
+        thinkingIntensity: normalizeThinking(route.thinking_intensity),
+        skillTexts,
+        context,
+        instruction,
+        signal: input.signal,
+      },
+      emit,
+    );
 
-  const payload = {
-    text: result.text,
-    modelUsed: result.modelUsed,
-    skills: skills.map((skill) => ({ id: skill.id, name: skill.name, role: skill.role })),
-    skillPromptMeta: skillPromptMeta(skillTexts),
-    saved,
-  };
-  await emit({ type: "done", payload });
+    throwIfAborted(input.signal);
+
+    const kind = sceneKind(input.scene);
+    const saved = kind
+      ? saveRevision({
+          bookId: input.bookId,
+          kind,
+          chapterNumber: kind === "book_profile" || kind === "book_outline" ? null : chapterNumber,
+          body: result.text,
+          source: "agent",
+          model: result.modelUsed,
+          skillIds: skills.map((skill) => skill.id),
+          scene: input.scene,
+        })
+      : null;
+
+    const payload = {
+      text: result.text,
+      modelUsed: result.modelUsed,
+      skills: skills.map((skill) => ({ id: skill.id, name: skill.name, role: skill.role })),
+      skillPromptMeta: skillPromptMeta(skillTexts),
+      saved,
+    };
+    if (input.generationId) {
+      completeGeneration(input.generationId, {
+        status: "completed",
+        resultRevisionId: saved && "revisionId" in saved ? saved.revisionId : null,
+        result: payload,
+      });
+    }
+    await emit({ type: "done", payload });
+  } catch (error) {
+    if (isAbortError(error) || input.signal?.aborted) {
+      if (input.generationId) {
+        completeGeneration(input.generationId, { status: "cancelled", error: "已取消" });
+      }
+      throw error;
+    }
+    if (input.generationId) {
+      completeGeneration(input.generationId, {
+        status: "failed",
+        error: error instanceof Error ? error.message : "流式失败",
+      });
+    }
+    throw error;
+  }
 }
 
 export async function streamSelectionRewrite(
   emit: Emit,
-  input: { bookId: string; selection: string; instruction: string; scene?: SceneId },
+  input: { bookId: string; selection: string; instruction: string; scene?: SceneId; signal?: AbortSignal },
 ) {
-  // Prefer real OpenAI stream when available; otherwise chunk the sync result.
-  const route = routeFor(input.scene && ["chapter_body", "humanize", "chapter_outline", "outline", "review", "book_setup"].includes(input.scene) ? input.scene : "humanize");
+  const route = routeFor(
+    input.scene &&
+      ["chapter_body", "humanize", "chapter_outline", "outline", "review", "book_setup"].includes(input.scene)
+      ? input.scene
+      : "humanize",
+  );
   if (route.provider === "openai") {
     const adapter = getAdapter(route);
     if (adapter instanceof OpenAICompatibleAdapter) {
@@ -148,11 +212,14 @@ export async function streamSelectionRewrite(
             ]
               .filter(Boolean)
               .join("\n"),
+            signal: input.signal,
           },
           async (delta) => {
+            throwIfAborted(input.signal);
             await emit({ type: "token", text: delta });
           },
         );
+        throwIfAborted(input.signal);
         const { normalizeDialogueQuotes } = await import("./agent/localDraft");
         let text = normalizeDialogueQuotes(result.text.replace(/\r\n?/g, "\n").trim());
         const selection = input.selection.replace(/\r\n?/g, "\n").trim();
@@ -162,10 +229,19 @@ export async function streamSelectionRewrite(
         if (!text) {
           throw new HttpError(502, "模型返回为空");
         }
-        await emit({ type: "done", payload: { text, modelUsed: result.modelUsed, local: false, skills: skillRows.map((s) => ({ id: s.id, name: s.name, role: s.role })), skillPromptMeta: skillPromptMeta(skillTexts) } });
+        await emit({
+          type: "done",
+          payload: {
+            text,
+            modelUsed: result.modelUsed,
+            local: false,
+            skills: skillRows.map((s) => ({ id: s.id, name: s.name, role: s.role })),
+            skillPromptMeta: skillPromptMeta(skillTexts),
+          },
+        });
         return;
       } catch (error) {
-        // Surface model failures — do not silently fall back to local-draft.
+        if (isAbortError(error)) throw error;
         if (error instanceof HttpError) throw error;
         const reason = error instanceof Error ? error.message : "流式改写失败";
         throw new HttpError(502, reason);
@@ -173,11 +249,18 @@ export async function streamSelectionRewrite(
     }
   }
 
+  throwIfAborted(input.signal);
   const result = await rewriteSelection(input);
+  throwIfAborted(input.signal);
   await emit({ type: "status", message: result.local ? "本地草稿改写中…" : "改写完成，正在呈现…" });
-  await emitChunked(result.text, async (delta) => {
-    await emit({ type: "token", text: delta });
-  });
+  await emitChunked(
+    result.text,
+    async (delta) => {
+      await emit({ type: "token", text: delta });
+    },
+    24,
+    input.signal,
+  );
   await emit({ type: "done", payload: result });
 }
 
@@ -187,27 +270,39 @@ export async function streamChat(
   message: string,
   preferredChapter?: number | null,
   generationId?: string | null,
+  signal?: AbortSignal,
 ) {
-  // Chat persistence + routing is complex; stream status then run sync chat, then chunk the assistant body.
   await emit({ type: "status", message: "助手正在写…" });
   try {
-  const result = await chat(bookId, message, preferredChapter, generationId);
-  const body = result.message.content;
-  // Prefer streaming the manuscript body after the first line if saved.
-  const newline = body.indexOf("\n");
-  const head = newline >= 0 ? body.slice(0, newline + 1) : body;
-  const tail = newline >= 0 ? body.slice(newline + 1) : "";
-  if (head) await emit({ type: "token", text: head });
-  if (tail) {
-    await emitChunked(tail, async (delta) => {
-      await emit({ type: "token", text: delta });
-    }, 36);
-  }
+    throwIfAborted(signal);
+    const result = await chat(bookId, message, preferredChapter, generationId, signal);
+    throwIfAborted(signal);
+    const body = result.message.content;
+    const newline = body.indexOf("\n");
+    const head = newline >= 0 ? body.slice(0, newline + 1) : body;
+    const tail = newline >= 0 ? body.slice(newline + 1) : "";
+    if (head) await emit({ type: "token", text: head });
+    if (tail) {
+      await emitChunked(
+        tail,
+        async (delta) => {
+          await emit({ type: "token", text: delta });
+        },
+        36,
+        signal,
+      );
+    }
     if (generationId) {
-    completeGeneration(generationId, { status: "completed", result });
-  }
-  await emit({ type: "done", payload: result });
+      completeGeneration(generationId, { status: "completed", result });
+    }
+    await emit({ type: "done", payload: result });
   } catch (error) {
+    if (isAbortError(error) || signal?.aborted) {
+      if (generationId) {
+        completeGeneration(generationId, { status: "cancelled", error: "已取消" });
+      }
+      throw error;
+    }
     if (generationId) {
       completeGeneration(generationId, {
         status: "failed",

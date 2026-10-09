@@ -5,7 +5,7 @@ import type { SceneId } from "./agent/adapter";
 import { listAgentCapabilities } from "./agent/runtime";
 import { db, getDbInfo, initDb } from "./db";
 import { getWorkerStatus, startJobWorker, withJobLock } from "./jobs/worker";
-import {
+import { cancelGeneration,
   addChapter,
   autoSetup,
   chat,
@@ -152,6 +152,10 @@ app.get("/api/generations/:id", (c) => {
   const row = getGeneration(c.req.param("id"));
   if (!row) throw new HttpError(404, "生成记录不存在");
   return c.json(row);
+});
+
+app.post("/api/generations/:id/cancel", (c) => {
+  return c.json(cancelGeneration(c.req.param("id")));
 });
 
 app.get("/api/health", (c) => {
@@ -398,13 +402,16 @@ app.post("/api/books/:id/selection-rewrite", async (c) => {
 
 app.post("/api/books/:id/scene-runs/stream", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
-  return sseJson(c, async (emit) => {
+  const generationId = typeof body.generationId === "string" ? body.generationId : null;
+  return sseJson(c, async (emit, signal) => {
     await streamSceneRun(emit, {
       bookId: c.req.param("id"),
       scene: sceneOf(body.scene),
       chapterNumber: typeof body.chapterNumber === "number" ? body.chapterNumber : null,
       instruction: typeof body.instruction === "string" ? body.instruction : "",
       skillIds: Array.isArray(body.skillIds) ? asStrings(body.skillIds) : undefined,
+      signal,
+      generationId,
     });
   });
 });
@@ -413,12 +420,13 @@ app.post("/api/books/:id/selection-rewrite/stream", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const sceneRaw = typeof body.scene === "string" ? body.scene : "";
   const scene = SCENES.has(sceneRaw as SceneId) ? (sceneRaw as SceneId) : undefined;
-  return sseJson(c, async (emit) => {
+  return sseJson(c, async (emit, signal) => {
     await streamSelectionRewrite(emit, {
       bookId: c.req.param("id"),
       selection: typeof body.selection === "string" ? body.selection : "",
       instruction: typeof body.instruction === "string" ? body.instruction : "",
       scene,
+      signal,
     });
   });
 });
@@ -436,8 +444,8 @@ app.post("/api/books/:id/chat/stream", async (c) => {
   const message = typeof body.message === "string" ? body.message : "";
   const chapterNumber = typeof body.chapterNumber === "number" ? body.chapterNumber : null;
   const generationId = typeof body.generationId === "string" ? body.generationId : null;
-  return sseJson(c, async (emit) => {
-    await streamChat(emit, c.req.param("id"), message, chapterNumber, generationId);
+  return sseJson(c, async (emit, signal) => {
+    await streamChat(emit, c.req.param("id"), message, chapterNumber, generationId, signal);
   });
 });
 
@@ -463,7 +471,8 @@ app.get("/api/jobs/:id", (c) => c.json(getJob(c.req.param("id"))));
 
 app.post("/api/jobs/:id/tick", async (c) => {
   const id = c.req.param("id");
-  const result = await withJobLock(id, () => tickJob(id));
+  const owner = `http-${process.pid}-${Date.now()}`;
+  const result = await withJobLock(id, () => tickJob(id), owner);
   if (!result) return c.json({ job: getJob(id), advanced: false, locked: true });
   return c.json(result);
 });

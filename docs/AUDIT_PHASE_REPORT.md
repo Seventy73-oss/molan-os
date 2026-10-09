@@ -47,3 +47,7 @@ npm run test:regression
 ```
 
 覆盖：意图路由、IPv6/HTTPS、局域网 Token、CAS/候选稿、generation 幂等、任务暂停取消、ZIP slip、同名导入后缀、persist 队列。
+
+## 第三阶段（续）
+
+见 [`AUDIT_PHASE3_REPORT.md`](./AUDIT_PHASE3_REPORT.md)：AbortSignal 全链路、覆盖导入快照回滚、SQLite 任务租约、API E2E（18/18）。

@@ -24,6 +24,8 @@ export type RunInput = {
   instruction?: string;
   /** off | low | medium | high */
   thinkingIntensity?: string;
+  /** Cancel in-flight model call / streaming. */
+  signal?: AbortSignal;
 };
 
 export type RunOutput = {

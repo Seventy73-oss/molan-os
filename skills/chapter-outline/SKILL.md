@@ -1,7 +1,7 @@
 ---
 name: 章节细纲
 scene: chapter_outline
-role: primary
+role: aux
 description: 把单章拆成可写的场景，每个场景都有目标、冲突和看得见的细节。
 ---
 

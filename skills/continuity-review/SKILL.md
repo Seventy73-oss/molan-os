@@ -1,7 +1,7 @@
 ---
 name: 设定一致性
 scene: review
-role: primary
+role: aux
 description: 对照档案、大纲、细纲和前文，列出有位置、有证据的问题。
 ---
 

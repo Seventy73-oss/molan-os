@@ -55,7 +55,7 @@ const USER_PACKS: PackSpec[] = [
     id: "opening-cards",
     title: "开局拆解卡（用户包 01-开局拆解卡_1983本）",
     inject: ["inject/00_方法论.md", "inject/01_题材分布与样例.md"],
-    attachScenes: new Set(["book_setup", "topic", "chapter_outline"]),
+    attachScenes: new Set(["book_setup", "topic", "chapter_outline", "chat"]),
     defaultMaxChars: 36000,
     markers: {
       openingMethod: (t) => t.includes("开局拆解卡"),
@@ -103,7 +103,7 @@ const USER_PACKS: PackSpec[] = [
     id: "novel-craft",
     title: "选题创作（用户包 novel-craft）",
     inject: ["inject/01_关键卡.md"],
-    attachScenes: new Set(["topic", "book_setup", "outline", "chapter_outline", "chapter_body"]),
+    attachScenes: new Set(["topic", "book_setup", "outline", "chapter_outline", "chapter_body", "chat"]),
     defaultMaxChars: 48000,
     markers: {
       craftOverview: (t) => t.includes("跨题材总览") || t.includes("novel-craft") || t.includes("选题与创作"),
@@ -245,12 +245,17 @@ export function skillPromptText(rel: string, maxChars = 12000): string {
   return `${body.slice(0, maxChars)}\n\n…（技能正文过长，已截断；完整内容见磁盘 ${rel}）`;
 }
 
-function attachPack(picked: SkillRow[], scene: string, packId: string): SkillRow[] {
+function attachPack(picked: SkillRow[], _scene: string, packId: string): SkillRow[] {
   const pack = db.prepare("SELECT * FROM skills WHERE id = ?").get(packId) as SkillRow | undefined;
   if (!pack || pack.enabled !== 1) return picked;
-  if (picked.some((row) => row.id === packId)) return picked;
-  const asPrimary = pack.scene === scene && pack.role === "primary";
-  return [...picked, asPrimary ? pack : { ...pack, role: "aux" }];
+  // User distillation packs stay primary whenever attached — never demote to aux.
+  const asPrimary: SkillRow = { ...pack, role: "primary" };
+  const idx = picked.findIndex((row) => row.id === packId);
+  if (idx >= 0) {
+    if (picked[idx]!.role === "primary") return picked;
+    return picked.map((row, i) => (i === idx ? asPrimary : row));
+  }
+  return [...picked, asPrimary];
 }
 
 export function skillsForScene(scene: string, ids?: string[]): SkillRow[] {
@@ -275,7 +280,9 @@ export function skillsForScene(scene: string, ids?: string[]): SkillRow[] {
     }
   }
 
-  return picked.sort((a, b) => (a.role === b.role ? a.id.localeCompare(b.id) : a.role === "primary" ? -1 : 1));
+  return picked
+    .map((row) => (PACK_BY_ID.has(row.id) ? { ...row, role: "primary" } : row))
+    .sort((a, b) => (a.role === b.role ? a.id.localeCompare(b.id) : a.role === "primary" ? -1 : 1));
 }
 
 export function toSkillTexts(skills: SkillRow[], maxChars?: number): SkillText[] {

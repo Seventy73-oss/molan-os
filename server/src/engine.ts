@@ -943,15 +943,22 @@ export async function chat(bookId: string, message: string) {
   insertMessage(bookId, "user", text, null);
   const scene = routeMessage(text);
   if (!scene) {
-    // Free-form dialogue uses the dedicated「对话」scene route (provider + model).
+    // Free-form dialogue uses the dedicated「对话」scene route (provider + model),
+    // and still injects user primary packs so the agent can reference them.
     const chatScene: SceneId = "chat";
     const route = routeFor(chatScene);
+    const skillRows = skillsForScene(chatScene);
+    const skillTexts = toSkillTexts(skillRows);
+    const skillInfo = {
+      skills: skillRows.map((s) => ({ id: s.id, name: s.name, role: s.role })),
+      skillPromptMeta: skillPromptMeta(skillTexts),
+    };
     try {
       const context = buildContext(bookId, null, text);
       const result = await getAdapter(route).runScene({
         scene: chatScene,
         model: route.model_id,
-        skillTexts: [],
+        skillTexts,
         context,
         instruction: text,
       });
@@ -977,13 +984,14 @@ export async function chat(bookId: string, message: string) {
         scene: chatScene,
         modelUsed: result.modelUsed,
         saved: null,
+        ...skillInfo,
       });
-      return { message: assistant, saved: null };
+      return { message: assistant, saved: null, ...skillInfo };
     } catch (error) {
       const fallback = `我可以按《${book.title}》往下写。你可以直接说：写全书大纲、写第 3 章细纲、写第 1 章正文、审核这一章、把正文去 AI 味。`;
       const content = error instanceof Error ? `${fallback}\n（对话模型未接通：${error.message}）` : fallback;
-      const assistant = insertMessage(bookId, "assistant", content, { scene: chatScene, saved: null });
-      return { message: assistant, saved: null };
+      const assistant = insertMessage(bookId, "assistant", content, { scene: chatScene, saved: null, ...skillInfo });
+      return { message: assistant, saved: null, ...skillInfo };
     }
   }
   const chapterNumber =

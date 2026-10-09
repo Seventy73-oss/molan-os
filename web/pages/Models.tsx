@@ -30,6 +30,7 @@ const EMPTY: ProviderSettings = {
   defaultModel: "",
   chatModel: "",
   configured: false,
+  keySource: "none",
 };
 
 function normalize(routes: Route[]): Route[] {
@@ -259,7 +260,9 @@ export function Models() {
   }
 
   const keyPlaceholder = provider.hasApiKey
-    ? `已保存 · ${provider.apiKeyHint ?? "••••"} · 留空则不改`
+    ? provider.keySource === "env"
+      ? `环境变量 · ${provider.apiKeyHint ?? "••••"} · 留空不改库内密钥`
+      : `已保存 · ${provider.apiKeyHint ?? "••••"} · 留空则不改`
     : "sk-…";
 
   return (
@@ -268,7 +271,7 @@ export function Models() {
         <div>
           <p className="eyebrow">墨兰写作 · 设置</p>
           <h1>模型</h1>
-          <p className="sub">接口密钥只写进这台机器的数据库，不会回到浏览器，也不会进本地存储。</p>
+          <p className="sub">密钥加密存本机数据库，接口只回尾号提示；也可用环境变量 MOLAN_API_KEY（优先）。勿把 Base URL 指到陌生域名，已保存的密钥不会发往白名单外的地址。</p>
         </div>
       </header>
       {error ? <p className="alert">{error}</p> : null}

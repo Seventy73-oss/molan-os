@@ -47,11 +47,16 @@ export function getAdapter(route: RouteRow): AgentRuntimeAdapter {
 
   if (provider !== "openai") return new LocalDraftAdapter();
 
-  const { apiKey, baseUrl, model } = resolveProvider(route);
-  if (!apiKey || !baseUrl || !model) {
-    return new NotedLocalAdapter("还没有可用的 API Key、接口地址或模型 ID，已回退本地草稿");
+  try {
+    const { apiKey, baseUrl, model } = resolveProvider(route);
+    if (!apiKey || !baseUrl || !model) {
+      return new NotedLocalAdapter("还没有可用的 API Key、接口地址或模型 ID，已回退本地草稿");
+    }
+    return new OpenAICompatibleAdapter({ baseUrl, apiKey, model });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "接口地址不安全";
+    return new NotedLocalAdapter(reason);
   }
-  return new OpenAICompatibleAdapter({ baseUrl, apiKey, model });
 }
 
 export function listAgentCapabilities(): {

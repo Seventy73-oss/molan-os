@@ -46,6 +46,13 @@ import {
 import { sseJson, streamChat, streamSceneRun, streamSelectionRewrite } from "./streamSupport";
 import { exportBookZip, exportChapterMarkdown, exportChapterZip, readArtifactFile, syncAllBooks, syncBook } from "./manuscripts";
 import { getModelsList, providerView, refreshModels, saveProvider, testProvider } from "./provider";
+import {
+  assertSafeBaseUrl,
+  corsAllowedOrigins,
+  isCorsOriginAllowed,
+  listenHostname,
+  redactSecrets,
+} from "./security";
 import { normalizeThinking } from "./thinking";
 import { isUserPack, loadUserPackPrompt, readSkillFile, reloadSkills, skillDescription, skillPromptMeta, toSkillTexts, userPackDefaultMax, userPackSources, type SkillRow } from "./skills";
 
@@ -62,7 +69,19 @@ const SCENES = new Set<SceneId>([
 ]);
 
 const app = new Hono();
-app.use("/api/*", cors());
+app.use(
+  "/api/*",
+  cors({
+    origin: (origin) => {
+      // No Origin (same-origin / proxy / curl): omit reflecting a foreign site.
+      if (!origin) return corsAllowedOrigins()[0]!;
+      return isCorsOriginAllowed(origin) ? origin : null;
+    },
+    allowMethods: ["GET", "HEAD", "PUT", "POST", "DELETE", "PATCH", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    maxAge: 600,
+  }),
+);
 
 /** Durable flush for postgres/pglite after mutating API calls. */
 app.use("/api/*", async (c, next) => {
@@ -77,9 +96,12 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.onError((error, c) => {
-  if (error instanceof HttpError) return c.json({ error: error.message }, error.status as 400);
-  console.error(error);
-  return c.json({ error: error.message || "服务器错误" }, 500);
+  if (error instanceof HttpError) {
+    return c.json({ error: redactSecrets(error.message) }, error.status as 400);
+  }
+  console.error(redactSecrets(String(error instanceof Error ? error.stack || error.message : error)));
+  const message = error instanceof Error ? error.message : "服务器错误";
+  return c.json({ error: redactSecrets(message || "服务器错误") }, 500);
 });
 
 
@@ -600,7 +622,7 @@ app.post("/api/settings/provider/test", async (c) => {
     return c.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "连接失败";
-    return c.json({ ok: false, model: "", error: message });
+    return c.json({ ok: false, model: "", error: redactSecrets(message) });
   }
 });
 
@@ -639,21 +661,31 @@ app.put("/api/scene-routes", async (c) => {
        base_url = excluded.base_url,
        thinking_intensity = excluded.thinking_intensity`,
   );
-  const tx = db.transaction(() => {
-    for (const route of routes) {
-      if (!route || typeof route !== "object") continue;
-      const item = route as Record<string, unknown>;
-      const scene = sceneOf(item.scene);
-      const provider = item.provider === "openai" ? "openai" : item.provider === "pi" ? "pi" : "local";
-      const modelId = typeof item.modelId === "string" && item.modelId.trim() ? item.modelId.trim() : "local-draft";
-      const baseUrl = typeof item.baseUrl === "string" && item.baseUrl.trim() ? item.baseUrl.trim() : null;
-      const thinkingIntensity = normalizeThinking(
-        item.thinkingIntensity ?? item.thinking_intensity,
-      );
-      update.run(scene, provider, modelId, baseUrl, thinkingIntensity);
-    }
-  });
-  tx();
+  try {
+    const tx = db.transaction(() => {
+      for (const route of routes) {
+        if (!route || typeof route !== "object") continue;
+        const item = route as Record<string, unknown>;
+        const scene = sceneOf(item.scene);
+        const provider = item.provider === "openai" ? "openai" : item.provider === "pi" ? "pi" : "local";
+        const modelId = typeof item.modelId === "string" && item.modelId.trim() ? item.modelId.trim() : "local-draft";
+        let baseUrl: string | null =
+          typeof item.baseUrl === "string" && item.baseUrl.trim() ? item.baseUrl.trim() : null;
+        if (baseUrl) {
+          // Scene override can later be paired with the stored key — always allowlist.
+          baseUrl = assertSafeBaseUrl(baseUrl, { withStoredKey: true });
+        }
+        const thinkingIntensity = normalizeThinking(
+          item.thinkingIntensity ?? item.thinking_intensity,
+        );
+        update.run(scene, provider, modelId, baseUrl, thinkingIntensity);
+      }
+    });
+    tx();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "场景路由无效";
+    throw new HttpError(400, redactSecrets(message));
+  }
   const rows = db.prepare("SELECT * FROM scene_routes").all() as {
     scene: string;
     provider: string;
@@ -679,9 +711,11 @@ async function main() {
   startJobWorker(Number(process.env.MOLAN_JOB_INTERVAL_MS || process.env.CHANGJUAN_JOB_INTERVAL_MS || 2500));
 
   const port = Number(process.env.PORT || 8787);
-  serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, (info) => {
+  const hostname = listenHostname();
+  serve({ fetch: app.fetch, port, hostname }, (info) => {
     const dbInfo = getDbInfo();
-    console.log(`墨兰写作 API http://127.0.0.1:${info.port}  db=${dbInfo.driver}`);
+    const shown = hostname === "0.0.0.0" ? `0.0.0.0:${info.port} (局域网可访问)` : `${hostname}:${info.port}`;
+    console.log(`墨兰写作 API http://${shown}  db=${dbInfo.driver}`);
   });
 }
 

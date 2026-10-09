@@ -103,17 +103,21 @@ export class PiAgentAdapter implements AgentRuntimeAdapter {
 
     // Produce draft text first (openai if configured, else local), then run it through Agent.
     let draft: RunOutput;
-    const resolved = resolveProvider({
-      base_url: null,
-      model_id: input.model || null,
-    });
-    if (resolved.apiKey && resolved.baseUrl && resolved.model) {
-      draft = await new OpenAICompatibleAdapter({
-        baseUrl: resolved.baseUrl,
-        apiKey: resolved.apiKey,
-        model: resolved.model,
-      }).runScene(input);
-    } else {
+    try {
+      const resolved = resolveProvider({
+        base_url: null,
+        model_id: input.model || null,
+      });
+      if (resolved.apiKey && resolved.baseUrl && resolved.model) {
+        draft = await new OpenAICompatibleAdapter({
+          baseUrl: resolved.baseUrl,
+          apiKey: resolved.apiKey,
+          model: resolved.model,
+        }).runScene(input);
+      } else {
+        draft = await new LocalDraftAdapter().runScene(input);
+      }
+    } catch {
       draft = await new LocalDraftAdapter().runScene(input);
     }
 

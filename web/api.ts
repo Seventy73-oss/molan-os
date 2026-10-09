@@ -115,6 +115,7 @@ export type ProviderSettings = {
   defaultModel: string;
   chatModel: string;
   configured: boolean;
+  keySource?: "none" | "env" | "stored";
 };
 
 export type ModelInfo = { id: string; ownedBy?: string };

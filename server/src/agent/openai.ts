@@ -9,6 +9,7 @@ import {
   thinkingSystemHint,
   type ThinkingIntensity,
 } from "../thinking";
+import { redactSecrets } from "../security";
 
 const CONTRACT: Record<SceneId, string> = {
   topic: "交付题材方案：读者、冲突、不写什么、书名和两句简介。",
@@ -94,7 +95,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         signal: AbortSignal.timeout(60_000),
       });
       if (!response.ok) {
-        const detail = (await response.text()).slice(0, 180);
+        const detail = redactSecrets(await response.text());
         throw new Error(`HTTP ${response.status} ${detail}`);
       }
       const data = (await response.json()) as {
@@ -116,7 +117,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
       };
     } catch (error) {
       const local = await new LocalDraftAdapter().runScene(input);
-      const reason = error instanceof Error ? error.message : "未知错误";
+      const reason = redactSecrets(error instanceof Error ? error.message : "未知错误");
       return { text: local.text, modelUsed: `local-draft (openai failed: ${reason})` };
     }
   }
@@ -139,7 +140,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         signal: AbortSignal.timeout(120_000),
       });
       if (!response.ok) {
-        const detail = (await response.text()).slice(0, 180);
+        const detail = redactSecrets(await response.text());
         throw new Error(`HTTP ${response.status} ${detail}`);
       }
       if (!response.body) throw new Error("无流式响应体");
@@ -177,7 +178,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
       return { text, modelUsed: model };
     } catch (error) {
       const local = await new LocalDraftAdapter().runScene(input);
-      const reason = error instanceof Error ? error.message : "未知错误";
+      const reason = redactSecrets(error instanceof Error ? error.message : "未知错误");
       await emitChunked(local.text, onToken);
       return { text: local.text, modelUsed: `local-draft (openai stream failed: ${reason})` };
     }

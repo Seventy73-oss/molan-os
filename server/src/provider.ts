@@ -1,4 +1,12 @@
 import { db } from "./db";
+import {
+  assertSafeBaseUrl,
+  assertSafeBaseUrlResolved,
+  decryptSecret,
+  encryptSecret,
+  envApiKey,
+  redactSecrets,
+} from "./security";
 
 const KEYS = {
   baseUrl: "openai_base_url",
@@ -15,6 +23,7 @@ export type ProviderView = {
   defaultModel: string;
   chatModel: string;
   configured: boolean;
+  keySource: "none" | "env" | "stored";
 };
 
 export type ModelInfo = { id: string; ownedBy?: string };
@@ -48,6 +57,35 @@ export function keyHint(secret: string): string | null {
   return secret.startsWith("sk-") ? `sk-…${tail}` : `…${tail}`;
 }
 
+function readStoredApiKey(): string {
+  const raw = read(KEYS.apiKey);
+  if (!raw) return "";
+  try {
+    return decryptSecret(raw);
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredApiKey(plain: string) {
+  if (!plain) {
+    write(KEYS.apiKey, "");
+    return;
+  }
+  write(KEYS.apiKey, encryptSecret(plain));
+}
+
+/** Migrate plaintext DB keys to encrypted form on first successful read path. */
+function maybeReencryptPlaintext() {
+  const raw = read(KEYS.apiKey);
+  if (!raw || raw.startsWith("enc:v1:")) return;
+  try {
+    write(KEYS.apiKey, encryptSecret(raw));
+  } catch {
+    // leave as-is if encryption fails
+  }
+}
+
 function readCache(): CachePayload | null {
   const raw = read(KEYS.modelsCache);
   if (!raw) return null;
@@ -64,28 +102,51 @@ function writeCache(payload: CachePayload) {
   write(KEYS.modelsCache, JSON.stringify(payload));
 }
 
-/** UI value wins over the environment. Per-scene route base URL wins over both. */
+/**
+ * Resolve credentials for outbound calls.
+ * Env MOLAN_API_KEY / OPENAI_API_KEY wins over DB. Never expose the key via providerView.
+ */
 export function resolveProvider(route?: { base_url?: string | null; model_id?: string | null }) {
-  const storedKey = read(KEYS.apiKey);
+  maybeReencryptPlaintext();
+  const storedKey = readStoredApiKey();
+  const envKey = envApiKey();
   const storedBase = read(KEYS.baseUrl);
   const storedDefault = read(KEYS.defaultModel);
   const storedChat = read(KEYS.chatModel);
-  const apiKey = storedKey || process.env.OPENAI_API_KEY?.trim() || "";
-  const baseUrl = (route?.base_url || storedBase || process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").trim();
+  const apiKey = envKey || storedKey;
+  const hasStoredKey = Boolean(storedKey);
+  const usingStoredKey = Boolean(storedKey) && !envKey;
+
+  let baseUrl = (route?.base_url || storedBase || process.env.OPENAI_BASE_URL || process.env.MOLAN_BASE_URL || "https://api.openai.com/v1").trim();
+  if (baseUrl) {
+    // Validate before callers attach the key. Stored-key mode requires allowlisted host.
+    baseUrl = assertSafeBaseUrl(baseUrl, { withStoredKey: usingStoredKey && Boolean(apiKey) });
+  }
+
   const routeModel = route?.model_id?.trim() ?? "";
   const model =
     (routeModel && routeModel !== "local-draft" ? routeModel : "") ||
     storedChat ||
     storedDefault ||
     process.env.OPENAI_MODEL?.trim() ||
+    process.env.MOLAN_MODEL?.trim() ||
     "";
-  return { apiKey, baseUrl, model, hasStoredKey: Boolean(storedKey) };
+  return {
+    apiKey,
+    baseUrl,
+    model,
+    hasStoredKey,
+    usingStoredKey,
+    keySource: (envKey ? "env" : storedKey ? "stored" : "none") as "env" | "stored" | "none",
+  };
 }
 
 export function providerView(): ProviderView {
-  const storedKey = read(KEYS.apiKey);
-  const envKey = process.env.OPENAI_API_KEY?.trim() || "";
-  const shown = storedKey || envKey;
+  maybeReencryptPlaintext();
+  const storedKey = readStoredApiKey();
+  const envKey = envApiKey();
+  const shown = envKey || storedKey;
+  const keySource: ProviderView["keySource"] = envKey ? "env" : storedKey ? "stored" : "none";
   return {
     baseUrl: read(KEYS.baseUrl),
     hasApiKey: Boolean(shown),
@@ -93,21 +154,12 @@ export function providerView(): ProviderView {
     defaultModel: read(KEYS.defaultModel),
     chatModel: read(KEYS.chatModel),
     configured: Boolean(shown),
+    keySource,
   };
 }
 
-function cleanBase(value: string): string {
-  const text = value.trim();
-  if (!text) return "";
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    throw new Error("Base URL 需要是 http 或 https 地址");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Base URL 只接受 http 或 https");
-  if (url.username || url.password) throw new Error("不要把密钥写进地址");
-  return text.replace(/\/+$/, "");
+function cleanBase(value: string, withStoredKey: boolean): string {
+  return assertSafeBaseUrl(value, { withStoredKey });
 }
 
 export function saveProvider(input: {
@@ -117,19 +169,29 @@ export function saveProvider(input: {
   chatModel?: unknown;
   clearApiKey?: unknown;
 }): ProviderView {
-  if (typeof input.baseUrl === "string") write(KEYS.baseUrl, cleanBase(input.baseUrl));
-  if (input.clearApiKey === true) write(KEYS.apiKey, "");
-  else if (typeof input.apiKey === "string" && input.apiKey.trim()) write(KEYS.apiKey, input.apiKey.trim());
+  if (typeof input.baseUrl === "string") {
+    const nextBase = input.baseUrl.trim() ? cleanBase(input.baseUrl, false) : "";
+    const willHaveStoredKey =
+      input.clearApiKey !== true &&
+      ((typeof input.apiKey === "string" && Boolean(input.apiKey.trim())) || Boolean(readStoredApiKey()));
+    if (nextBase && willHaveStoredKey && !envApiKey()) {
+      cleanBase(nextBase, true);
+    }
+    write(KEYS.baseUrl, nextBase);
+  }
+  if (input.clearApiKey === true) writeStoredApiKey("");
+  else if (typeof input.apiKey === "string" && input.apiKey.trim()) {
+    const plain = input.apiKey.trim();
+    if (plain.startsWith("enc:v1:")) throw new Error("无效的 API Key");
+    writeStoredApiKey(plain);
+  }
   if (typeof input.defaultModel === "string") write(KEYS.defaultModel, input.defaultModel.trim());
   if (typeof input.chatModel === "string") write(KEYS.chatModel, input.chatModel.trim());
   return providerView();
 }
 
 export function redact(text: string): string {
-  return text
-    .replace(/sk-[A-Za-z0-9_-]{4,}/g, "sk-…")
-    .replace(/Bearer\s+\S+/gi, "Bearer …")
-    .slice(0, 180);
+  return redactSecrets(text);
 }
 
 function toModelsList(cache: CachePayload | null, error?: string): ModelsList {
@@ -143,7 +205,7 @@ function toModelsList(cache: CachePayload | null, error?: string): ModelsList {
 
 export function getModelsList(): ModelsList {
   const cache = readCache();
-  if (!providerView().configured && !process.env.OPENAI_API_KEY?.trim()) {
+  if (!providerView().configured && !envApiKey()) {
     return toModelsList(cache, "还没有配置 API Key，无法拉取模型列表");
   }
   return toModelsList(cache);
@@ -151,7 +213,14 @@ export function getModelsList(): ModelsList {
 
 /** Fetch GET {baseUrl}/models and cache the result. Never logs the key. */
 export async function refreshModels(force = true): Promise<ModelsList> {
-  const { apiKey, baseUrl } = resolveProvider();
+  let resolved: ReturnType<typeof resolveProvider>;
+  try {
+    resolved = resolveProvider();
+  } catch (error) {
+    const reason = redact(error instanceof Error ? error.message : "配置无效");
+    return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: reason };
+  }
+  const { apiKey, baseUrl, usingStoredKey } = resolved;
   if (!apiKey) return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: "还没有 API Key" };
   if (!baseUrl) return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: "还没有 Base URL" };
 
@@ -160,7 +229,15 @@ export async function refreshModels(force = true): Promise<ModelsList> {
     return toModelsList(existing);
   }
 
-  const url = `${baseUrl.replace(/\/$/, "")}/models`;
+  let safeUrl: string;
+  try {
+    safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withStoredKey: usingStoredKey });
+  } catch (error) {
+    const reason = redact(error instanceof Error ? error.message : "地址不安全");
+    return { models: existing?.models ?? [], fetchedAt: existing?.fetchedAt ?? null, error: reason };
+  }
+
+  const url = `${safeUrl.replace(/\/$/, "")}/models`;
   try {
     const response = await fetch(url, {
       method: "GET",
@@ -203,12 +280,38 @@ export async function refreshModels(force = true): Promise<ModelsList> {
   }
 }
 
-/** Tiny completion against the saved (or just-typed) credentials. The key is never logged or returned. */
+/**
+ * Tiny completion against credentials.
+ * Critical: if the request uses the *stored* key, a newly typed baseUrl must pass allowlist —
+ * never send the saved key to an arbitrary URL.
+ */
 export async function testProvider(input: { baseUrl?: unknown; apiKey?: unknown; model?: unknown }) {
-  const saved = resolveProvider();
-  const apiKey = typeof input.apiKey === "string" && input.apiKey.trim() ? input.apiKey.trim() : saved.apiKey;
+  let saved: ReturnType<typeof resolveProvider>;
+  try {
+    saved = resolveProvider();
+  } catch {
+    const stored = readStoredApiKey();
+    saved = {
+      apiKey: envApiKey() || stored,
+      baseUrl: read(KEYS.baseUrl),
+      model: "",
+      hasStoredKey: Boolean(stored),
+      usingStoredKey: !envApiKey() && Boolean(stored),
+      keySource: "none",
+    };
+  }
+
+  const typedKey = typeof input.apiKey === "string" && input.apiKey.trim() ? input.apiKey.trim() : "";
+  const apiKey = typedKey || saved.apiKey;
+  const usingStoredKey = !typedKey && Boolean(saved.hasStoredKey) && !envApiKey();
+
   let baseUrl = saved.baseUrl;
-  if (typeof input.baseUrl === "string" && input.baseUrl.trim()) baseUrl = cleanBase(input.baseUrl);
+  if (typeof input.baseUrl === "string" && input.baseUrl.trim()) {
+    baseUrl = assertSafeBaseUrl(input.baseUrl, { withStoredKey: usingStoredKey });
+  } else if (baseUrl) {
+    baseUrl = assertSafeBaseUrl(baseUrl, { withStoredKey: usingStoredKey });
+  }
+
   const model =
     (typeof input.model === "string" && input.model.trim() && input.model.trim() !== "local-draft"
       ? input.model.trim()
@@ -217,7 +320,9 @@ export async function testProvider(input: { baseUrl?: unknown; apiKey?: unknown;
     "gpt-4o-mini";
   if (!apiKey) return { ok: false as const, model, error: "还没有 API Key" };
   if (!baseUrl) return { ok: false as const, model, error: "还没有 Base URL" };
-  const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  const safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withStoredKey: usingStoredKey });
+  const url = `${safeUrl.replace(/\/$/, "")}/chat/completions`;
   try {
     const response = await fetch(url, {
       method: "POST",

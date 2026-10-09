@@ -12,3 +12,7 @@ shots/
 *.bak
 .vite/
 coverage/
+
+data/.molan-secret
+
+*.molan-secret

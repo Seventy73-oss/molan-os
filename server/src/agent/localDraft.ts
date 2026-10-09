@@ -590,6 +590,23 @@ export function rewriteSelectionLocal(selection: string, instruction: string): s
     );
   }
 
+  // Custom: colder tone / strip warm fillers when user asks via「对助手说」.
+  if (/冷一点|更冷|语气.*冷|别解释动机/.test(ask)) {
+    let out = text;
+    out = out
+      .replace(/不禁/g, "")
+      .replace(/宛如/g, "像")
+      .replace(/温暖|柔和|轻轻/g, "")
+      .replace(/心中涌起(?:一股)?/g, "")
+      .replace(/嘴角微微上扬/g, "没笑");
+    out = out.replace(/。{2,}/g, "。").replace(/，{2,}/g, "，").trim();
+    if (out === text || !out) {
+      const bare = text.replace(/[。！？!?]+$/u, "");
+      out = bare ? `${bare}。他没再多说。` : text;
+    }
+    return normalizeDialogueQuotes(out || text);
+  }
+
   // 润色 / 改写 / custom: strip common AI-ish fillers on the span itself.
   let out = text;
   const rules: [RegExp, string][] = [

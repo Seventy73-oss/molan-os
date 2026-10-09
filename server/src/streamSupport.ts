@@ -7,7 +7,10 @@ import {
   buildContext,
   chat,
   completeGeneration,
+  demoteCancelledResultRevision,
+  generationWriteShouldBeCandidate,
   HttpError,
+  linkGenerationResultRevision,
   rewriteSelection,
   saveRevision,
 } from "./engine";
@@ -134,18 +137,47 @@ export async function streamSceneRun(
     throwIfAborted(input.signal);
 
     const kind = sceneKind(input.scene);
+    const asCandidateNow = generationWriteShouldBeCandidate(input.generationId, input.signal);
     const saved = kind
       ? saveRevision({
           bookId: input.bookId,
           kind,
           chapterNumber: kind === "book_profile" || kind === "book_outline" ? null : chapterNumber,
           body: result.text,
-          source: "agent",
+          source: asCandidateNow ? "agent_cancelled" : "agent",
           model: result.modelUsed,
           skillIds: skills.map((skill) => skill.id),
           scene: input.scene,
+          asCandidate: asCandidateNow,
         })
       : null;
+
+    if (input.generationId && saved?.revisionId) {
+      linkGenerationResultRevision(input.generationId, saved.revisionId);
+    }
+
+    if (
+      saved?.revisionId &&
+      saved.current &&
+      generationWriteShouldBeCandidate(input.generationId, input.signal)
+    ) {
+      demoteCancelledResultRevision(saved.revisionId);
+      if (input.generationId) {
+        completeGeneration(input.generationId, {
+          status: "cancelled",
+          resultRevisionId: saved.revisionId,
+          error: "已取消（已退回上一版修订）",
+          result: {
+            cancelRevert: true,
+            note: "取消前已写入的修订已退回上一版；该次结果保留在版本历史（来源 agent_cancelled）。",
+            saved: { ...saved, current: false },
+          },
+        });
+      }
+      const err = new Error("已取消");
+      err.name = "AbortError";
+      throw err;
+    }
 
     const payload = {
       text: result.text,
@@ -155,6 +187,17 @@ export async function streamSceneRun(
       saved,
     };
     if (input.generationId) {
+      if (generationWriteShouldBeCandidate(input.generationId, input.signal)) {
+        completeGeneration(input.generationId, {
+          status: "cancelled",
+          resultRevisionId: saved?.revisionId ?? null,
+          error: "已取消",
+          result: { ...payload, current: false },
+        });
+        const err = new Error("已取消");
+        err.name = "AbortError";
+        throw err;
+      }
       completeGeneration(input.generationId, {
         status: "completed",
         resultRevisionId: saved && "revisionId" in saved ? saved.revisionId : null,
@@ -165,7 +208,8 @@ export async function streamSceneRun(
   } catch (error) {
     if (isAbortError(error) || input.signal?.aborted) {
       if (input.generationId) {
-        completeGeneration(input.generationId, { status: "cancelled", error: "已取消" });
+        const { cancelGeneration } = await import("./engine");
+        cancelGeneration(input.generationId);
       }
       throw error;
     }
@@ -299,7 +343,12 @@ export async function streamChat(
   } catch (error) {
     if (isAbortError(error) || signal?.aborted) {
       if (generationId) {
-        completeGeneration(generationId, { status: "cancelled", error: "已取消" });
+        const { cancelGeneration } = await import("./engine");
+        try {
+          cancelGeneration(generationId);
+        } catch {
+          completeGeneration(generationId, { status: "cancelled", error: "已取消" });
+        }
       }
       throw error;
     }

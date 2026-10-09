@@ -819,22 +819,69 @@ export async function executeScene(input: {
       .get(input.bookId, chapterNumber) as { id: string | null } | undefined;
     sourceRevisionId = bodyArt?.id ?? null;
   }
+  throwIfGenerationCancelled(input.generationId, input.signal);
+  const cancelCandidate = () => {
+    if (generationWriteShouldBeCandidate(input.generationId, input.signal)) return true;
+    if (typeof input.asCandidate === "function") return Boolean(input.asCandidate());
+    return Boolean(input.asCandidate);
+  };
+  const asCandidateNow = cancelCandidate();
   const saved = kind
     ? saveRevision({
         bookId: input.bookId,
         kind,
         chapterNumber: kind === "book_profile" || kind === "book_outline" ? null : chapterNumber,
         body: result.text,
-        source: "agent",
+        source: asCandidateNow && generationWriteShouldBeCandidate(input.generationId, input.signal)
+          ? "agent_cancelled"
+          : "agent",
         model: result.modelUsed,
         skillIds: skills.map((skill) => skill.id),
         scene: input.scene,
         expectedRevisionId: input.expectedRevisionId,
-        asCandidate: input.asCandidate,
+        asCandidate: asCandidateNow,
         sourceRevisionId,
       })
     : null;
+  if (input.generationId && saved && "revisionId" in saved) {
+    linkGenerationResultRevision(input.generationId, (saved as { revisionId: string }).revisionId);
+  }
+  // Race: became current then cancel won — demote before completing.
+  if (
+    saved &&
+    "revisionId" in saved &&
+    (saved as { current?: boolean }).current &&
+    generationWriteShouldBeCandidate(input.generationId, input.signal)
+  ) {
+    demoteCancelledResultRevision((saved as { revisionId: string }).revisionId);
+    if (input.generationId) {
+      completeGeneration(input.generationId, {
+        status: "cancelled",
+        resultRevisionId: (saved as { revisionId: string }).revisionId,
+        error: "已取消（已退回上一版修订）",
+        result: {
+          cancelRevert: true,
+          note: "取消前已写入的修订已退回上一版；该次结果保留在版本历史（来源 agent_cancelled）。",
+          saved,
+        },
+      });
+    }
+    const err = new Error("已取消");
+    err.name = "AbortError";
+    throw err;
+  }
   if (input.generationId) {
+    if (generationWriteShouldBeCandidate(input.generationId, input.signal)) {
+      completeGeneration(input.generationId, {
+        status: "cancelled",
+        resultRevisionId: saved && "revisionId" in saved ? (saved as { revisionId: string }).revisionId : null,
+        error: "已取消",
+        result: { text: result.text, modelUsed: result.modelUsed, saved, current: false },
+      });
+      const err = new Error("已取消");
+      err.name = "AbortError";
+      throw err;
+    }
     completeGeneration(input.generationId, {
       status: "completed",
       resultRevisionId: saved && "revisionId" in saved ? (saved as { revisionId: string }).revisionId : null,
@@ -1064,6 +1111,86 @@ export function getGeneration(id: string) {
   };
 }
 
+export type CancelRevertInfo = {
+  demoted: boolean;
+  orphanRevisionId: string | null;
+  restoredRevisionId: string | null;
+  artifactId: string | null;
+};
+
+/** Link a saved revision to a still-running generation so cancel can demote it. */
+export function linkGenerationResultRevision(generationId: string, revisionId: string) {
+  const ts = now();
+  db.prepare(
+    `UPDATE generations SET result_revision_id = COALESCE(result_revision_id, ?), updated_at = ?
+     WHERE id = ?`,
+  ).run(revisionId, ts, generationId);
+}
+
+/**
+ * If `revisionId` is the artifact's current revision, restore the previous revision
+ * (or clear current) and mark the orphan as `agent_cancelled` so history is explicit.
+ */
+export function demoteCancelledResultRevision(revisionId: string): CancelRevertInfo {
+  const row = db
+    .prepare(
+      `SELECT r.id AS revision_id, r.revision AS revision_num, r.artifact_id AS artifact_id,
+              a.current_revision_id AS current_id, a.book_id AS book_id
+       FROM artifact_revisions r
+       JOIN artifacts a ON a.id = r.artifact_id
+       WHERE r.id = ?`,
+    )
+    .get(revisionId) as
+    | {
+        revision_id: string;
+        revision_num: number;
+        artifact_id: string;
+        current_id: string | null;
+        book_id: string;
+      }
+    | undefined;
+  if (!row) {
+    return { demoted: false, orphanRevisionId: null, restoredRevisionId: null, artifactId: null };
+  }
+  db.prepare(`UPDATE artifact_revisions SET source = 'agent_cancelled' WHERE id = ?`).run(revisionId);
+  if (row.current_id !== revisionId) {
+    return {
+      demoted: false,
+      orphanRevisionId: revisionId,
+      restoredRevisionId: row.current_id,
+      artifactId: row.artifact_id,
+    };
+  }
+  const prev = db
+    .prepare(
+      `SELECT id FROM artifact_revisions
+       WHERE artifact_id = ? AND revision < ?
+       ORDER BY revision DESC LIMIT 1`,
+    )
+    .get(row.artifact_id, row.revision_num) as { id: string } | undefined;
+  const restoreId = prev?.id ?? null;
+  db.prepare(`UPDATE artifacts SET current_revision_id = ? WHERE id = ?`).run(restoreId, row.artifact_id);
+  try {
+    syncBook(row.book_id);
+  } catch (error) {
+    console.error("manuscript sync after cancel demote failed", error);
+  }
+  return {
+    demoted: true,
+    orphanRevisionId: revisionId,
+    restoredRevisionId: restoreId,
+    artifactId: row.artifact_id,
+  };
+}
+
+/** True when client aborted or generation was cancelled via API. */
+export function generationWriteShouldBeCandidate(generationId?: string | null, signal?: AbortSignal | null) {
+  if (signal?.aborted) return true;
+  if (!generationId) return false;
+  const row = getGeneration(generationId);
+  return row?.status === "cancelled";
+}
+
 export function completeGeneration(
   id: string,
   patch: { status: GenerationStatus; resultRevisionId?: string | null; result?: unknown; error?: string | null },
@@ -1091,15 +1218,36 @@ export function completeGeneration(
   );
 }
 
-/** Mark a running generation cancelled. Idempotent for already-terminal states. */
+/** Mark a running generation cancelled. Idempotent for already-terminal states.
+ *  If a revision was already linked/saved as current, demote it back to the previous revision.
+ */
 export function cancelGeneration(id: string) {
   const row = getGeneration(id);
   if (!row) throw new HttpError(404, "生成记录不存在");
-  if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
-    return row;
+  if (row.status === "completed" || row.status === "failed") {
+    return { ...row, revert: null as CancelRevertInfo | null };
+  }
+  if (row.status === "cancelled") {
+    const revert = row.resultRevisionId ? demoteCancelledResultRevision(row.resultRevisionId) : null;
+    return { ...getGeneration(id)!, revert };
   }
   completeGeneration(id, { status: "cancelled", error: "已取消" });
-  return getGeneration(id)!;
+  const after = getGeneration(id)!;
+  const revert = after.resultRevisionId ? demoteCancelledResultRevision(after.resultRevisionId) : null;
+  if (revert?.demoted) {
+    const ts = now();
+    const result = {
+      cancelRevert: revert,
+      note: "取消前已写入的修订已退回上一版；该次结果保留在版本历史（来源 agent_cancelled），可手动还原。",
+    };
+    db.prepare(`UPDATE generations SET result_json = ?, error = ?, updated_at = ? WHERE id = ?`).run(
+      JSON.stringify(result),
+      "已取消（已退回上一版修订）",
+      ts,
+      id,
+    );
+  }
+  return { ...getGeneration(id)!, revert };
 }
 
 /** Exported for smoke tests — keep intents narrow (no bare 写/生成 → 正文). */

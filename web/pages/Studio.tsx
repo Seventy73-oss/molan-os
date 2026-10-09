@@ -205,12 +205,18 @@ export function Studio() {
   function isAbort(err: unknown) {
     return err instanceof Error && (err.name === "AbortError" || err.message === "已取消");
   }
+  const cancelRevertRef = useRef<{ demoted: boolean } | null>(null);
   function cancelStream() {
     streamAbort.current?.abort();
     revealAbort.current?.abort();
     const gid = activeGenerationId.current;
     if (gid) {
-      void api.cancelGeneration(gid).catch(() => undefined);
+      void api
+        .cancelGeneration(gid)
+        .then((res) => {
+          if (res.revert?.demoted) cancelRevertRef.current = { demoted: true };
+        })
+        .catch(() => undefined);
     }
   }
 
@@ -577,7 +583,32 @@ export function Studio() {
       }
     } catch (err) {
       if (isAbort(err)) {
-        setNotice("已停止本次对话");
+        const gid = activeGenerationId.current;
+        let demoted = Boolean(cancelRevertRef.current?.demoted);
+        cancelRevertRef.current = null;
+        if (!demoted && gid) {
+          try {
+            const status = await api.getGeneration(gid);
+            const result = status.result as { cancelRevert?: unknown } | null;
+            demoted = Boolean(status.revert?.demoted || result?.cancelRevert);
+          } catch {
+            /* ignore */
+          }
+        }
+        if (demoted) {
+          try {
+            const payload = await api.book(id);
+            dataRef.current = payload;
+            setData(payload);
+            setTitle(payload.book.title);
+            show(payload, doc);
+          } catch {
+            /* ignore */
+          }
+          setNotice("已停止：取消前写入的修订已退回上一版，可在「版本历史」查看或还原该次结果");
+        } else {
+          setNotice("已停止本次对话");
+        }
         setChatText(message);
       } else {
         setError(err instanceof Error ? err.message : "发送失败");

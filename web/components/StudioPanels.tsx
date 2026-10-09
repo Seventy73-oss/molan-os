@@ -159,7 +159,9 @@ export function VersionHistory({ bookId, kind, chapterNumber, onRestored }: Hist
                 {rev.isCurrent ? <em>当前</em> : null}
               </span>
               <span className="rev-meta">
-                {rev.source} · {rev.chars} 字 · {new Date(rev.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                {rev.source === "agent_cancelled" ? "已取消写入" : rev.source}
+                {rev.source === "agent_cancelled" ? " · 可还原" : ""} · {rev.chars} 字 ·{" "}
+                {new Date(rev.createdAt).toLocaleString("zh-CN", { hour12: false })}
               </span>
             </button>
             {!rev.isCurrent ? (

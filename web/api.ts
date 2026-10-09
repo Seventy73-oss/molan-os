@@ -268,6 +268,13 @@ export const api = {
       status: string;
       result: unknown;
       error: string | null;
+      resultRevisionId?: string | null;
+      revert?: {
+        demoted: boolean;
+        orphanRevisionId: string | null;
+        restoredRevisionId: string | null;
+        artifactId: string | null;
+      } | null;
     }>(`/api/generations/${generationId}`),
   cancelGeneration: (generationId: string) =>
     request<{
@@ -275,6 +282,13 @@ export const api = {
       status: string;
       result: unknown;
       error: string | null;
+      resultRevisionId?: string | null;
+      revert?: {
+        demoted: boolean;
+        orphanRevisionId: string | null;
+        restoredRevisionId: string | null;
+        artifactId: string | null;
+      } | null;
     }>(`/api/generations/${generationId}/cancel`, { method: "POST", body: "{}" }),
   sceneRun: (
     id: string,

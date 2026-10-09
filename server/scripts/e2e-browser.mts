@@ -1,7 +1,7 @@
 /**
  * Phase-4 browser E2E (Playwright Chromium).
  * Spawns API + Vite on free ports with a temp SQLite DB; exercises Library → Studio →
- * selection bubble action matrix + mid-stream abort + streaming chat write (local-draft) → Skills/Models.
+ * selection bubble matrix +「对助手说」custom + mid-stream abort + streaming chat write (local-draft) → Skills/Models.
  *
  * Run: npm run test:e2e:browser
  */
@@ -348,6 +348,65 @@ async function main() {
           check(`${item.name} API`, false, msg.slice(0, 120));
           check(`${item.name} 写回`, false, msg.slice(0, 120));
         }
+      }
+
+      // --- Phase7: bubble「对助手说…」custom instruction path ---
+      try {
+        const customSeed = "他不禁看着远方，宛如陷入沉思。茶还没凉。";
+        ms = await seedChapterBody(customSeed);
+        const beforeCustom = ((await ms.innerText().catch(() => "")) || "").trim();
+        bubble = await selectAllAndBubble(ms);
+        const customBubbleOk = await bubble.isVisible().catch(() => false);
+        check("对助手说 气泡", customBubbleOk);
+        if (customBubbleOk) {
+          await bubble.getByRole("button", { name: "对助手说…", exact: true }).click({ force: true });
+          const prompt = bubble.locator("textarea");
+          await prompt.waitFor({ state: "visible", timeout: 5_000 });
+          await prompt.fill("语气再冷一点，去掉不禁和宛如，别解释动机");
+          const customRespPromise = page.waitForResponse(
+            (r) => r.url().includes("/selection-rewrite") && r.request().method() === "POST",
+            { timeout: 45_000 },
+          ).catch((e: unknown) => e);
+          await bubble.getByRole("button", { name: "应用到选区", exact: true }).click({ force: true });
+          const customRespOrErr = await customRespPromise;
+          if (customRespOrErr && typeof customRespOrErr === "object" && "ok" in customRespOrErr) {
+            const resp = customRespOrErr as { ok: () => boolean; status: () => number; request: () => { postData: () => string | null } };
+            check("对助手说 API", resp.ok(), `status=${resp.status()}`);
+            let instructionOk = false;
+            try {
+              const body = JSON.parse(resp.request().postData() || "{}") as { instruction?: string };
+              instructionOk = Boolean(body.instruction && /冷一点|不禁|宛如/.test(body.instruction));
+            } catch {
+              instructionOk = false;
+            }
+            check("对助手说 指令入参", instructionOk);
+          } else {
+            const msg = customRespOrErr instanceof Error ? customRespOrErr.message : String(customRespOrErr);
+            check("对助手说 API", false, msg.slice(0, 120));
+            check("对助手说 指令入参", false, "no response");
+          }
+          for (let j = 0; j < 80; j++) {
+            const after = ((await ms.innerText().catch(() => "")) || "").trim();
+            if (after && after !== beforeCustom && !after.includes("不禁")) break;
+            await page.waitForTimeout(250);
+          }
+          const afterCustom = ((await ms.innerText().catch(() => "")) || "").trim();
+          check(
+            "对助手说 写回",
+            Boolean(afterCustom) && !afterCustom.includes("不禁") && (afterCustom !== beforeCustom || afterCustom.includes("没再多说") || afterCustom.includes("像")),
+            afterCustom.slice(0, 100),
+          );
+        } else {
+          check("对助手说 API", false, "bubble missing");
+          check("对助手说 指令入参", false, "bubble missing");
+          check("对助手说 写回", false, "bubble missing");
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        check("对助手说 气泡", false, msg.slice(0, 120));
+        check("对助手说 API", false, msg.slice(0, 120));
+        check("对助手说 指令入参", false, msg.slice(0, 120));
+        check("对助手说 写回", false, msg.slice(0, 120));
       }
 
       // --- Mid-stream abort: seed outline, start write, click 停止 before delay ends ---

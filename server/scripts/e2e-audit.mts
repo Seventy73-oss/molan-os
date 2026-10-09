@@ -2,7 +2,7 @@
  * Phase-3 audit E2E (API-level, mock models / local-draft only).
  * Covers: slow/concurrent CAS, SSE lost receipt, process restart, late candidate,
  * job pause/cancel, overwrite-import rollback, durable import recovery, AbortSignal cancel,
- * SQLite lease, worker storage policy, corrupt recovery quarantine, mid-stream cancel no overwrite.
+ * SQLite lease, worker storage policy, corrupt recovery quarantine, mid-stream cancel no overwrite, post-save cancel demote / agent_cancelled.
  *
  * Run: npm run test:e2e
  */
@@ -490,6 +490,110 @@ z.close()
     "E2E 已取消 generation 不被迟到 completed 复活",
     stillCancelled?.status === "cancelled",
     stillCancelled?.status,
+  );
+
+  // --- Phase7: cancel AFTER revision already saved as current → demote + mark ---
+  const seedBeforeCancel = "PHASE7_KEEP_OUTLINE\n1. 保留因果\n不要丢。";
+  const baseSaved = engine.saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: seedBeforeCancel,
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "outline",
+    skipMemory: true,
+  });
+  const postGid = crypto.randomUUID();
+  engine.beginGeneration({ id: postGid, bookId, scene: "outline" });
+  const orphanSaved = engine.saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: "PHASE7_SHOULD_DEMOTE\n这是取消前误写入的当前稿。",
+    source: "agent",
+    model: "local-draft",
+    skillIds: [],
+    scene: "outline",
+    skipMemory: true,
+  });
+  engine.linkGenerationResultRevision(postGid, orphanSaved.revisionId);
+  const curBeforeCancel = (
+    db
+      .prepare(
+        `SELECT r.body AS body, r.id AS id FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline'`,
+      )
+      .get(bookId) as { body: string; id: string } | undefined
+  );
+  check(
+    "E2E 取消前误写入已是当前稿",
+    curBeforeCancel?.id === orphanSaved.revisionId,
+    curBeforeCancel?.id,
+  );
+  const cancelRes = engine.cancelGeneration(postGid);
+  check("E2E 取消返回 demoted", Boolean(cancelRes.revert?.demoted), JSON.stringify(cancelRes.revert));
+  const curAfterDemote = (
+    db
+      .prepare(
+        `SELECT r.body AS body, r.id AS id, r.source AS source FROM artifacts a
+         JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline'`,
+      )
+      .get(bookId) as { body: string; id: string; source: string } | undefined
+  );
+  check(
+    "E2E 取消后当前稿退回上一版",
+    curAfterDemote?.id === baseSaved.revisionId && (curAfterDemote?.body || "").includes("PHASE7_KEEP_OUTLINE"),
+    `cur=${curAfterDemote?.id} base=${baseSaved.revisionId}`,
+  );
+  const orphanRow = db
+    .prepare("SELECT source, id FROM artifact_revisions WHERE id = ?")
+    .get(orphanSaved.revisionId) as { source: string; id: string } | undefined;
+  check(
+    "E2E 误写入修订标为 agent_cancelled",
+    orphanRow?.source === "agent_cancelled",
+    orphanRow?.source,
+  );
+  check(
+    "E2E 取消 generation 仍为 cancelled",
+    engine.getGeneration(postGid)?.status === "cancelled",
+  );
+
+  // Direct demote helper idempotency
+  const demoteAgain = engine.demoteCancelledResultRevision(orphanSaved.revisionId);
+  check("E2E 重复 demote 不再改当前", demoteAgain.demoted === false && demoteAgain.orphanRevisionId === orphanSaved.revisionId);
+
+  // Save-as-candidate when generation already cancelled
+  const candGid = crypto.randomUUID();
+  engine.beginGeneration({ id: candGid, bookId, scene: "outline" });
+  engine.cancelGeneration(candGid);
+  const candSaved = engine.saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: "PHASE7_CANDIDATE_ONLY",
+    source: engine.generationWriteShouldBeCandidate(candGid) ? "agent_cancelled" : "agent",
+    model: "local-draft",
+    skillIds: [],
+    scene: "outline",
+    asCandidate: engine.generationWriteShouldBeCandidate(candGid),
+    skipMemory: true,
+  });
+  check("E2E 已取消后保存为候选非当前", candSaved.current === false, `current=${candSaved.current}`);
+  const stillKeep = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline'`,
+      )
+      .get(bookId) as { body: string } | undefined
+  )?.body;
+  check(
+    "E2E 候选保存不覆盖退回后的当前稿",
+    (stillKeep || "").includes("PHASE7_KEEP_OUTLINE"),
+    (stillKeep || "").slice(0, 60),
   );
 
   const failed = results.filter((r) => !r.ok);

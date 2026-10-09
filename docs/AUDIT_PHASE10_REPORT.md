@@ -56,4 +56,4 @@ npm run test:audit
 - `docs/PI_RUNTIME.md` — pi 边界（未改产品语义）
 - `docs/LIVE_MODEL.md` — 可选 live 验收
 
-本阶段代码 `2fc6866`；文档链至推送后 HEAD。
+本阶段代码 `2fc6866`；文档链至 HEAD `71d8aac`。

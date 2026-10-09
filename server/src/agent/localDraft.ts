@@ -288,9 +288,9 @@ function genericBody(world: World, index: number): string {
   const step = index + 1;
   const paragraphs = [
     `${world.city}的${world.place}这个时候不接待闲人。${world.protagonist}把${world.object}转到有光的一面，先看材料，再看${world.client}的脸。第 ${step} 章要做的事只有一件：${chapter.title}。`,
-    `「你先告诉我它还能不能用。」${world.client}说。${world.protagonist}摇头。「能用之前，我得知道它哪里被人动过。」他指出一处不该新的边缘。${world.client}看见了，却没有承认自己也发现过。`,
+    `“你先告诉我它还能不能用。”${world.client}说。${world.protagonist}摇头。“能用之前，我得知道它哪里被人动过。”他指出一处不该新的边缘。${world.client}看见了，却没有承认自己也发现过。`,
     `${world.antagonist}的消息比人先到。有人在门外留下一句很顺的解释：东西是旧的，人是自己走的，${world.secret}并不存在。${world.protagonist}把这句解释写在纸上，又在旁边记下它盖不住的那个痕迹。`,
-    `他没有把结论说满。他把${world.object}收进不马上归还的位置，对${world.client}只留一个时间。「下一回你来，不要一个人来。」${chapter.hook}`,
+    `他没有把结论说满。他把${world.object}收进不马上归还的位置，对${world.client}只留一个时间。“下一回你来，不要一个人来。”${chapter.hook}`,
     `${world.protagonist}把今天的事实单独写成三行：物件的状态、${world.client}离开的时刻、${world.antagonist}那句过于顺的话。纸上没有形容词。没有形容词，后面的章节才改不了这些事实。`,
   ];
   let text = paragraphs.join("\n\n");
@@ -389,21 +389,23 @@ function renderChapterOutline(world: World, number: number): string {
 }
 
 
-/** Spoken dialogue must use 「」 or “”, never （） or (). */
+/** Spoken dialogue must use “…” (U+201C/U+201D) only; never 「」, （）, or (). */
 export function normalizeDialogueQuotes(text: string): string {
   let out = text;
-  // After speech verbs: 说（…）→ 说「…」
+  // After speech verbs: 说（…）→ 说“…”
   out = out.replace(
     /(说|道|问|喊|答|叫|骂|笑|回|应|斥|劝|吼|嘀咕|低语)([道了着过]?)\s*[（(]([^（）()]{1,160})[）)]/g,
-    "$1$2「$3」",
+    "$1$2“$3”",
   );
   // Standalone paren speech lines / clauses that look like talk
-  out = out.replace(/(^|\n)\s*[（(]([^（）()\n]{1,160})[）)]\s*(?=\n|$)/g, "$1「$2」");
+  out = out.replace(/(^|\n)\s*[（(]([^（）()\n]{1,160})[）)]\s*(?=\n|$)/g, "$1“$2”");
   // Inline speech-like paren containing sentence-final particles
   out = out.replace(
     /[（(]([^（）()]{0,100}[吗吧啊呢嘛哟呵唉][！？!?。…]?)[）)]/g,
-    "「$1」",
+    "“$1”",
   );
+  // Convert corner brackets used as speech quotes → curly quotes
+  out = out.replace(/「/g, "“").replace(/」/g, "”");
   return out;
 }
 
@@ -415,7 +417,7 @@ function dialogueEnabled(skills: SkillText[]): boolean {
 function applyDialogue(text: string, enabled: boolean): string {
   const normalized = normalizeDialogueQuotes(text);
   if (enabled) return normalized;
-  return normalized.replace(/「([^」]*)」/g, "$1").replace(/“([^”]*)”/g, "$1");
+  return normalized.replace(/“([^”]*)”/g, "$1");
 }
 
 function renderBody(world: World, number: number, skills: SkillText[]): string {
@@ -442,9 +444,12 @@ function renderReview(context: string): string {
       issues.push(`[连续] 细纲里的「${quote}」正文没有落地。补进动作，不要另起一段解释。`);
     }
   }
-  const dialogues = (body.match(/「/g)?.length ?? 0) + (body.match(/“/g)?.length ?? 0);
+  const dialogues = body.match(/“/g)?.length ?? 0;
+  if (/「/.test(body)) {
+    issues.push("[文风] 对白用了「」。改成弯引号“”（U+201C/U+201D），不要用「」。");
+  }
   if (/[（(][^）)]{1,80}[）)]/.test(body) && /(说|道|问|喊)[（(]|[（(][^）)]{0,40}[吗吧啊呢]/.test(body)) {
-    issues.push("[文风] 对白用了括号（）或 ()。改成中文引号「」或“”，括号不是对白。");
+    issues.push("[文风] 对白用了括号（）或 ()。改成弯引号“”，括号不是对白。");
   }
   if (dialogues < 2) {
     issues.push("[文风] 对白少于两处，信息几乎都靠叙述。把一条信息改成人物在压力下说出口的话。");
@@ -581,7 +586,7 @@ export function rewriteSelectionLocal(selection: string, instruction: string): s
     const lead = base.split(/\n+/).map((line) => line.trim()).filter(Boolean)[0] ?? base;
     const clip = Array.from(lead).slice(0, 36).join("");
     return normalizeDialogueQuotes(
-      `${base}\n\n「你就说一句实话。」\n「我说过了。」他停了一停，「你只是不想听。」\n她看着${clip ? "那一点痕迹" : "他"}，没有再追。`,
+      `${base}\n\n“你就说一句实话。”\n“我说过了。”他停了一停，“你只是不想听。”\n她看着${clip ? "那一点痕迹" : "他"}，没有再追。`,
     );
   }
 

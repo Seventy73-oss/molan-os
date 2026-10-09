@@ -80,4 +80,4 @@ python scripts/run_gates.py --chapters chapters --terms "术语表_书名.txt" \
 Python 3.10+（实测 3.12）＋ `openpyxl`；困惑度需 `torch`+`transformers`+本地 Qwen2.5-3B（可选）。
 
 ## 墨兰写作附加（对白标点）
-人物对白只用「」或“”。禁止用（）或 () 包说话。与包内「中文弯引号」卫生门一致；括号不是对白。
+人物对白只用弯引号“”（U+201C/U+201D）。禁止用「」、（）或 () 包说话。与包内中文弯引号卫生门一致；括号和「」不是对白。

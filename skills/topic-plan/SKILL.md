@@ -1,7 +1,7 @@
 ---
 name: 题材策划
 scene: topic
-role: primary
+role: aux
 description: 把一句模糊的念头收成可写的题材方案，先定冲突和读者，再定书名。
 ---
 

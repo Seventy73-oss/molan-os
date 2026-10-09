@@ -1,7 +1,7 @@
 ---
 name: 正文展开
 scene: chapter_body
-role: primary
+role: aux
 description: 按细纲把这一章写成可编辑的叙事散文，让动作和物件承担信息。
 ---
 

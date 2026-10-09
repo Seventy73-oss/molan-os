@@ -1,7 +1,7 @@
 ---
 name: 建书档案
 scene: book_setup
-role: primary
+role: aux
 description: 把书名、题材、简介和章目收成一份可被后文引用的建书档案。
 ---
 

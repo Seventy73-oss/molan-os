@@ -1,7 +1,7 @@
 ---
 name: 全书大纲
 scene: outline
-role: primary
+role: aux
 description: 把档案铺成有因果的分章大纲，每章一个不可退回的变化。
 ---
 

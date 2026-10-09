@@ -1,7 +1,7 @@
 ---
 name: 开局拆解卡
 scene: book_setup
-role: aux
+role: primary
 description: 用户蒸馏包 01-开局拆解卡_1983本。完整 pb_*.json 落盘；运行时注入方法论与分题材开局/钩子/冲突样例。
 pack: skills/opening-cards/pack
 ---

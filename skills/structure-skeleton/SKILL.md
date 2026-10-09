@@ -1,7 +1,7 @@
 ---
 name: 结构骨架
 scene: outline
-role: aux
+role: primary
 description: 用户蒸馏包 03-结构骨架_1983本。完整 sk_*.json 落盘；运行时注入章卷统计与样例骨架。
 pack: skills/structure-skeleton/pack
 ---

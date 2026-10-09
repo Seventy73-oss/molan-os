@@ -1,7 +1,7 @@
 ---
 name: 卷级蒸馏
 scene: outline
-role: aux
+role: primary
 description: 用户蒸馏包 02-卷级蒸馏_1175本。完整 JSON 落盘；运行时注入卷弧方法论与分题材样例。
 pack: skills/volume-arcs/pack
 ---

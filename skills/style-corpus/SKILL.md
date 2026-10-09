@@ -1,7 +1,7 @@
 ---
 name: 文风语料
 scene: chapter_body
-role: aux
+role: primary
 description: 用户蒸馏包 04-文风语料。作者卡与题材增量可注入；大体积汇总输入完整落盘备查。
 pack: skills/style-corpus/pack
 ---

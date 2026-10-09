@@ -1,7 +1,7 @@
 # molan-os 审查修复第八阶段报告
 
 基线续作：`b36409f`（阶段 7 之后）  
-本阶段提交：见文末 HEAD  
+本阶段提交：`50a9235`  
 测试：`npm run typecheck` 通过；`npm run test:regression` → **26/26**；`npm run test:e2e` → **53/53**；`npm run test:e2e:browser` → **43/43**。  
 默认存储仍为 SQLite；Markdown 导出布局未改；正式生成仍无服务端静默本地降级。
 
@@ -43,4 +43,4 @@ npm run test:audit
 npm run test:audit   # regression + e2e + e2e:browser
 ```
 
-本阶段 HEAD：见推送后提交。
+本阶段 HEAD：`50a9235`。

@@ -573,7 +573,7 @@ z.close()
   );
 
 
-  // --- outbound model fetch limited retry (network / 5xx only; never 4xx) ---
+  // --- outbound model fetch limited retry (network / 4xx+5xx; never abort) ---
   {
     const http = await import("node:http");
     const {
@@ -590,10 +590,12 @@ z.close()
 
     check("retryable status 503", isRetryableHttpStatus(503) === true);
     check("retryable status 500", isRetryableHttpStatus(500) === true);
-    check("not retryable 401", isRetryableHttpStatus(401) === false);
-    check("not retryable 403", isRetryableHttpStatus(403) === false);
-    check("not retryable 429", isRetryableHttpStatus(429) === false);
-    check("not retryable 400", isRetryableHttpStatus(400) === false);
+    check("retryable status 401", isRetryableHttpStatus(401) === true);
+    check("retryable status 403", isRetryableHttpStatus(403) === true);
+    check("retryable status 429", isRetryableHttpStatus(429) === true);
+    check("retryable status 400", isRetryableHttpStatus(400) === true);
+    check("not retryable 200", isRetryableHttpStatus(200) === false);
+    check("not retryable 399", isRetryableHttpStatus(399) === false);
 
     const abortErr = new Error("已取消");
     abortErr.name = "AbortError";
@@ -639,12 +641,17 @@ z.close()
       await new Promise<void>((resolve, reject) => server503.close((e) => (e ? reject(e) : resolve())));
     }
 
-    // 401 must not retry
+    // 401 then recover (4xx also retries)
     let hits401 = 0;
     const server401 = http.createServer((_req, res) => {
       hits401 += 1;
-      res.writeHead(401, { "Content-Type": "text/plain" });
-      res.end("nope");
+      if (hits401 <= 2) {
+        res.writeHead(401, { "Content-Type": "text/plain" });
+        res.end("nope");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, hits: hits401 }));
     });
     await new Promise<void>((resolve) => server401.listen(0, "127.0.0.1", resolve));
     const port401 = (server401.address() as { port: number }).port;
@@ -656,14 +663,73 @@ z.close()
         retries: 2,
         retryBackoffMs: 0,
       });
+      const body = (await res.json()) as { ok?: boolean; hits?: number };
       check(
-        "401 不重试立刻返回",
-        res.status === 401 && hits401 === 1,
-        `status=${res.status} hits=${hits401}`,
+        "401 自动重试后成功",
+        res.status === 200 && body.ok === true && hits401 === 3,
+        `status=${res.status} hits=${hits401} body=${JSON.stringify(body)}`,
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) => server401.close((e) => (e ? reject(e) : resolve())));
+    }
+
+    // 429 then recover
+    let hits429 = 0;
+    const server429 = http.createServer((_req, res) => {
+      hits429 += 1;
+      if (hits429 <= 1) {
+        res.writeHead(429, { "Content-Type": "text/plain" });
+        res.end("slow down");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    await new Promise<void>((resolve) => server429.listen(0, "127.0.0.1", resolve));
+    const port429 = (server429.address() as { port: number }).port;
+    try {
+      const res = await secureFetch(`http://127.0.0.1:${port429}/v1/ping`, {
+        method: "GET",
+        withApiKey: false,
+        timeoutMs: 5_000,
+        retries: 2,
+        retryBackoffMs: 0,
+      });
+      check(
+        "429 自动重试后成功",
+        res.status === 200 && hits429 === 2,
+        `status=${res.status} hits=${hits429}`,
       );
       await res.text();
     } finally {
-      await new Promise<void>((resolve, reject) => server401.close((e) => (e ? reject(e) : resolve())));
+      await new Promise<void>((resolve, reject) => server429.close((e) => (e ? reject(e) : resolve())));
+    }
+
+    // Persistent 400 exhausts retries and returns last 400 (no silent downgrade)
+    let hits400 = 0;
+    const server400 = http.createServer((_req, res) => {
+      hits400 += 1;
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("bad");
+    });
+    await new Promise<void>((resolve) => server400.listen(0, "127.0.0.1", resolve));
+    const port400 = (server400.address() as { port: number }).port;
+    try {
+      const res = await secureFetch(`http://127.0.0.1:${port400}/v1/ping`, {
+        method: "GET",
+        withApiKey: false,
+        timeoutMs: 5_000,
+        retries: 2,
+        retryBackoffMs: 0,
+      });
+      check(
+        "持续 4xx 耗尽重试仍返回 400",
+        res.status === 400 && hits400 === 3,
+        `status=${res.status} hits=${hits400}`,
+      );
+      await res.text();
+    } finally {
+      await new Promise<void>((resolve, reject) => server400.close((e) => (e ? reject(e) : resolve())));
     }
 
     // Persistent 503 exhausts retries and returns last 503 (no silent downgrade)
@@ -692,6 +758,44 @@ z.close()
     } finally {
       await new Promise<void>((resolve, reject) => serverFail.close((e) => (e ? reject(e) : resolve())));
     }
+
+    // Abort mid-retry: do not continue after cancel
+    let hitsAbort = 0;
+    const serverAbort = http.createServer((_req, res) => {
+      hitsAbort += 1;
+      res.writeHead(503, { "Content-Type": "text/plain" });
+      res.end("busy");
+    });
+    await new Promise<void>((resolve) => serverAbort.listen(0, "127.0.0.1", resolve));
+    const portAbort = (serverAbort.address() as { port: number }).port;
+    const ac = new AbortController();
+    let abortThrew = false;
+    let abortName = "";
+    try {
+      const p = secureFetch(`http://127.0.0.1:${portAbort}/v1/ping`, {
+        method: "GET",
+        withApiKey: false,
+        timeoutMs: 5_000,
+        retries: 2,
+        retryBackoffMs: 50,
+        signal: ac.signal,
+      });
+      // Cancel during backoff after first response
+      setTimeout(() => ac.abort(), 10);
+      await p;
+    } catch (e) {
+      abortThrew = true;
+      abortName = e instanceof Error ? e.name : "";
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!abortName) abortName = msg;
+    } finally {
+      await new Promise<void>((resolve, reject) => serverAbort.close((e) => (e ? reject(e) : resolve())));
+    }
+    check(
+      "取消后不继续重试",
+      abortThrew && hitsAbort <= 2 && (/AbortError|已取消|aborted/i.test(abortName) || ac.signal.aborted),
+      `hits=${hitsAbort} name=${abortName}`,
+    );
 
     // Network refusal retries then throws (no local fallback)
     let netThrew = false;

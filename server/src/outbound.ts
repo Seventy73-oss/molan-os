@@ -2,8 +2,8 @@
  * Unified secure outbound HTTP for provider test / model list / formal generation.
  * All credentialed calls must go through secureFetch — not raw fetch.
  *
- * Optional limited retries (network / HTTP 5xx only). Never retries 4xx/auth or
- * user abort. Never silent-local-downgrades — callers still see hard failure.
+ * Optional limited retries (network / HTTP 4xx+5xx). Never retries
+ * user abort / cancel. Never silent-local-downgrades — callers still see hard failure.
  */
 import { lookup } from "node:dns/promises";
 import { assertSafeBaseUrl, assertSafeBaseUrlResolved, isPrivateOrReservedHost, redactSecrets } from "./security";
@@ -59,9 +59,9 @@ async function assertResolvedTarget(url: URL, withApiKey: boolean): Promise<void
   }
 }
 
-/** HTTP 5xx only — never 4xx / auth (401/403) / 429. */
+/** HTTP 4xx and 5xx (incl. 400/401/403/429). Abort/cancel is never retried. */
 export function isRetryableHttpStatus(status: number): boolean {
-  return Number.isFinite(status) && status >= 500 && status <= 599;
+  return Number.isFinite(status) && status >= 400 && status <= 599;
 }
 
 /**
@@ -110,8 +110,8 @@ async function drainResponse(response: Response): Promise<void> {
  * Perform an outbound request with SSRF checks. Redirects are rejected by default
  * (or re-validated per hop if maxRedirects > 0).
  *
- * When `retries` > 0, retries on network failures and HTTP 5xx only.
- * Does not retry 4xx/auth, abort, or SSRF policy errors. No silent local fallback.
+ * When `retries` > 0, retries on network failures and HTTP 4xx/5xx.
+ * Does not retry abort/cancel or SSRF policy errors. No silent local fallback.
  */
 export async function secureFetch(rawUrl: string, options: SecureFetchOptions = {}): Promise<Response> {
   const withApiKey = Boolean(options.withApiKey ?? hasAuthHeader(options.headers));
@@ -183,7 +183,7 @@ export async function secureFetch(rawUrl: string, options: SecureFetchOptions = 
           throw error;
         }
       }
-      // fell through from 5xx retry path
+      // fell through from 4xx/5xx retry path
       continue;
     } catch (error) {
       if (isAbortError(error)) throw error;

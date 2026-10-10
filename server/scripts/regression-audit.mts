@@ -1568,6 +1568,259 @@ z.close()
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 
+  // --- G5 views + batch memory gates + no agent orchestration ---
+  {
+    const { db: regDb } = await import("../src/db");
+    const { storyRelationView, storyTimelineView, storyHookView } = await import("../src/storyViews");
+    const {
+      createMemoryReadyBatch,
+      tickMemoryReadyBatch,
+      cancelMemoryReadyBatch,
+      resumeMemoryReadyBatch,
+      readonlyStoryReview,
+      refuseAgentOrchestration,
+    } = await import("../src/storyBatch");
+    const {
+      finalizeChapter,
+      createMemoryProposal,
+      applyProposal,
+      getBookHead,
+    } = await import("../src/story");
+    const { HttpError } = await import("../src/httpError");
+
+    const { createBibleCard } = await import("../src/features");
+    const book = createBook({
+      title: "G5图谱书",
+      genre: "测试",
+      logline: "关系与批量",
+      style: "",
+      targetChapters: 3,
+      wordsPerChapter: 600,
+    });
+    const bookId = book.payload.book.id as string;
+    const cardA = createBibleCard(bookId, { kind: "character", name: "林舟", summary: "主角", details: "" });
+    const cardB = createBibleCard(bookId, { kind: "character", name: "守卫", summary: "配角", details: "" });
+    const charA = cardA.id as string;
+    const charB = cardB.id as string;
+
+    const ch1 = regDb.prepare("SELECT id FROM chapters WHERE book_id = ? AND number = 1").get(bookId) as {
+      id: string;
+    };
+    const body1 = saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "林舟在城门遇见守卫，两人结为同盟。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    const fin1 = finalizeChapter({
+      bookId,
+      chapterId: ch1.id,
+      bodyRevisionId: body1.revisionId,
+      expectedPublicationId: null,
+      expectedCurrentRevisionId: body1.revisionId,
+      expectedStoryEpoch: 0,
+      idempotencyKey: "g5-fin-1",
+    });
+    const prop1 = createMemoryProposal({
+      bookId,
+      chapterNumber: 1,
+      sourceRevisionId: body1.revisionId,
+      summary: "林舟与守卫结盟。",
+      publicationId: fin1.publicationId,
+      basisEpoch: fin1.storyEpoch,
+      operations: [
+        {
+          operationId: "op-summary",
+          kind: "summary_update",
+          subjectId: "chapter:1",
+          field: "chapter_summary",
+          proposedValue: { text: "林舟与守卫结盟。" },
+          assertionKind: "explicit",
+          evidence: { quote: "结为同盟" },
+          requiresAuthorApproval: true,
+        },
+        {
+          operationId: "op-rel",
+          kind: "character_state_change",
+          subjectId: charA,
+          field: "relation",
+          proposedValue: { target: charB, type: "ally" },
+          assertionKind: "explicit",
+          audience: "reader",
+          evidence: { quote: "结为同盟" },
+          requiresAuthorApproval: true,
+        },
+        {
+          operationId: "op-hook",
+          kind: "foreshadow_planted",
+          subjectId: "hook-gate",
+          field: "foreshadow",
+          proposedValue: { description: "城门旧徽记", plannedPayoffChapter: 9 },
+          assertionKind: "inferred",
+          evidence: { quote: "城门" },
+          requiresAuthorApproval: true,
+        },
+      ],
+    });
+    applyProposal({
+      bookId,
+      proposalId: prop1.id,
+      acceptedOperationIds: ["op-summary", "op-rel", "op-hook"],
+      expectedSourceRevisionId: body1.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g5-apply-1",
+    });
+
+    const rel = storyRelationView(bookId, 2);
+    check("G5 关系图 derived", rel.derived === true);
+    check("G5 关系图权威表", rel.authority.includes("story_facts") && rel.authority.includes("bible_cards"));
+    check("G5 关系边存在", rel.edges.some((e) => e.source === charA && e.target === charB), JSON.stringify(rel.edges));
+    check("G5 关系节点含人物", rel.nodes.some((n) => n.id === charA));
+
+    const tl = storyTimelineView(bookId, null);
+    check("G5 时间线含定稿事件", tl.events.some((e) => e.kind === "publication"));
+    check("G5 时间线含伏笔事件", tl.events.some((e) => String(e.kind).startsWith("foreshadow_")));
+    check("G5 时间线含关系事实", tl.events.some((e) => e.kind === "fact_relation" || e.kind === "fact_character_state"));
+
+    const hv = storyHookView(bookId, 2);
+    check("G5 伏笔视图同源", hv.derived === true && hv.authority.includes("hook_events"));
+    check("G5 伏笔未把计划当回收", hv.hooks.some((h) => h.status === "planted" && h.plannedPayoffChapter === 9));
+
+    // Batch: chapter 2 has no publication → blocked gate
+    let batch = createMemoryReadyBatch(bookId, {
+      fromChapter: 2,
+      toChapter: 2,
+      autoExtract: false,
+      strictMemoryReady: true,
+      maxModelCalls: 3,
+    });
+    batch = tickMemoryReadyBatch(bookId, batch.id);
+    check("G5 批量无定稿暂停", batch.status === "paused_gate", batch.status);
+    check(
+      "G5 批量无定稿条目",
+      batch.progress.items.some((i: { status: string }) => i.status === "blocked_no_publication"),
+    );
+
+    // Batch on ch1 already ready
+    batch = createMemoryReadyBatch(bookId, {
+      fromChapter: 1,
+      toChapter: 1,
+      autoExtract: false,
+      strictMemoryReady: true,
+    });
+    batch = tickMemoryReadyBatch(bookId, batch.id);
+    check("G5 批量已就绪完成", batch.status === "done" && batch.progress.items[0]?.status === "ready");
+
+    // autoExtract on ch2 after finalize → needs_approval (no silent apply)
+    const ch2 = regDb.prepare("SELECT id FROM chapters WHERE book_id = ? AND number = 2").get(bookId) as {
+      id: string;
+    };
+    const body2 = saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 2,
+      body: "第二章草稿。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    finalizeChapter({
+      bookId,
+      chapterId: ch2.id,
+      bodyRevisionId: body2.revisionId,
+      expectedPublicationId: null,
+      expectedCurrentRevisionId: body2.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g5-fin-2",
+    });
+    batch = createMemoryReadyBatch(bookId, {
+      fromChapter: 2,
+      toChapter: 2,
+      autoExtract: true,
+      strictMemoryReady: true,
+      majorChangeRequiresApproval: true,
+      maxModelCalls: 5,
+    });
+    batch = tickMemoryReadyBatch(bookId, batch.id);
+    check("G5 批量抽取后待审批", batch.status === "paused_gate" && batch.progress.gate === "needs_approval", batch.status);
+    check("G5 批量未静默写正式记忆", batch.progress.items.some((i: { status: string; proposalId: string | null }) => i.status === "needs_approval" && Boolean(i.proposalId)));
+    const beforeFacts = (
+      regDb.prepare(`SELECT COUNT(*) AS n FROM story_facts WHERE book_id = ? AND status = 'active'`).get(bookId) as {
+        n: number;
+      }
+    ).n;
+    // cancel path
+    const cancelled = cancelMemoryReadyBatch(bookId, batch.id);
+    check("G5 批量可取消", cancelled.status === "cancelled");
+    const afterFacts = (
+      regDb.prepare(`SELECT COUNT(*) AS n FROM story_facts WHERE book_id = ? AND status = 'active'`).get(bookId) as {
+        n: number;
+      }
+    ).n;
+    check("G5 取消不改正式事实", afterFacts === beforeFacts);
+
+    // cost cap
+    batch = createMemoryReadyBatch(bookId, {
+      fromChapter: 2,
+      toChapter: 2,
+      autoExtract: true,
+      strictMemoryReady: true,
+      maxModelCalls: 0,
+    });
+    batch = tickMemoryReadyBatch(bookId, batch.id);
+    check("G5 成本上限暂停", batch.status === "paused_gate" && batch.progress.gate === "cost_cap", JSON.stringify(batch.progress));
+
+    const review = readonlyStoryReview(bookId, 1);
+    check("G5 只读审查不可写", review.writable === false && review.agentOrchestration === false);
+    check("G5 只读审查有发现", review.findings.length >= 2);
+
+    let refused = false;
+    let code = 0;
+    try {
+      refuseAgentOrchestration(bookId, { tools: [{ name: "write" }], autonomous: true });
+    } catch (e) {
+      refused = true;
+      code = e instanceof HttpError ? e.status : 0;
+    }
+    check("G5 拒绝多 Agent 编排", refused && code === 422, `code=${code}`);
+
+    // resume after apply on a fresh batch
+    batch = createMemoryReadyBatch(bookId, {
+      fromChapter: 2,
+      toChapter: 2,
+      autoExtract: true,
+      strictMemoryReady: true,
+      maxModelCalls: 5,
+    });
+    batch = tickMemoryReadyBatch(bookId, batch.id);
+    const proposalId = batch.progress.items.find((i) => Boolean(i.proposalId))?.proposalId as string;
+    if (proposalId) {
+      applyProposal({
+        bookId,
+        proposalId,
+        acceptedOperationIds: [`batch-summary-2`],
+        expectedSourceRevisionId: body2.revisionId,
+        expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+        idempotencyKey: "g5-apply-batch-2",
+      });
+      batch = resumeMemoryReadyBatch(bookId, batch.id);
+      check(
+        "G5 批准后恢复可完成",
+        batch.status === "done" || batch.progress.items.some((i: { status: string }) => i.status === "ready"),
+        batch.status,
+      );
+    } else {
+      check("G5 批准后恢复可完成", false, "missing proposalId");
+    }
+  }
+
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

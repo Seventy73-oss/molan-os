@@ -47,6 +47,16 @@ import {
   listStoryCharacters,
   projectCharacterState,
 } from "./storyState";
+import { storyHookView, storyRelationView, storyTimelineView } from "./storyViews";
+import {
+  cancelMemoryReadyBatch,
+  createMemoryReadyBatch,
+  getMemoryReadyBatch,
+  readonlyStoryReview,
+  refuseAgentOrchestration,
+  resumeMemoryReadyBatch,
+  tickMemoryReadyBatch,
+} from "./storyBatch";
 import { importBookFromZipBuffer, recoverInterruptedImports, recoverPhysicalImportBackups } from "./importBook";
 import { listUsage, usageSummary } from "./usage";
 import {
@@ -759,6 +769,81 @@ app.get("/api/books/:id/story/publish-check", (c) => {
   const n = Number(c.req.query("chapterNumber") || "");
   if (!Number.isFinite(n) || n <= 0) return c.json({ error: "chapterNumber required" }, 400);
   return c.json(publishCheck(c.req.param("id"), n));
+});
+
+
+app.get("/api/books/:id/story/views/relations", (c) => {
+  const raw = c.req.query("asOfChapter");
+  const asOf = raw ? Number(raw) : null;
+  return c.json(
+    storyRelationView(
+      c.req.param("id"),
+      Number.isFinite(asOf as number) && (asOf as number) > 0 ? (asOf as number) : null,
+    ),
+  );
+});
+app.get("/api/books/:id/story/views/timeline", (c) => {
+  const raw = c.req.query("asOfChapter");
+  const asOf = raw ? Number(raw) : null;
+  return c.json(
+    storyTimelineView(
+      c.req.param("id"),
+      Number.isFinite(asOf as number) && (asOf as number) > 0 ? (asOf as number) : null,
+    ),
+  );
+});
+app.get("/api/books/:id/story/views/hooks", (c) => {
+  const raw = c.req.query("asOfChapter");
+  const asOf = raw ? Number(raw) : null;
+  return c.json(
+    storyHookView(
+      c.req.param("id"),
+      Number.isFinite(asOf as number) && (asOf as number) > 0 ? (asOf as number) : null,
+    ),
+  );
+});
+app.post("/api/books/:id/story/batch/memory-ready", async (c) => {
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const fromChapter = Number(body.fromChapter);
+  const toChapter = Number(body.toChapter);
+  return c.json(
+    createMemoryReadyBatch(c.req.param("id"), {
+      fromChapter,
+      toChapter,
+      strictMemoryReady: body.strictMemoryReady !== false,
+      autoExtract: Boolean(body.autoExtract),
+      autoApplyNonMajor: Boolean(body.autoApplyNonMajor),
+      majorChangeRequiresApproval: body.majorChangeRequiresApproval !== false,
+      maxChapters: body.maxChapters != null ? Number(body.maxChapters) : undefined,
+      maxModelCalls: body.maxModelCalls != null ? Number(body.maxModelCalls) : undefined,
+    }),
+  );
+});
+app.get("/api/books/:id/story/batch/:batchId", (c) => {
+  return c.json(getMemoryReadyBatch(c.req.param("id"), c.req.param("batchId")));
+});
+app.post("/api/books/:id/story/batch/:batchId/tick", (c) => {
+  return c.json(tickMemoryReadyBatch(c.req.param("id"), c.req.param("batchId")));
+});
+app.post("/api/books/:id/story/batch/:batchId/resume", (c) => {
+  return c.json(resumeMemoryReadyBatch(c.req.param("id"), c.req.param("batchId")));
+});
+app.post("/api/books/:id/story/batch/:batchId/cancel", (c) => {
+  return c.json(cancelMemoryReadyBatch(c.req.param("id"), c.req.param("batchId")));
+});
+app.post("/api/books/:id/story/review/readonly", async (c) => {
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const n = body.chapterNumber != null ? Number(body.chapterNumber) : Number(c.req.query("chapterNumber") || "");
+  return c.json(
+    readonlyStoryReview(
+      c.req.param("id"),
+      Number.isFinite(n) && n > 0 ? n : null,
+    ),
+  );
+});
+app.post("/api/books/:id/story/agent/orchestrate", async (c) => {
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  refuseAgentOrchestration(c.req.param("id"), body);
 });
 
 app.get("/api/books/:id/story/impact", (c) => {

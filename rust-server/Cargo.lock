@@ -1035,6 +1035,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "encoding_rs",
  "futures",
  "hex",
  "rand 0.8.8",

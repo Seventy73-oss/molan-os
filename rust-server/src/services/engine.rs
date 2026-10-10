@@ -258,6 +258,29 @@ pub fn generation_write_should_be_candidate(
         .unwrap_or(false)
 }
 
+
+async fn optional_stream_pre_delay(
+    db: &Db,
+    generation_id: Option<&str>,
+    cancelled: &Option<Arc<AtomicBool>>,
+) -> AppResult<()> {
+    let ms: u64 = std::env::var("MOLAN_STREAM_PRE_DELAY_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if ms == 0 {
+        return Ok(());
+    }
+    let mut left = ms;
+    while left > 0 {
+        throw_if_generation_cancelled(db, generation_id, cancelled)?;
+        let step = left.min(50);
+        tokio::time::sleep(std::time::Duration::from_millis(step)).await;
+        left -= step;
+    }
+    Ok(())
+}
+
 fn throw_if_generation_cancelled(
     db: &Db,
     generation_id: Option<&str>,
@@ -709,6 +732,9 @@ pub async fn chat(
         }
     }
 
+    throw_if_generation_cancelled(db, generation_id, &cancelled)?;
+    // Test-only: MOLAN_STREAM_PRE_DELAY_MS (parity with Node optionalStreamPreDelay).
+    optional_stream_pre_delay(db, generation_id, &cancelled).await?;
     throw_if_generation_cancelled(db, generation_id, &cancelled)?;
     insert_message(db, book_id, "user", text, None)?;
 

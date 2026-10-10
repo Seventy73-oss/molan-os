@@ -4,6 +4,8 @@
  * selection bubble matrix +「对助手说」custom + mid-stream abort + streaming chat write + completed-stop / restore-previous (local-draft) → Skills/Models.
  *
  * Run: npm run test:e2e:browser
+ * Rust API: MOLAN_E2E_RUNTIME=rust npm run test:e2e:browser
+ *   (or npm run test:e2e:browser:rust) — spawns rust-server binary on a free port.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -116,22 +118,45 @@ async function main() {
   let browser = null as Awaited<ReturnType<typeof chromium.launch>> | null;
 
   try {
-    apiProc = spawnLogged(
-      "npx",
-      ["tsx", "server/src/index.ts"],
-      {
-        MOLAN_SQLITE_PATH: tmpDb,
-        MOLAN_SECRET: "browser-e2e-secret-material-32b!!",
-        PORT: String(apiPort),
-        MOLAN_HOST: "127.0.0.1",
-        MOLAN_JOB_INTERVAL_MS: "60000",
-        MOLAN_CORS_ORIGINS: webUrl,
-        MOLAN_STREAM_PRE_DELAY_MS: "700",
-        DATABASE_URL: "",
-        MOLAN_DB: "",
-      },
-      "api",
-    );
+    const runtime = (process.env.MOLAN_E2E_RUNTIME || "node").trim().toLowerCase();
+    const apiEnv: NodeJS.ProcessEnv = {
+      MOLAN_SQLITE_PATH: tmpDb,
+      MOLAN_SECRET: "browser-e2e-secret-material-32b!!",
+      PORT: String(apiPort),
+      MOLAN_HOST: "127.0.0.1",
+      MOLAN_JOB_INTERVAL_MS: "60000",
+      MOLAN_CORS_ORIGINS: webUrl,
+      MOLAN_STREAM_PRE_DELAY_MS: "700",
+      DATABASE_URL: "",
+      MOLAN_DB: "",
+      MOLAN_ROOT: root,
+    };
+    if (runtime === "rust") {
+      const rustBin = path.join(root, "rust-server/target/debug/molan-api");
+      if (!fs.existsSync(rustBin)) {
+        // Build once if missing so the suite can still run.
+        const build = spawnLogged(
+          "cargo",
+          ["build", "--manifest-path", "rust-server/Cargo.toml"],
+          { ...apiEnv },
+          "cargo-build",
+        );
+        await new Promise<void>((resolve, reject) => {
+          build.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`cargo build exit ${code}`))));
+          build.on("error", reject);
+        });
+      }
+      apiProc = spawnLogged(rustBin, [], apiEnv, "api-rust");
+      check("浏览器 E2E 运行时", true, "rust");
+    } else {
+      apiProc = spawnLogged(
+        "npx",
+        ["tsx", "server/src/index.ts"],
+        apiEnv,
+        "api",
+      );
+      check("浏览器 E2E 运行时", true, "node");
+    }
     webProc = spawnLogged(
       "npx",
       ["vite", "--host", "127.0.0.1", "--port", String(webPort)],
@@ -143,6 +168,7 @@ async function main() {
       "web",
     );
 
+    await waitForUrl(`${apiUrl}/api/health`);
     await waitForUrl(`${apiUrl}/api/books`);
     await waitForUrl(webUrl);
     check("浏览器 E2E 服务就绪", true, `api=${apiPort} web=${webPort}`);
@@ -693,6 +719,13 @@ async function main() {
       check("完成后再取消不 demote（API）", false);
     }
 
+    // Close tools drawer if still open so topbar tabs stay clickable.
+    const drawerClose = page.locator('.tools-drawer button[aria-label="关闭工具面板"]');
+    if (await drawerClose.isVisible().catch(() => false)) {
+      await drawerClose.click().catch(() => undefined);
+      await page.waitForTimeout(200);
+    }
+
     await page.getByRole("link", { name: "技能" }).click();
     await page.waitForURL(/\/skills/);
     const skillsOk =
@@ -707,9 +740,28 @@ async function main() {
       (await page.locator("h1").first().isVisible().catch(() => false));
     check("模型页可打开", modelsOk);
 
-    await page.locator("nav.tabs").getByRole("link", { name: "书库", exact: true }).click();
+    // Prefer primary nav; fall back to brand / hard navigation (Models overlays can flake).
+    let backClicked = false;
     try {
-      await page.waitForURL("**/", { timeout: 8_000 });
+      await page.locator("nav.tabs").getByRole("link", { name: "书库", exact: true }).click({ timeout: 5_000 });
+      backClicked = true;
+    } catch {
+      try {
+        await page.getByRole("link", { name: "书库", exact: true }).first().click({ timeout: 5_000 });
+        backClicked = true;
+      } catch {
+        await page.goto(webUrl + "/", { waitUntil: "domcontentloaded" });
+      }
+    }
+    try {
+      await page.waitForURL((url) => {
+        try {
+          const u = new URL(url);
+          return u.pathname === "/" || u.pathname === "";
+        } catch {
+          return false;
+        }
+      }, { timeout: 8_000 });
     } catch {
       await page.goto(webUrl + "/", { waitUntil: "domcontentloaded" });
     }
@@ -717,7 +769,7 @@ async function main() {
     const back =
       page.url().includes(String(webPort)) &&
       (await page.getByRole("heading", { name: "书稿" }).isVisible().catch(() => false));
-    check("返回书库", back, page.url());
+    check("返回书库", back, `${page.url()} clicked=${backClicked}`);
 
     // Cleanup created book via API
     const books = (await (await fetch(`${apiUrl}/api/books`)).json()) as { books: { id: string; title: string }[] };

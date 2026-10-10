@@ -18,7 +18,8 @@
     "quarantine:legacy-phys": "tsx server/scripts/quarantine-legacy-phys.mts",
     "dev:rust": "cargo run --manifest-path rust-server/Cargo.toml",
     "build:rust": "cargo build --release --manifest-path rust-server/Cargo.toml",
-    "dev:web:rust": "MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web"
+    "dev:web:rust": "MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web",
+    "test:e2e:browser:rust": "MOLAN_E2E_RUNTIME=rust tsx server/scripts/e2e-browser.mts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.1.0",

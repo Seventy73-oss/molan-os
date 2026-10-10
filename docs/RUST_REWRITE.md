@@ -34,7 +34,7 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | 7 | writing_jobs + lease worker | ✅ |
 | 8 | import/export ZIP、bible、hooks、usage、search、progress | ✅ |
 | 8b | auto-setup / multipart import / memory extract / pi 边界 | ✅ |
-| 9 | 浏览器 E2E / regression 对拍 Node | ⬜ |
+| 9 | 浏览器 E2E / Studio 基础路径对拍 | ✅ |
 
 ## API 对拍矩阵
 
@@ -112,10 +112,34 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 
 冒烟（:8799 临时库）：health → agent/runtime(pi available) → auto-setup → chapter_body 后 chapter_memory 异步落盘 → pi+enableTools 拒绝 / pi 正常代调 → multipart import → 空 brief 400。
 
+## 本轮实现要点（阶段 9：浏览器 E2E / Studio 基础路径）
+
+- **跑法**：`npm run test:e2e:browser:rust`（或 `MOLAN_E2E_RUNTIME=rust npm run test:e2e:browser`）。脚本拉起 `rust-server/target/debug/molan-api` + Vite（`MOLAN_API_PROXY`→临时端口），与 Node 套件同一套 Playwright 断言。
+- **流式预延迟**：Rust `chat` 对齐 Node `optionalStreamPreDelay`（`MOLAN_STREAM_PRE_DELAY_MS`），中途「停止」可在写入前取消。
+- **Studio 基础路径**（实测）：书库→新书→工作室→选区四动作+「对助手说」→中途停止保大纲→流式写大纲→版本还原→完成后再取消不 demote→技能/模型→回书库。
+
+### Node vs Rust 对拍（阶段 9）
+
+| 能力 | Node | Rust | 说明 |
+|------|------|------|------|
+| 书库 CRUD / 进工作室 | ✅ | ✅ | 浏览器 E2E |
+| TipTap 载入 / 手工保稿 CAS | ✅ | ✅ | PUT artifacts + revisionId |
+| 选区改写四动作 + 对助手说 | ✅ | ✅ | selection-rewrite + stream |
+| chat/stream 写大纲（local-draft） | ✅ | ✅ | SSE token/done 形状对齐 |
+| 中途停止 + demote / 完成后不 demote | ✅ | ✅ | generations cancel |
+| 版本历史还原上一版 | ✅ | ✅ | revisions/restore |
+| 技能挂载 / for-scene | ✅ | ✅ | 用户蒸馏包 primary |
+| 模型页 provider / routes | ✅ | ✅ | 无 Key 时 models 空列表+error 文案 |
+| 任务租约 / ZIP 导入导出 | ✅ | ✅ | API 冒烟（非本轮浏览器） |
+| `npm run test:audit` 全套对拍 | ✅ | 🟡 | regression/e2e/pg-lease 仍绑 Node；浏览器已有 Rust 入口 |
+| 真 Postgres / 迁移工具 | ✅（可选） | — | 刻意不做 |
+| pi 自主编排 | — | — | 两边都只代调 |
+
 ## 刻意保留 / 剩余缺口
 
 - 产品默认仍是 **SQLite**；Rust **不引入 PG**（Node 侧可选原生 PG 仍在 main）。
 - **pi** 不做自主编排；Rust **不链接** npm `@earendil-works/pi-agent-core`，用等价模型代调路径（边界与文案对拍）。
-- 阶段 9：浏览器 E2E / `npm run test:audit` **对拍 Node** 尚未在 `MOLAN_API_PROXY`→Rust 下跑通。
+- **regression / API e2e / pg-lease** 脚本仍默认打 Node；尚未把整份 `test:audit` 切到 Rust 双跑。
+- chat/stream 在 local-draft 下仍是「先完整 `chat()` 再 chunk 吐字」（与 Node 同构）；真流式只在 OpenAI 兼容适配器路径。
 - catch-all 未列接口仍 **501** + 中文说明，避免静默假成功。
 - Node 专有：SQLite→PG 迁移工具、PGlite worker 开关等 **不在** Rust 范围。

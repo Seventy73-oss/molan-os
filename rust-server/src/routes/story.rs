@@ -282,3 +282,16 @@ pub async fn impact(
     };
     Ok(Json(story_impact(&db, &book_id, &chapter_id)?))
 }
+
+
+pub async fn publish_check_route(
+    State(db): State<Db>,
+    Path(id): Path<String>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    let n = q.chapter_number.or(q.as_of_chapter).ok_or_else(|| AppError::BadRequest("chapterNumber required".into()))?;
+    if n <= 0 {
+        return Err(AppError::BadRequest("chapterNumber required".into()));
+    }
+    Ok(Json(crate::services::story_pack::publish_check(&db, &id, n)?))
+}

@@ -63,6 +63,7 @@ import {
 } from "./features";
 import { sseJson, streamChat, streamSceneRun, streamSelectionRewrite } from "./streamSupport";
 import { exportBookZip, exportChapterMarkdown, exportChapterZip, readArtifactFile, syncAllBooks, syncBook } from "./manuscripts";
+import { exportStoryPackZip, importStoryPackFromZipBuffer, publishCheck } from "./storyPack";
 import { getModelsList, providerView, refreshModels, saveProvider, testProvider } from "./provider";
 import {
   assertAccessToken,
@@ -285,6 +286,41 @@ app.get("/api/books/:id/artifacts/file", (c) => {
     const message = error instanceof Error ? error.message : "读文件失败";
     throw new HttpError(404, message);
   }
+});
+
+app.get("/api/books/:id/story-pack.zip", (c) => {
+  const includeSecrets = c.req.query("includeSecrets") === "1" || c.req.query("includeSecrets") === "true";
+  const { filename, buffer } = exportStoryPackZip(c.req.param("id"), { includeSecrets });
+  return new Response(buffer, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    },
+  });
+});
+
+app.post("/api/books/import-story-pack", async (c) => {
+  const ct = c.req.header("content-type") || "";
+  let buffer: Buffer | null = null;
+  let title: string | undefined;
+  if (ct.includes("multipart/form-data")) {
+    const body = await c.req.parseBody();
+    const file = body.file;
+    if (file && typeof file === "object" && "arrayBuffer" in file) {
+      buffer = Buffer.from(await (file as File).arrayBuffer());
+    }
+    if (typeof body.title === "string" && body.title.trim()) title = body.title.trim();
+  } else {
+    const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+    if (typeof body.title === "string" && body.title.trim()) title = body.title.trim();
+    if (typeof body.zipBase64 === "string" && body.zipBase64) {
+      buffer = Buffer.from(body.zipBase64, "base64");
+    }
+  }
+  if (!buffer?.length) return c.json({ error: "请上传故事包 zip" }, 400);
+  const result = importStoryPackFromZipBuffer(buffer, { title });
+  const book = getBookPayload(result.bookId);
+  return c.json({ ...result, book }, 201);
 });
 
 app.get("/api/books/:id/export.zip", (c) => {
@@ -719,6 +755,12 @@ app.get("/api/books/:id/story/foreshadowing", (c) => {
     ),
   });
 });
+app.get("/api/books/:id/story/publish-check", (c) => {
+  const n = Number(c.req.query("chapterNumber") || "");
+  if (!Number.isFinite(n) || n <= 0) return c.json({ error: "chapterNumber required" }, 400);
+  return c.json(publishCheck(c.req.param("id"), n));
+});
+
 app.get("/api/books/:id/story/impact", (c) => {
   const chapterId = c.req.query("chapterId");
   const chapterNumber = c.req.query("chapterNumber");

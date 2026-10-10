@@ -15,5 +15,6 @@ pub mod settings;
 pub mod skills;
 pub mod story;
 pub mod story_state;
+pub mod story_pack;
 pub mod usage;
 pub mod worker;

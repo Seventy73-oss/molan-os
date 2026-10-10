@@ -32,6 +32,8 @@ pub fn api_router(db: Db) -> Router {
             get(books::get).patch(books::update).delete(books::delete),
         )
         .route("/api/books/{id}/export.zip", get(import_export::export_zip))
+        .route("/api/books/{id}/story-pack.zip", get(import_export::export_story_pack))
+        .route("/api/books/import-story-pack", post(import_export::import_story_pack))
         .route(
             "/api/books/{id}/chapters/{number}/export.zip",
             get(import_export::export_chapter_zip_route),
@@ -137,6 +139,7 @@ pub fn api_router(db: Db) -> Router {
         )
         .route("/api/books/{id}/story/foreshadowing", get(story::foreshadowing_list))
         .route("/api/books/{id}/story/impact", get(story::impact))
+        .route("/api/books/{id}/story/publish-check", get(story::publish_check_route))
         .merge(stubs::stub_router())
         .with_state(db)
 }

@@ -244,6 +244,22 @@ export const api = {
       `/api/books/${id}/artifacts/file?kind=${encodeURIComponent(kind)}&chapterNumber=${chapterNumber ?? ""}`,
     ),
   exportBookUrl: (id: string) => `/api/books/${id}/export.zip`,
+  exportStoryPackUrl: (id: string, includeSecrets = false) =>
+    `/api/books/${id}/story-pack.zip${includeSecrets ? '?includeSecrets=1' : ''}`,
+  importStoryPack: (zipBase64: string, title?: string) =>
+    request<{ bookId: string; title: string; book: BookPayload }>(`/api/books/import-story-pack`, {
+      method: 'POST',
+      body: JSON.stringify({ zipBase64, title }),
+    }),
+  publishCheck: (id: string, chapterNumber: number) =>
+    request<{
+      ok: boolean;
+      blockers: string[];
+      warnings: string[];
+      checks: Array<{ id: string; pass: boolean; level: string; message: string }>;
+      context: { missing: string[]; counts?: Record<string, number>; budgetEstimate?: { charCount: number; approxTokens: number; includedCount: number; excludedCount: number; tokenizer: string } };
+      note: string;
+    }>(`/api/books/${id}/story/publish-check?chapterNumber=${chapterNumber}`),
   exportChapterUrl: (id: string, number: number) => `/api/books/${id}/chapters/${number}/export.zip`,
   book: (id: string) => request<BookPayload>(`/api/books/${id}`),
   createBook: (body: { title: string; genre: string; logline: string }) =>
@@ -512,8 +528,21 @@ export const api = {
       mode: string;
       chapterNumber: number | null;
       missing: string[];
-      manifest: { counts: { bibleCards: number; memories: number; openHooks: number }; missing: string[] };
+      manifest: {
+        counts: { bibleCards: number; memories: number; openHooks: number };
+        missing: string[];
+        included?: Array<Record<string, unknown>>;
+        excluded?: Array<{ sourceId?: string; reason?: string }>;
+      };
       sections: { bible: string; memories: string; openHooks: string };
+      budgetEstimate?: {
+        charCount: number;
+        approxTokens: number;
+        includedCount: number;
+        excludedCount: number;
+        tokenizer: string;
+        note?: string;
+      };
     }>(
       `/api/books/${id}/context-preview${
         chapterNumber ? `?chapterNumber=${encodeURIComponent(String(chapterNumber))}` : ""

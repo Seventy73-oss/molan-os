@@ -14,6 +14,7 @@ use crate::services::import_book::{
     ImportConflict, export_book_zip, export_chapter_markdown, export_chapter_zip,
     import_book_from_zip_buffer, read_artifact_file,
 };
+use crate::services::story_pack::{export_story_pack_zip, import_story_pack_from_zip_buffer};
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::Value;
@@ -224,4 +225,98 @@ fn urlencoding_filename(name: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+
+#[derive(Deserialize)]
+pub struct StoryPackQuery {
+    #[serde(rename = "includeSecrets")]
+    include_secrets: Option<String>,
+}
+
+pub async fn export_story_pack(
+    State(db): State<Db>,
+    Path(id): Path<String>,
+    Query(q): Query<StoryPackQuery>,
+) -> AppResult<impl IntoResponse> {
+    let include = matches!(
+        q.include_secrets.as_deref(),
+        Some("1") | Some("true") | Some("TRUE")
+    );
+    let (filename, buffer, _manifest) = export_story_pack_zip(&db, &id, include)?;
+    Ok(zip_response(filename, buffer))
+}
+
+pub async fn import_story_pack(State(db): State<Db>, req: Request) -> AppResult<impl IntoResponse> {
+    let ct = req
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let (title, buffer) = if ct.contains("multipart/form-data") {
+        let mut multipart = Multipart::from_request(req, &db)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("multipart 无效：{e}")))?;
+        let mut title: Option<String> = None;
+        let mut buffer: Vec<u8> = Vec::new();
+        while let Some(field) = multipart
+            .next_field()
+            .await
+            .map_err(|e| AppError::BadRequest(format!("multipart 字段读取失败：{e}")))?
+        {
+            let name = field.name().unwrap_or("").to_string();
+            match name.as_str() {
+                "title" => {
+                    let text = field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("title 字段无效：{e}")))?;
+                    if !text.trim().is_empty() {
+                        title = Some(text);
+                    }
+                }
+                "file" => {
+                    let bytes = field
+                        .bytes()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("file 字段无效：{e}")))?;
+                    buffer = bytes.to_vec();
+                }
+                _ => {
+                    let _ = field.bytes().await;
+                }
+            }
+        }
+        (title, buffer)
+    } else {
+        let bytes = axum::body::to_bytes(req.into_body(), 100 * 1024 * 1024)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("读取上传失败：{e}")))?;
+        let v: Value = serde_json::from_slice(&bytes)
+            .map_err(|e| AppError::BadRequest(format!("JSON 无效：{e}")))?;
+        let title = v
+            .get("title")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        let b64 = v.get("zipBase64").and_then(|x| x.as_str()).unwrap_or("");
+        if b64.is_empty() {
+            return Err(AppError::BadRequest("请上传故事包 zip".into()));
+        }
+        let buf = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| AppError::BadRequest(format!("zipBase64 无效：{e}")))?;
+        (title, buf)
+    };
+    if buffer.is_empty() {
+        return Err(AppError::BadRequest("请上传故事包 zip".into()));
+    }
+    let result = import_story_pack_from_zip_buffer(&db, &buffer, title.as_deref())?;
+    let book_id = result.get("bookId").and_then(|v| v.as_str()).unwrap_or("");
+    let book = get_book_payload(&db, book_id)?;
+    let mut out = result;
+    if let Some(m) = out.as_object_mut() {
+        m.insert("book".into(), book);
+    }
+    Ok((StatusCode::CREATED, Json(out)))
 }

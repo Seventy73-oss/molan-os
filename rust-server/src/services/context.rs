@@ -399,19 +399,26 @@ pub fn preview_context(db: &Db, book_id: &str, chapter_number: Option<i64>) -> A
     let bible = section_after(&built.text, "【设定卡】", "【章目】");
     let memories = section_after(&built.text, "【前文记忆】", "【未回收钩子】");
     let hooks = section_after(&built.text, "【未回收钩子】", "【本章】");
-    Ok(json!({
+    let sections = json!({
+            "bible": bible,
+            "memories": memories,
+            "openHooks": hooks,
+        });
+    let preview = json!({
         "mode": built.mode,
         "chapterNumber": chapter_number,
         "missing": built.missing,
         "manifest": built.manifest,
-        "sections": {
-            "bible": bible,
-            "memories": memories,
-            "openHooks": hooks,
-        },
+        "sections": sections,
         "renderedHash": hash_text(&built.text),
         "charCount": built.text.chars().count(),
-    }))
+    });
+    let budget = crate::services::story_pack::estimate_context_budget(&preview);
+    let mut out = preview;
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("budgetEstimate".into(), budget);
+    }
+    Ok(out)
 }
 
 fn section_after(text: &str, start: &str, end: &str) -> String {

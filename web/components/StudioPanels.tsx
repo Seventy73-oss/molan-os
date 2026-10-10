@@ -460,7 +460,7 @@ export function BibleCardsPanel({ bookId }: BibleProps) {
 
 type DrawerProps = {
   open: boolean;
-  tab: "tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow" | "context";
+  tab: "tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow" | "context" | "graph";
   onTab: (tab: DrawerProps["tab"]) => void;
   onClose: () => void;
   children: ReactNode;
@@ -480,6 +480,7 @@ export function ToolsDrawer({ open, tab, onTab, onClose, children }: DrawerProps
               ["foreshadow", "伏笔"],
               ["story", "人物态"],
               ["context", "上下文"],
+              ["graph", "图谱"],
               ["bible", "设定卡"],
               ["history", "版本"],
               ["review", "审核"],
@@ -940,3 +941,161 @@ export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
   );
 }
 
+
+type GraphProps = { bookId: string; chapterNumber?: number | null };
+
+/** G5: relation / timeline / hooks views from same authority data + batch gates. */
+export function StoryGraphPanel({ bookId, chapterNumber }: GraphProps) {
+  const [sub, setSub] = useState<"relations" | "timeline" | "hooks" | "batch">("relations");
+  const [rel, setRel] = useState<Awaited<ReturnType<typeof api.storyRelationView>> | null>(null);
+  const [timeline, setTimeline] = useState<Awaited<ReturnType<typeof api.storyTimelineView>> | null>(null);
+  const [hooks, setHooks] = useState<Awaited<ReturnType<typeof api.storyHookView>> | null>(null);
+  const [batch, setBatch] = useState<{
+    id: string;
+    status: string;
+    progress: { items: Array<Record<string, unknown>>; gate: string | null; modelCalls?: number };
+  } | null>(null);
+  const [review, setReview] = useState<string>("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const asOf = chapterNumber && chapterNumber > 0 ? chapterNumber : null;
+
+  async function reload() {
+    setBusy(true);
+    setError("");
+    try {
+      if (sub === "relations") setRel(await api.storyRelationView(bookId, asOf));
+      if (sub === "timeline") setTimeline(await api.storyTimelineView(bookId, asOf));
+      if (sub === "hooks") setHooks(await api.storyHookView(bookId, asOf));
+      if (sub === "batch" && asOf) {
+        const r = await api.readonlyStoryReview(bookId, asOf);
+        setReview(r.findings.map((f) => `[${f.level}] ${f.message}`).join("\n"));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void reload();
+  }, [bookId, chapterNumber, sub]);
+
+  async function runBatch() {
+    if (!asOf) {
+      setError("需要当前章节号才能跑批量记忆");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      let b = await api.createMemoryReadyBatch(bookId, {
+        fromChapter: asOf,
+        toChapter: asOf,
+        autoExtract: true,
+        strictMemoryReady: true,
+        maxModelCalls: 5,
+      });
+      b = await api.tickMemoryReadyBatch(bookId, b.id);
+      setBatch(b);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "批量失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel-block story-graph-panel">
+      <div className="panel-row">
+        <span className="panel-label">同源派生视图{asOf ? ` · 截至第${asOf}章` : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
+          刷新
+        </button>
+      </div>
+      <div className="tools-tabs" style={{ marginBottom: 8 }}>
+        {(
+          [
+            ["relations", "关系"],
+            ["timeline", "时间线"],
+            ["hooks", "伏笔视图"],
+            ["batch", "批量记忆"],
+          ] as const
+        ).map(([id, label]) => (
+          <button key={id} type="button" className={sub === id ? "on" : ""} onClick={() => setSub(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="panel-muted">视图只读派生；权威在定稿 / 事实 / hook_events。批量不绕过作者审批，无多 Agent 编排。</p>
+      {error ? <p className="panel-error">{error}</p> : null}
+      {sub === "relations" ? (
+        <>
+          <p className="panel-muted">{rel?.note}</p>
+          <p className="panel-muted">
+            节点 {rel?.nodes?.length ?? 0} · 边 {rel?.edges?.length ?? 0}
+          </p>
+          <ul className="hook-list">
+            {(rel?.edges ?? []).slice(0, 40).map((e) => (
+              <li key={e.id}>
+                <p className="hook-text">
+                  {e.source} —[{e.label}]→ {e.target}
+                </p>
+              </li>
+            ))}
+          </ul>
+          {!rel?.edges?.length ? <p className="panel-muted">暂无关系边。批准含 relation 的提案后出现。</p> : null}
+        </>
+      ) : null}
+      {sub === "timeline" ? (
+        <>
+          <p className="panel-muted">{timeline?.note}</p>
+          <ul className="hook-list">
+            {(timeline?.events ?? []).slice(0, 60).map((ev) => (
+              <li key={ev.id}>
+                <div className="hook-head">
+                  <strong>第{ev.chapter}章</strong>
+                  <span className="hook-flag">{ev.kind}</span>
+                  <span className="panel-muted">{ev.authorityTable}</span>
+                </div>
+                <p className="hook-text">{ev.title}</p>
+                <p className="panel-muted">{ev.detail}</p>
+              </li>
+            ))}
+          </ul>
+          {!timeline?.events?.length ? <p className="panel-muted">暂无时间线事件。</p> : null}
+        </>
+      ) : null}
+      {sub === "hooks" ? (
+        <>
+          <p className="panel-muted">{hooks?.note}</p>
+          <ul className="hook-list">
+            {(hooks?.hooks ?? []).map((h) => (
+              <li key={String(h.hookStableId)}>
+                <div className="hook-head">
+                  <span className="hook-flag">{String(h.status)}</span>
+                </div>
+                <p className="hook-text">{String(h.description || h.hookStableId)}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {sub === "batch" ? (
+        <>
+          <button type="button" className="primary" disabled={busy || !asOf} onClick={() => void runBatch()}>
+            对本开批记忆（extract→提案，不停写正式事实）
+          </button>
+          {batch ? (
+            <p className="panel-muted">
+              批次 {batch.id.slice(0, 8)}… · {batch.status} · gate={String(batch.progress?.gate)} · items=
+              {batch.progress?.items?.length ?? 0}
+            </p>
+          ) : null}
+          {review ? <pre className="panel-muted" style={{ whiteSpace: "pre-wrap" }}>{review}</pre> : null}
+        </>
+      ) : null}
+    </div>
+  );
+}

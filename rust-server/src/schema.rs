@@ -234,6 +234,7 @@ pub fn migrate_sqlite(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     );
     migrate_story_ledger(conn)?;
     migrate_story_g3(conn)?;
+    migrate_story_g5(conn)?;
     Ok(())
 }
 
@@ -416,5 +417,29 @@ CREATE INDEX IF NOT EXISTS bible_card_revisions_card ON bible_card_revisions(car
             [],
         );
     }
+    Ok(())
+}
+
+fn migrate_story_g5(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+CREATE TABLE IF NOT EXISTS story_batches (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  from_chapter INTEGER,
+  to_chapter INTEGER,
+  current_chapter INTEGER,
+  config_json TEXT NOT NULL,
+  progress_json TEXT NOT NULL DEFAULT '{}',
+  cost_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS story_batches_book ON story_batches(book_id, created_at);
+"#,
+    )?;
     Ok(())
 }

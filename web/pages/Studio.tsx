@@ -13,6 +13,7 @@ import {
   HooksPanel,
   StoryStatePanel,
   ContextPanel,
+  StoryGraphPanel,
   ForeshadowPanel,
   ProgressPanel,
   ReviewFixPanel,
@@ -211,7 +212,7 @@ export function Studio() {
   const [jobMaxRetries, setJobMaxRetries] = useState(1);
   const [jobTo, setJobTo] = useState(2);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [toolsTab, setToolsTab] = useState<"tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow" | "context">("tools");
+  const [toolsTab, setToolsTab] = useState<"tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow" | "context" | "graph">("tools");
   const [seek, setSeek] = useState<{ text: string; token: number } | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLElement>(null);
@@ -1557,6 +1558,7 @@ export function Studio() {
         ) : null}
         {toolsTab === "story" ? <StoryStatePanel bookId={id} chapterNumber={doc.chapterNumber} /> : null}
         {toolsTab === "context" ? <ContextPanel bookId={id} chapterNumber={doc.chapterNumber} /> : null}
+        {toolsTab === "graph" ? <StoryGraphPanel bookId={id} chapterNumber={doc.chapterNumber} /> : null}
         {toolsTab === "foreshadow" ? <ForeshadowPanel bookId={id} chapterNumber={doc.chapterNumber} /> : null}
         {toolsTab === "bible" ? <BibleCardsPanel bookId={id} /> : null}
         {toolsTab === "history" ? (

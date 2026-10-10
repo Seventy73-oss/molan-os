@@ -33,6 +33,12 @@ use crate::services::story::{
     chapter_story_status_by_number, finalize_chapter, get_book_head, get_proposal, reject_proposal,
 };
 use crate::services::story_state::{list_foreshadowing, list_story_characters, project_character_state, story_impact};
+use crate::services::story_views::{story_hook_view, story_relation_view, story_timeline_view};
+use crate::services::story_batch::{
+    BatchCreateInput, cancel_memory_ready_batch, create_memory_ready_batch, get_memory_ready_batch,
+    readonly_story_review, refuse_agent_orchestration, resume_memory_ready_batch,
+    tick_memory_ready_batch,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -294,4 +300,89 @@ pub async fn publish_check_route(
         return Err(AppError::BadRequest("chapterNumber required".into()));
     }
     Ok(Json(crate::services::story_pack::publish_check(&db, &id, n)?))
+}
+
+
+pub async fn views_relations(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(story_relation_view(&db, &book_id, q.as_of_chapter)?))
+}
+
+pub async fn views_timeline(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(story_timeline_view(&db, &book_id, q.as_of_chapter)?))
+}
+
+pub async fn views_hooks(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(story_hook_view(&db, &book_id, q.as_of_chapter)?))
+}
+
+pub async fn batch_memory_ready_create(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    Json(body): Json<BatchCreateInput>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(create_memory_ready_batch(&db, &book_id, body)?))
+}
+
+pub async fn batch_get(
+    State(db): State<Db>,
+    Path((book_id, batch_id)): Path<(String, String)>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(get_memory_ready_batch(&db, &book_id, &batch_id)?))
+}
+
+pub async fn batch_tick(
+    State(db): State<Db>,
+    Path((book_id, batch_id)): Path<(String, String)>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(tick_memory_ready_batch(&db, &book_id, &batch_id)?))
+}
+
+pub async fn batch_resume(
+    State(db): State<Db>,
+    Path((book_id, batch_id)): Path<(String, String)>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(resume_memory_ready_batch(&db, &book_id, &batch_id)?))
+}
+
+pub async fn batch_cancel(
+    State(db): State<Db>,
+    Path((book_id, batch_id)): Path<(String, String)>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(cancel_memory_ready_batch(&db, &book_id, &batch_id)?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewBody {
+    pub chapter_number: Option<i64>,
+}
+
+pub async fn review_readonly(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    body: Option<Json<ReviewBody>>,
+) -> AppResult<Json<Value>> {
+    let n = body.and_then(|b| b.chapter_number);
+    Ok(Json(readonly_story_review(&db, &book_id, n)?))
+}
+
+pub async fn agent_orchestrate(
+    Path(_book_id): Path<String>,
+    body: Option<Json<Value>>,
+) -> AppResult<Json<Value>> {
+    let v = body.map(|j| j.0).unwrap_or(json!({}));
+    refuse_agent_orchestration(&v)?;
+    unreachable!()
 }

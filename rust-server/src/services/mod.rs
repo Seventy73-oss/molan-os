@@ -16,5 +16,7 @@ pub mod skills;
 pub mod story;
 pub mod story_state;
 pub mod story_pack;
+pub mod story_views;
+pub mod story_batch;
 pub mod usage;
 pub mod worker;

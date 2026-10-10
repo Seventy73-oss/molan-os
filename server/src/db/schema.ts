@@ -689,6 +689,23 @@ CREATE TABLE IF NOT EXISTS bible_card_revisions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bible_card_revisions_card ON bible_card_revisions(card_id, created_at);
+
+CREATE TABLE IF NOT EXISTS story_batches (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  from_chapter INTEGER,
+  to_chapter INTEGER,
+  current_chapter INTEGER,
+  config_json TEXT NOT NULL,
+  progress_json TEXT NOT NULL DEFAULT '{}',
+  cost_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS story_batches_book ON story_batches(book_id, created_at);
 `);
   const g3FactCols = [
     ["kind", "TEXT NOT NULL DEFAULT 'generic'"],
@@ -920,5 +937,22 @@ CREATE TABLE IF NOT EXISTS bible_card_revisions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bible_card_revisions_card ON bible_card_revisions(card_id, created_at);
+
+CREATE TABLE IF NOT EXISTS story_batches (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  from_chapter INTEGER,
+  to_chapter INTEGER,
+  current_chapter INTEGER,
+  config_json TEXT NOT NULL,
+  progress_json TEXT NOT NULL DEFAULT '{}',
+  cost_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS story_batches_book ON story_batches(book_id, created_at);
 `);
 }

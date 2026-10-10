@@ -596,6 +596,63 @@ export const api = {
       autoRewriteSubsequentBodies: boolean;
     }>(`/api/books/${id}/story/impact?${q.toString()}`);
   },
+  storyRelationView: (id: string, asOfChapter?: number | null) =>
+    request<{
+      derived: boolean;
+      authority: string[];
+      nodes: Array<{ id: string; label: string; kind: string }>;
+      edges: Array<{ id: string; source: string; target: string; label: string; factId: string }>;
+      note: string;
+    }>(`/api/books/${id}/story/views/relations${asOfChapter ? `?asOfChapter=${asOfChapter}` : ""}`),
+  storyTimelineView: (id: string, asOfChapter?: number | null) =>
+    request<{
+      derived: boolean;
+      events: Array<{ id: string; chapter: number; kind: string; title: string; detail: string; authorityTable: string }>;
+      note: string;
+    }>(`/api/books/${id}/story/views/timeline${asOfChapter ? `?asOfChapter=${asOfChapter}` : ""}`),
+  storyHookView: (id: string, asOfChapter?: number | null) =>
+    request<{
+      derived: boolean;
+      hooks: Array<Record<string, unknown>>;
+      note: string;
+    }>(`/api/books/${id}/story/views/hooks${asOfChapter ? `?asOfChapter=${asOfChapter}` : ""}`),
+  createMemoryReadyBatch: (
+    id: string,
+    body: {
+      fromChapter: number;
+      toChapter: number;
+      autoExtract?: boolean;
+      strictMemoryReady?: boolean;
+      maxModelCalls?: number;
+    },
+  ) =>
+    request<{
+      id: string;
+      status: string;
+      progress: { items: Array<Record<string, unknown>>; gate: string | null; modelCalls?: number };
+      gates?: Record<string, unknown>;
+    }>(`/api/books/${id}/story/batch/memory-ready`, { method: "POST", body: JSON.stringify(body) }),
+  tickMemoryReadyBatch: (id: string, batchId: string) =>
+    request<{
+      id: string;
+      status: string;
+      progress: { items: Array<Record<string, unknown>>; gate: string | null; modelCalls?: number };
+      gates?: Record<string, unknown>;
+    }>(`/api/books/${id}/story/batch/${batchId}/tick`, { method: "POST", body: "{}" }),
+  cancelMemoryReadyBatch: (id: string, batchId: string) =>
+    request<{ id: string; status: string }>(`/api/books/${id}/story/batch/${batchId}/cancel`, {
+      method: "POST",
+      body: "{}",
+    }),
+  readonlyStoryReview: (id: string, chapterNumber?: number | null) =>
+    request<{
+      writable: false;
+      findings: Array<{ id: string; level: string; message: string }>;
+      note: string;
+    }>(`/api/books/${id}/story/review/readonly`, {
+      method: "POST",
+      body: JSON.stringify({ chapterNumber: chapterNumber ?? null }),
+    }),
   markHook: (
     id: string,
     body: { key: string; status: string; recycledChapter?: number | null; note?: string },

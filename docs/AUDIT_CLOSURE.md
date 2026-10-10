@@ -19,13 +19,14 @@
 | 整库 phys 脚本路径默认拒绝 + quarantine CLI | 阶段 12 |
 | pi = 模型代调（拒 tools/自主编排） | 阶段 9+；见 `docs/PI_RUNTIME.md` |
 | 真实模型 = opt-in（`MOLAN_LIVE_MODEL=1`） | 阶段 9+；见 `docs/LIVE_MODEL.md`；**不进** `test:audit` |
+| G1–G5 故事域（上下文/定稿/人物伏笔/导出/同源视图+批量审批门） | 见 `docs/AUDIT_PHASE_G1_STORY.md` … `G5`；**无**无约束多 Agent |
 
 日常：`npm run test:audit`（regression + e2e + browser + pg-lease）。
 
 ## 产品选择（刻意保留）
 
 1. **默认 SQLite** — 单机写库；原生 PG 需 `MOLAN_NATIVE_PG=1` + 迁移。
-2. **pi 非自主编排** — 只代调模型；要工具规划需另立项。
+2. **pi / G5 非自主编排** — 只代调模型；`/story/agent/orchestrate` 恒 422；要工具规划需另立项。
 3. **live-model 不进 CI** — 避免烧 Key / 外网抖动；本机自测见 `docs/LIVE_MODEL.md`。
 4. **迁移单向 upsert、无 prune** — `--sync` 可重复；PG 多出行不自动删。
 5. **整库 phys 弃用** — 仅 `MOLAN_ALLOW_WHOLE_DB_PHYS_RESTORE=1`；平时用按书 dump / `quarantine:legacy-phys`。
@@ -40,6 +41,7 @@
 ## 阶段报告索引
 
 - `docs/AUDIT_PHASE_REPORT.md` … `docs/AUDIT_PHASE12_REPORT.md`
+- 故事域：`docs/AUDIT_PHASE_G1_STORY.md` … `docs/AUDIT_PHASE_G5_STORY.md`
 - 存储：`docs/STORAGE_LEASE.md`
 - pi / live：`docs/PI_RUNTIME.md`、`docs/LIVE_MODEL.md`
 

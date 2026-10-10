@@ -425,6 +425,25 @@ z.close()
     chatCross.join(","),
   );
 
+  {
+    const { selectionSkillScene } = await import("../src/skills");
+    const { rewriteSelection } = await import("../src/engine");
+    const selOutline = skillsForScene(selectionSkillScene("outline")).map((r) => r.id);
+    check(
+      "SKILL 选区改写 outline 文档挂大纲包、不挂 humanize",
+      !selOutline.includes("humanize") && selOutline.includes("volume-arcs") && selOutline.includes("structure-skeleton"),
+      selOutline.join(","),
+    );
+    const selCo = skillsForScene(selectionSkillScene("chapter_outline")).map((r) => r.id);
+    check("SKILL 选区改写 chapter_outline 不挂 humanize", !selCo.includes("humanize") && selCo.includes("opening-cards"), selCo.join(","));
+    const selBody = (await rewriteSelection({ bookId, selection: "他说：“走。”", instruction: "润色", scene: "chapter_body" })) as { skills: { id: string }[] };
+    const selBodyIds = selBody.skills.map((s) => s.id);
+    check("SKILL 选区改写正文挂 humanize+style-corpus", selBodyIds.includes("humanize") && selBodyIds.includes("style-corpus"), selBodyIds.join(","));
+    const selOut2 = (await rewriteSelection({ bookId, selection: "第一卷：起势", instruction: "润色", scene: "outline" })) as { skills: { id: string }[] };
+    const selOut2Ids = selOut2.skills.map((s) => s.id);
+    check("SKILL 选区改写 API outline 不挂 humanize", !selOut2Ids.includes("humanize") && selOut2Ids.includes("volume-arcs"), selOut2Ids.join(","));
+  }
+
   // --- AI write baseline CAS → candidate ---
   const bodyBase = saveRevision({
     bookId,

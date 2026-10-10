@@ -284,6 +284,11 @@ export function attachScenesOfPack(packId: string): string[] {
   return [...spec.attachScenes];
 }
 
+/** Selection rewrite: planning docs use their own stage packs; prose uses humanize stage (humanize + style-corpus). */
+export function selectionSkillScene(scene?: string | null): string {
+  return scene === "outline" || scene === "chapter_outline" || scene === "book_setup" ? scene : "humanize";
+}
+
 export function skillsForScene(scene: string, ids?: string[]): SkillRow[] {
   const rows = db.prepare("SELECT * FROM skills WHERE scene = ?").all(scene) as SkillRow[];
   // Optional skillIds filter builtins / extras; stage user packs always merge in below.

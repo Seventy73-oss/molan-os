@@ -2,6 +2,7 @@
  * G2 StoryLedger (Node parity): publication pointer, memory proposals,
  * book epoch / idempotency, invalidate-on-republish.
  */
+import { skillsForScene } from "./skills";
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "./db";
 import { HttpError, saveRevision } from "./engine";
@@ -522,7 +523,7 @@ export function applyProposal(input: {
     body: summaryText,
     source: "story_ledger",
     model: "author_accepted",
-    skillIds: [],
+    skillIds: skillsForScene("memory_extract").map((s) => s.id),
     scene: "memory_extract",
     sourceRevisionId: proposal.sourceRevisionId,
     skipMemory: true,

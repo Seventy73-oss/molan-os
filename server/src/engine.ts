@@ -15,7 +15,7 @@ import { bookProgress as computeBookProgress } from "./features";
 import { formatOpenHooksForReview } from "./hooks";
 import { buildContextManifest, saveContextSnapshot } from "./contextSnapshot";
 import { estimateTokensFromText, recordUsage } from "./usage";
-import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
+import { selectionSkillScene, skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { normalizeThinking } from "./thinking";
 import { isAbortError, optionalStreamPreDelay, throwIfAborted } from "./abortUtil";
 
@@ -1487,7 +1487,7 @@ export async function rewriteSelection(input: {
     ? input.scene
     : "humanize";
   const route = routeFor(scene);
-  const skillRows = skillsForScene("humanize");
+  const skillRows = skillsForScene(selectionSkillScene(scene));
   const skillTexts = toSkillTexts(skillRows, 36000);
   const skillInfo = {
     skills: skillRows.map((s) => ({ id: s.id, name: s.name, role: s.role })),

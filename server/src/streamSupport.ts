@@ -18,7 +18,7 @@ import {
 } from "./engine";
 import { formatOpenHooksForReview } from "./hooks";
 import { db, type RouteRow } from "./db";
-import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
+import { selectionSkillScene, skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { sceneKind } from "./agent/adapter";
 import { normalizeThinking } from "./thinking";
 import { isAbortError, throwIfAborted } from "./abortUtil";
@@ -288,7 +288,7 @@ export async function streamSelectionRewrite(
     if (adapter instanceof OpenAICompatibleAdapter) {
       await emit({ type: "status", message: "正在改写选区…" });
       try {
-        const skillRows = skillsForScene("humanize");
+        const skillRows = skillsForScene(selectionSkillScene(input.scene));
         const skillTexts = toSkillTexts(skillRows, 36000);
         const result = await adapter.runSceneStream(
           {

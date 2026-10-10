@@ -58,4 +58,4 @@ npm run test:audit
 - `docs/STORAGE_LEASE.md` — 迁移 CLI、遗留 phys 转换/拒绝
 - `docs/PI_RUNTIME.md` / `docs/LIVE_MODEL.md` — 未改产品语义
 
-本阶段代码与文档见仓库 HEAD（提交后回填）。
+本阶段代码 `f6796c2`；文档链至 HEAD `f6796c2`。

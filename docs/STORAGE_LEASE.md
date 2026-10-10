@@ -65,10 +65,28 @@ MOLAN_LEASE_DATABASE_URL=postgres://molan:molan@127.0.0.1:5432/molan_lease \
 - 逻辑回滚成功或导入成功后清除。
 - 逻辑 JSON 仍优先；无 JSON 时才走物理按书恢复。
 
-### 遗留：整库 `.sqlite.phys`（阶段 9）
+### 遗留：整库 `.sqlite.phys`（阶段 9 → 阶段 11 收紧）
 
-- 若仍存在 `<bookId>.sqlite.phys` + `.phys.pending`，启动时仍可整库替换恢复（**会影响同库其他书**）。
-- 新写入不再生成整库副本。
+- 新写入不再生成整库副本（阶段 10 起为按书 `.book.phys.sqlite`）。
+- 启动若仍发现 `<bookId>.sqlite.phys` + `.phys.pending`：
+  1. **优先转换**为按书 dump，再 `restoreBookSnapshot`（**不动其他书**）；
+  2. 无法抽出该书 → **拒绝**整库替换，并将遗留文件移入 `data/import-recovery/legacy-quarantine/`；
+  3. **不会**再自动 `replaceSqliteFromPhysicalBackup`（避免静默覆盖同库其他书）。
+- 手写灾难恢复仍可用 `replaceSqliteFromPhysicalBackup`（仅脚本/人工，不走启动自动路径）。
+
+### SQLite → 原生 Postgres 迁移（阶段 11）
+
+```bash
+DATABASE_URL=postgres://user:pass@127.0.0.1:5432/molan \
+  npm run migrate:sqlite-to-pg -- --dry-run
+DATABASE_URL=postgres://user:pass@127.0.0.1:5432/molan \
+  npm run migrate:sqlite-to-pg -- --force   # 目标已有书时需显式 force
+```
+
+- 默认读 `MOLAN_SQLITE_PATH` 或 `data/changjuan.sqlite`；`--sqlite <path>` 可覆盖。
+- 目标已有 `books` 且未 `--force` → 拒绝迁移（防误覆盖）。
+- 迁移**不会**自动改 boot 驱动；迁完后自行 `MOLAN_NATIVE_PG=1` 启动。
+- Markdown `data/books/` 布局不变，无需随库迁移。
 
 ## 取消与暂停语义（回顾）
 

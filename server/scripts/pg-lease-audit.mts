@@ -231,11 +231,75 @@ async function main() {
     check("P10 native DbClient 冒烟", false, "SKIP (no Postgres)");
   }
 
+  // Phase11: SQLite → native PG migrate dry-run + tiny force migrate into scratch schema/db
+  if (opened) {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const Database = (await import("better-sqlite3")).default;
+    const { sqliteSchema, migrateSqlite } = await import("../src/db/schema");
+    const { migrateSqliteToPg, countSqliteMigrateTables } = await import("../src/db/migrateSqliteToPg");
+    const { createNativePostgresClient } = await import("../src/db/pgNativeClient");
+    const tmpSqlite = path.join(os.tmpdir(), `molan-migrate-${Date.now()}.sqlite`);
+    const src = new Database(tmpSqlite);
+    src.exec(sqliteSchema());
+    migrateSqlite(
+      (sql) => src.exec(sql),
+      (sql) => {
+        try {
+          src.prepare(sql).run();
+        } catch {
+          /* ignore */
+        }
+      },
+    );
+    const bookId = `mig-book-${Date.now()}`;
+    src.prepare(
+      `INSERT INTO books (id, title, genre, logline, style, target_chapters, words_per_chapter, created_at)
+       VALUES (?, ?, '', '', '', 1, 100, ?)`,
+    ).run(bookId, "migrate-smoke", new Date().toISOString());
+    src.close();
+    const counts = countSqliteMigrateTables(tmpSqlite);
+    check("P11 migrate 源 books≥1", counts.books >= 1, JSON.stringify(counts));
+
+    const dry = await migrateSqliteToPg({
+      sqlitePath: tmpSqlite,
+      databaseUrl: url,
+      dryRun: true,
+    });
+    check("P11 migrate dry-run 不拒绝空计划", !dry.refused && dry.tables.books?.source >= 1, JSON.stringify(dry.tables.books));
+
+    // Use a dedicated database name if possible — fall back to force into same URL with unique ids
+    const forceResult = await migrateSqliteToPg({
+      sqlitePath: tmpSqlite,
+      databaseUrl: url,
+      force: true,
+    });
+    check("P11 migrate force 写入 books", !forceResult.refused && (forceResult.tables.books?.written ?? 0) >= 1, JSON.stringify(forceResult.tables.books));
+
+    const verify = createNativePostgresClient(url);
+    try {
+      const row = verify.get<{ title: string }>("SELECT title FROM books WHERE id = ?", [bookId]);
+      check("P11 migrate 后 PG 可读书名", row?.title === "migrate-smoke", String(row?.title));
+      verify.run("DELETE FROM books WHERE id = ?", [bookId]);
+    } finally {
+      await verify.close();
+    }
+    try {
+      fs.unlinkSync(tmpSqlite);
+    } catch {
+      /* ignore */
+    }
+  } else {
+    check("P11 migrate SQLite→PG", false, "SKIP (no Postgres)");
+  }
+
   // Treat "真实 Postgres 可达" / P10 SKIP fail as soft skip
   const hardFail = results.filter((r) => {
     if (r.ok) return false;
     if (r.name === "真实 Postgres 可达") return false;
     if (r.name === "P10 native DbClient 冒烟" && r.detail?.startsWith("SKIP")) return false;
+    if (r.name === "P11 migrate SQLite→PG" && r.detail?.startsWith("SKIP")) return false;
     return true;
   });
   console.log(`\npg-lease: ${results.filter((r) => r.ok).length}/${results.length} passed (${hardFail.length} hard fail)`);

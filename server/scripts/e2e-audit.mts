@@ -42,6 +42,8 @@ async function main() {
     __physicalBackupDbPathForTest,
     __writePhysicalSqliteBackupForTest,
     __clearPhysicalSqliteBackupForTest,
+    __legacyWholeDbPhysPathForTest,
+    __legacyWholeDbPendingForTest,
   } = await import("../src/importBook");
   const { db } = await import("../src/db");
   const {
@@ -861,6 +863,149 @@ z.close()
     nativeAllow.allowed && /postgres-native/.test(nativeAllow.reason),
     nativeAllow.reason,
   );
+
+  // --- Phase11: legacy whole-DB phys → convert / refuse (never nuke other books) ---
+  {
+    const { resolveSqliteFilePath } = await import("../src/db");
+    const legA = engine.createBook({
+      title: `遗留整库A ${Date.now()}`,
+      genre: "测",
+      logline: "legacy-a",
+      style: "",
+      targetChapters: 1,
+      wordsPerChapter: 100,
+    });
+    const legB = engine.createBook({
+      title: `遗留整库B ${Date.now()}`,
+      genre: "测",
+      logline: "legacy-b",
+      style: "",
+      targetChapters: 1,
+      wordsPerChapter: 100,
+    });
+    const idA = legA.payload.book.id;
+    const idB = legB.payload.book.id;
+    engine.saveRevision({
+      bookId: idA,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "LEGACY_A_GOOD",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    engine.saveRevision({
+      bookId: idB,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "LEGACY_B_GOOD",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    // Snapshot whole live DB as phase9-style backup for A (checkpoint so copy is consistent)
+    const liveDb = resolveSqliteFilePath();
+    const legacyPath = __legacyWholeDbPhysPathForTest(idA);
+    const legacyPending = __legacyWholeDbPendingForTest(idA);
+    fs.mkdirSync(importRecoveryDir(), { recursive: true });
+    try {
+      db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+      /* ignore */
+    }
+    fs.copyFileSync(liveDb, legacyPath);
+    for (const suffix of ["-wal", "-shm"]) {
+      const s = `${liveDb}${suffix}`;
+      if (fs.existsSync(s)) fs.copyFileSync(s, `${legacyPath}${suffix}`);
+    }
+    fs.writeFileSync(
+      legacyPending,
+      JSON.stringify({ bookId: idA, kind: "legacy-whole-db", at: new Date().toISOString() }),
+      "utf8",
+    );
+    __clearDurableSnapshotForTest(idA);
+    // Dirty A and change B after backup (whole-DB replace would revert B too)
+    engine.saveRevision({
+      bookId: idA,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "LEGACY_A_DIRTY",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    engine.saveRevision({
+      bookId: idB,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "LEGACY_B_AFTER_BACKUP",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    const legRecover = await recoverPhysicalImportBackups();
+    check(
+      "E2E P11 遗留整库已转换并恢复 A",
+      legRecover.restored.includes(idA) && (legRecover.convertedLegacy || []).includes(idA),
+      JSON.stringify(legRecover),
+    );
+    const bodyLA = (
+      db
+        .prepare(
+          `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+           LEFT JOIN chapters c ON c.id = a.chapter_id
+           WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = 1`,
+        )
+        .get(idA) as { body: string } | undefined
+    )?.body;
+    const bodyLB = (
+      db
+        .prepare(
+          `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+           LEFT JOIN chapters c ON c.id = a.chapter_id
+           WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = 1`,
+        )
+        .get(idB) as { body: string } | undefined
+    )?.body;
+    check("E2E P11 转换恢复后 A 回到备份", bodyLA === "LEGACY_A_GOOD", (bodyLA || "").slice(0, 80));
+    check(
+      "E2E P11 转换恢复不伤他书 B",
+      bodyLB === "LEGACY_B_AFTER_BACKUP",
+      (bodyLB || "").slice(0, 80),
+    );
+    check(
+      "E2E P11 遗留整库文件已隔离",
+      !fs.existsSync(legacyPath),
+      legacyPath,
+    );
+
+    // Refuse path: pending + empty/wrong sqlite without the book
+    const idMissing = "missing-book-for-legacy-refuse";
+    const badLegacy = __legacyWholeDbPhysPathForTest(idMissing);
+    const badPending = __legacyWholeDbPendingForTest(idMissing);
+    // Minimal sqlite schema without this book
+    const Database = (await import("better-sqlite3")).default;
+    const { sqliteSchema } = await import("../src/db/schema");
+    const bad = new Database(badLegacy);
+    bad.exec(sqliteSchema());
+    bad.close();
+    fs.writeFileSync(badPending, JSON.stringify({ bookId: idMissing, kind: "legacy" }), "utf8");
+    const refuse = await recoverPhysicalImportBackups();
+    check(
+      "E2E P11 无法抽出书时拒绝整库恢复",
+      (refuse.refusedLegacy || []).includes(idMissing) && !refuse.restored.includes(idMissing),
+      JSON.stringify(refuse),
+    );
+    check("E2E P11 拒绝后遗留文件已隔离", !fs.existsSync(badLegacy), badLegacy);
+  }
 
   // --- Phase9: pi orchestration boundary ---
   const { assertPiModelRelayOnly, piOrchestrationBoundary, probePiCapability } = await import("../src/agent/piAdapter");

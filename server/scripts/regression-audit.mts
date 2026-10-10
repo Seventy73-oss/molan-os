@@ -271,6 +271,26 @@ z.close()
     physicalBackupDbPath("abc"),
   );
 
+  // Phase11: legacy path + migrate tooling (sqlite-side, no PG required)
+  const { legacyWholeDbPhysPath } = await import("../src/importBook");
+  const { MIGRATE_TABLE_ORDER, countSqliteMigrateTables } = await import("../src/db/migrateSqliteToPg");
+  check(
+    "P11 遗留整库路径仍可识别",
+    legacyWholeDbPhysPath("abc").endsWith("abc.sqlite.phys"),
+    legacyWholeDbPhysPath("abc"),
+  );
+  check(
+    "P11 迁移表顺序含 books 与 generations",
+    MIGRATE_TABLE_ORDER[0] === "books" && MIGRATE_TABLE_ORDER.includes("generations"),
+    MIGRATE_TABLE_ORDER.join(","),
+  );
+  const counts = countSqliteMigrateTables(tmpDb);
+  check(
+    "P11 countSqliteMigrateTables 可读",
+    typeof counts.books === "number" && counts.books >= 0,
+    JSON.stringify(counts),
+  );
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

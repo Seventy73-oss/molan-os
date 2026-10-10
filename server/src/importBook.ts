@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { dataDir, db, replaceSqliteFromPhysicalBackup } from "./db";
+import { dataDir, db } from "./db";
 import { sqliteSchema } from "./db/schema";
 import { HttpError } from "./httpError";
 import { createBook, getBookPayload, saveRevision } from "./engine";
@@ -172,12 +172,119 @@ function physicalPendingMarker(bookId: string) {
   return path.join(importRecoveryDir(), `${bookId}.book.phys.pending`);
 }
 
-/** Legacy whole-DB paths (phase9); still recovered if present. */
-function legacyWholeDbPhysPath(bookId: string) {
+/** Legacy whole-DB paths (phase9). Auto-recovery converts to per-book or refuses — never whole-DB replace. */
+export function legacyWholeDbPhysPath(bookId: string) {
   return path.join(importRecoveryDir(), `${bookId}.sqlite.phys`);
 }
-function legacyWholeDbPending(bookId: string) {
+export function legacyWholeDbPending(bookId: string) {
   return path.join(importRecoveryDir(), `${bookId}.phys.pending`);
+}
+
+function legacyQuarantineDir() {
+  return path.join(importRecoveryDir(), "legacy-quarantine");
+}
+
+/**
+ * Convert a phase9 whole-DB `.sqlite.phys` into an isolated per-book dump.
+ * Returns per-book path, or null if the book is missing from the legacy file (caller should refuse).
+ * Quarantines the legacy file so startup never silently replaces the live DB.
+ */
+export function convertLegacyWholeDbPhysToPerBook(bookId: string, legacyPath?: string): string | null {
+  const src = legacyPath || legacyWholeDbPhysPath(bookId);
+  if (!fs.existsSync(src)) return null;
+  let snap: BookSnapshot;
+  try {
+    snap = readPerBookPhysSnapshot(bookId, src);
+  } catch (error) {
+    console.warn(
+      `[import] legacy whole-DB phys for ${bookId} cannot be converted (book missing or unreadable):`,
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+  const dir = importRecoveryDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const dest = physicalBackupDbPath(bookId);
+  try {
+    fs.unlinkSync(dest);
+  } catch {
+    /* ignore */
+  }
+  const dump = new Database(dest);
+  try {
+    dump.exec(sqliteSchema());
+    try {
+      dump.exec("ALTER TABLE writing_jobs ADD COLUMN lease_owner TEXT");
+    } catch {
+      /* ignore */
+    }
+    try {
+      dump.exec("ALTER TABLE writing_jobs ADD COLUMN lease_until TEXT");
+    } catch {
+      /* ignore */
+    }
+    try {
+      dump.exec("ALTER TABLE artifact_revisions ADD COLUMN source_revision_id TEXT");
+    } catch {
+      /* ignore */
+    }
+    insertRows(dump, "books", [snap.book]);
+    insertRows(dump, "chapters", snap.chapters);
+    insertRows(dump, "artifacts", snap.artifacts.map((a) => ({ ...a, current_revision_id: null })));
+    insertRows(dump, "artifact_revisions", snap.revisions);
+    for (const a of snap.artifacts) {
+      if (a.current_revision_id) {
+        dump.prepare("UPDATE artifacts SET current_revision_id = ? WHERE id = ?").run(a.current_revision_id, a.id);
+      }
+    }
+    insertRows(dump, "messages", snap.messages);
+    insertRows(dump, "bible_cards", snap.bible);
+    insertRows(dump, "hook_marks", snap.hooks);
+    insertRows(dump, "writing_jobs", snap.jobs);
+    dump.pragma("wal_checkpoint(TRUNCATE)");
+  } finally {
+    dump.close();
+  }
+  fs.writeFileSync(
+    physicalPendingMarker(bookId),
+    JSON.stringify({
+      bookId,
+      dest,
+      kind: "per-book-from-legacy",
+      convertedFrom: src,
+      at: new Date().toISOString(),
+    }),
+    "utf8",
+  );
+  quarantineLegacyWholeDbFiles(bookId, src);
+  return dest;
+}
+
+function quarantineLegacyWholeDbFiles(bookId: string, legacyPath: string) {
+  const qdir = legacyQuarantineDir();
+  fs.mkdirSync(qdir, { recursive: true });
+  const stamp = Date.now();
+  for (const p of [
+    legacyPath,
+    `${legacyPath}-wal`,
+    `${legacyPath}-shm`,
+    legacyWholeDbPending(bookId),
+  ]) {
+    if (!fs.existsSync(p)) continue;
+    const base = path.basename(p);
+    const dest = path.join(qdir, `${stamp}.${base}`);
+    try {
+      fs.renameSync(p, dest);
+      console.warn(`[import] quarantined legacy whole-DB file → ${dest}`);
+    } catch (error) {
+      console.error(`[import] failed to quarantine ${p}`, error);
+      try {
+        fs.unlinkSync(p);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 }
 
 function insertRows(dump: InstanceType<typeof Database>, table: string, rows: Record<string, unknown>[]) {
@@ -442,13 +549,21 @@ export function recoverInterruptedImports(): {
 /**
  * After logical JSON recovery (or when JSON is missing), restore from physical backup.
  * Preferred: per-book `.book.phys.sqlite` → restoreBookSnapshot (other books untouched).
- * Legacy: whole-DB `.sqlite.phys` → replaceSqliteFromPhysicalBackup (affects entire DB).
+ * Legacy whole-DB `.sqlite.phys`: convert to per-book then restore; if convert fails → refuse (skip).
+ * Never auto-calls replaceSqliteFromPhysicalBackup (would nuke other books).
  */
-export async function recoverPhysicalImportBackups(): Promise<{ restored: string[]; skipped: string[] }> {
+export async function recoverPhysicalImportBackups(): Promise<{
+  restored: string[];
+  skipped: string[];
+  refusedLegacy: string[];
+  convertedLegacy: string[];
+}> {
   const dir = importRecoveryDir();
   const restored: string[] = [];
   const skipped: string[] = [];
-  if (!fs.existsSync(dir)) return { restored, skipped };
+  const refusedLegacy: string[] = [];
+  const convertedLegacy: string[] = [];
+  if (!fs.existsSync(dir)) return { restored, skipped, refusedLegacy, convertedLegacy };
 
   const pendingIds = new Set<string>();
   for (const name of fs.readdirSync(dir)) {
@@ -464,9 +579,26 @@ export async function recoverPhysicalImportBackups(): Promise<{ restored: string
       skipped.push(bookId);
       continue;
     }
-    const perBook = physicalBackupDbPath(bookId);
+    let perBook = physicalBackupDbPath(bookId);
     const legacy = legacyWholeDbPhysPath(bookId);
     try {
+      if (!fs.existsSync(perBook) && fs.existsSync(legacy)) {
+        const converted = convertLegacyWholeDbPhysToPerBook(bookId, legacy);
+        if (!converted) {
+          console.error(
+            `[import] REFUSED legacy whole-DB restore for ${bookId}: cannot extract book; ` +
+              `will not replace live SQLite (other books would be at risk). Quarantining legacy files.`,
+          );
+          quarantineLegacyWholeDbFiles(bookId, legacy);
+          refusedLegacy.push(bookId);
+          skipped.push(bookId);
+          continue;
+        }
+        convertedLegacy.push(bookId);
+        perBook = converted;
+        console.warn(`[import] converted legacy whole-DB phys → per-book for ${bookId}`);
+      }
+
       if (fs.existsSync(perBook)) {
         const snap = readPerBookPhysSnapshot(bookId, perBook);
         // Ensure book row exists (overwrite may have wiped content but kept id, or crash mid-way).
@@ -490,13 +622,6 @@ export async function recoverPhysicalImportBackups(): Promise<{ restored: string
         clearPhysicalSqliteBackup(bookId);
         restored.push(bookId);
         console.warn(`[import] recovered per-book physical dump for ${bookId} (other books untouched)`);
-      } else if (fs.existsSync(legacy)) {
-        await replaceSqliteFromPhysicalBackup(legacy);
-        clearPhysicalSqliteBackup(bookId);
-        restored.push(bookId);
-        console.warn(
-          `[import] recovered LEGACY whole-DB physical backup for ${bookId} (affects entire SQLite file)`,
-        );
       } else {
         try {
           fs.unlinkSync(physicalPendingMarker(bookId));
@@ -515,7 +640,7 @@ export async function recoverPhysicalImportBackups(): Promise<{ restored: string
       skipped.push(bookId);
     }
   }
-  return { restored, skipped };
+  return { restored, skipped, refusedLegacy, convertedLegacy };
 }
 
 function snapshotBook(bookId: string): BookSnapshot {
@@ -935,4 +1060,14 @@ export function __writePhysicalSqliteBackupForTest(bookId: string) {
 }
 export function __clearPhysicalSqliteBackupForTest(bookId: string) {
   clearPhysicalSqliteBackup(bookId);
+}
+
+export function __legacyWholeDbPhysPathForTest(bookId: string) {
+  return legacyWholeDbPhysPath(bookId);
+}
+export function __legacyWholeDbPendingForTest(bookId: string) {
+  return legacyWholeDbPending(bookId);
+}
+export function __convertLegacyWholeDbPhysToPerBookForTest(bookId: string, legacyPath?: string) {
+  return convertLegacyWholeDbPhysToPerBook(bookId, legacyPath);
 }

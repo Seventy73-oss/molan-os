@@ -457,7 +457,9 @@ export async function initDb(): Promise<DbClient> {
 
 /**
  * Close live SQLite (if open), replace DB file from a physical backup, reopen.
- * Used for overwrite-import disaster recovery and tests.
+ * Phase11+: NOT used by automatic import recovery (would nuke other books).
+ * Kept for manual disaster scripts / explicit operator use only.
+ * Auto path: convert legacy `.sqlite.phys` → per-book dump, or refuse.
  */
 export async function replaceSqliteFromPhysicalBackup(backupDbPath: string): Promise<string> {
   const target = resolveSqliteFilePath();

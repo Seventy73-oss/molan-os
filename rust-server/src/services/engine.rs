@@ -135,70 +135,30 @@ pub(crate) fn artifact_body(conn: &rusqlite::Connection, book_id: &str, kind: &s
 }
 
 pub fn build_context(db: &Db, book_id: &str, chapter_number: Option<i64>, instruction: &str) -> AppResult<String> {
-    db.with_conn(|conn| {
-        let book = must_book(conn, book_id)?;
-        let mut stmt = conn.prepare(
-            "SELECT number, title FROM chapters WHERE book_id = ?1 ORDER BY number",
-        )?;
-        let chapters: Vec<(i64, String)> = stmt
-            .query_map(params![book_id], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<Result<_, _>>()?;
-        let current = chapter_number.and_then(|n| chapters.iter().find(|(num, _)| *num == n));
-        let prev = if let Some(n) = chapter_number {
-            if n > 1 {
-                artifact_body(conn, book_id, "chapter_body", Some(n - 1))
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-        let tail: String = prev.chars().rev().take(800).collect::<Vec<_>>().into_iter().rev().collect();
-        let chapter_list = chapters
-            .iter()
-            .map(|(n, t)| format!("{n}. {t}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        Ok([
-            "【书】".to_string(),
-            format!("书名：{}", book.title),
-            format!("题材：{}", book.genre),
-            format!("简介：{}", book.logline),
-            format!("文风：{}", book.style),
-            format!("目标章数：{}", book.target_chapters),
-            format!("每章字数：{}", book.words_per_chapter),
-            "【档案】".into(),
-            artifact_body(conn, book_id, "book_profile", None),
-            "【设定卡】".into(),
-            String::new(),
-            "【章目】".into(),
-            chapter_list,
-            "【全书大纲】".into(),
-            artifact_body(conn, book_id, "book_outline", None),
-            "【前文记忆】".into(),
-            String::new(),
-            "【未回收钩子】".into(),
-            String::new(),
-            "【本章】".into(),
-            current
-                .map(|(n, t)| format!("章号：{n}\n章名：{t}"))
-                .unwrap_or_default(),
-            "【本章细纲】".into(),
-            current
-                .map(|(n, _)| artifact_body(conn, book_id, "chapter_outline", Some(*n)))
-                .unwrap_or_default(),
-            "【本章正文】".into(),
-            current
-                .map(|(n, _)| artifact_body(conn, book_id, "chapter_body", Some(*n)))
-                .unwrap_or_default(),
-            "【上章结尾】".into(),
-            tail,
-            "【作者指令】".into(),
-            instruction.to_string(),
-        ]
-        .join("\n"))
-    })
+    Ok(crate::services::context::build_context_bundle(
+        db, book_id, chapter_number, instruction, None, None, false,
+    )?.text)
 }
+
+pub fn build_context_for_scene(
+    db: &Db,
+    book_id: &str,
+    chapter_number: Option<i64>,
+    instruction: &str,
+    scene: &str,
+    generation_id: Option<&str>,
+) -> AppResult<crate::services::context::BuiltContext> {
+    crate::services::context::build_context_bundle(
+        db,
+        book_id,
+        chapter_number,
+        instruction,
+        Some(scene),
+        generation_id,
+        true,
+    )
+}
+
 
 fn to_skill_texts(db: &Db, skills: &[crate::services::skills::SkillRow], max_chars: Option<usize>) -> AppResult<Vec<SkillText>> {
     let mut out = Vec::new();
@@ -433,8 +393,29 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
     })?;
     let skill_texts = to_skill_texts(db, &skills, None)?;
     let (skills_json, skill_meta) = skill_info_json(&skills, &skill_texts);
-    let instruction = input.instruction.trim().to_string();
-    let context = build_context(db, &input.book_id, chapter_number, &instruction)?;
+    let mut instruction = input.instruction.trim().to_string();
+    if input.scene == "review" {
+        if let Some(n) = chapter_number {
+            if let Ok(hook_block) = crate::services::hooks::format_open_hooks_for_review(db, &input.book_id, n) {
+                if !hook_block.is_empty() {
+                    if instruction.is_empty() {
+                        instruction = hook_block;
+                    } else {
+                        instruction = format!("{instruction}\n\n{hook_block}");
+                    }
+                }
+            }
+        }
+    }
+    let built = build_context_for_scene(
+        db,
+        &input.book_id,
+        chapter_number,
+        &instruction,
+        &input.scene,
+        input.generation_id.as_deref(),
+    )?;
+    let context = built.text;
     let route = route_for(db, &input.scene)?;
     throw_if_generation_cancelled(db, input.generation_id.as_deref(), &input.cancelled)?;
 
@@ -824,7 +805,8 @@ pub async fn chat(
         let skills = db.with_conn(|conn| skills_for_scene(conn, chat_scene, None))?;
         let skill_texts = to_skill_texts(db, &skills, None)?;
         let (skills_json, skill_meta) = skill_info_json(&skills, &skill_texts);
-        let context = build_context(db, book_id, None, text)?;
+        let built = build_context_for_scene(db, book_id, None, text, chat_scene, None)?;
+        let context = built.text;
         match get_adapter(db, &route) {
             Ok(adapter) => {
                 let run = RunInput {
@@ -1006,8 +988,29 @@ pub async fn stream_scene_run(
     })?;
     let skill_texts = to_skill_texts(db, &skills, None)?;
     let (skills_json, skill_meta) = skill_info_json(&skills, &skill_texts);
-    let instruction = input.instruction.trim().to_string();
-    let context = build_context(db, &input.book_id, chapter_number, &instruction)?;
+    let mut instruction = input.instruction.trim().to_string();
+    if input.scene == "review" {
+        if let Some(n) = chapter_number {
+            if let Ok(hook_block) = crate::services::hooks::format_open_hooks_for_review(db, &input.book_id, n) {
+                if !hook_block.is_empty() {
+                    if instruction.is_empty() {
+                        instruction = hook_block;
+                    } else {
+                        instruction = format!("{instruction}\n\n{hook_block}");
+                    }
+                }
+            }
+        }
+    }
+    let built = build_context_for_scene(
+        db,
+        &input.book_id,
+        chapter_number,
+        &instruction,
+        &input.scene,
+        input.generation_id.as_deref(),
+    )?;
+    let context = built.text;
     let route = route_for(db, &input.scene)?;
     let adapter = get_adapter(db, &route)?;
     let run_input = RunInput {

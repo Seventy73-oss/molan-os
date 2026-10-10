@@ -78,6 +78,7 @@ pub fn api_router(db: Db) -> Router {
             patch(features_routes::bible_patch).delete(features_routes::bible_delete),
         )
         .route("/api/books/{id}/hooks", get(features_routes::hooks_list).patch(features_routes::hooks_patch))
+        .route("/api/books/{id}/context-preview", get(features_routes::context_preview))
         .route("/api/books/{id}/review-issues", get(features_routes::review))
         .route("/api/usage", get(features_routes::usage_global))
         .route("/api/usage/summary", get(features_routes::usage_summary_route))

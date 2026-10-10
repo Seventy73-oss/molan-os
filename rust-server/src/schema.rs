@@ -167,6 +167,20 @@ CREATE TABLE IF NOT EXISTS bible_cards (
 );
 
 CREATE INDEX IF NOT EXISTS bible_cards_book ON bible_cards(book_id, kind, sort_order);
+
+CREATE TABLE IF NOT EXISTS context_snapshots (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL DEFAULT '',
+  chapter_number INTEGER,
+  mode TEXT NOT NULL DEFAULT 'legacy_current',
+  rendered_text TEXT NOT NULL,
+  rendered_hash TEXT NOT NULL,
+  manifest_json TEXT NOT NULL DEFAULT '{}',
+  generation_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
 CREATE INDEX IF NOT EXISTS api_usage_book ON api_usage(book_id, created_at);
 CREATE INDEX IF NOT EXISTS api_usage_created ON api_usage(created_at);
 "#
@@ -196,6 +210,26 @@ pub fn migrate_sqlite(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     );
     let _ = conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS artifact_revisions_unique ON artifact_revisions(artifact_id, revision)",
+        [],
+    );
+
+    let _ = conn.execute(
+        "CREATE TABLE IF NOT EXISTS context_snapshots (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL DEFAULT '',
+  chapter_number INTEGER,
+  mode TEXT NOT NULL DEFAULT 'legacy_current',
+  rendered_text TEXT NOT NULL,
+  rendered_hash TEXT NOT NULL,
+  manifest_json TEXT NOT NULL DEFAULT '{}',
+  generation_id TEXT,
+  created_at TEXT NOT NULL
+)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at)",
         [],
     );
     Ok(())

@@ -83,6 +83,7 @@ const TABLES = [
   "bible_cards",
   "api_usage",
   "hook_marks",
+  "context_snapshots",
   "generations",
 ] as const;
 

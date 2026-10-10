@@ -30,6 +30,7 @@ import { cancelGeneration,
   updateBook,
 } from "./engine";
 import { listHooks, markHook } from "./hooks";
+import { previewContext } from "./contextSnapshot";
 import { importBookFromZipBuffer, recoverInterruptedImports, recoverPhysicalImportBackups } from "./importBook";
 import { listUsage, usageSummary } from "./usage";
 import {
@@ -602,6 +603,17 @@ app.delete("/api/books/:id/bible/:cardId", (c) => {
 });
 
 app.get("/api/books/:id/hooks", (c) => c.json({ hooks: listHooks(c.req.param("id")) }));
+
+app.get("/api/books/:id/context-preview", (c) => {
+  const raw = c.req.query("chapterNumber");
+  const chapterNumber = raw ? Number(raw) : null;
+  return c.json(
+    previewContext(
+      c.req.param("id"),
+      Number.isFinite(chapterNumber as number) && (chapterNumber as number) > 0 ? (chapterNumber as number) : null,
+    ),
+  );
+});
 
 app.patch("/api/books/:id/hooks", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));

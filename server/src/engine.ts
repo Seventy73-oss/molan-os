@@ -11,12 +11,9 @@ import { deleteBookFiles, syncBook, wipeChapterDirs } from "./manuscripts";
 import { sceneKind, type SceneId } from "./agent/adapter";
 import { getAdapter } from "./agent/runtime";
 import { normalizeDialogueQuotes, rewriteSelectionLocal } from "./agent/localDraft";
-import {
-  formatBibleForContext,
-  formatMemoriesForContext,
-  bookProgress as computeBookProgress,
-} from "./features";
-import { formatOpenHooksForContext, formatOpenHooksForReview } from "./hooks";
+import { bookProgress as computeBookProgress } from "./features";
+import { formatOpenHooksForReview } from "./hooks";
+import { buildContextManifest, saveContextSnapshot } from "./contextSnapshot";
 import { estimateTokensFromText, recordUsage } from "./usage";
 import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { normalizeThinking } from "./thinking";
@@ -342,6 +339,7 @@ export function deleteBook(id: string) {
     db.prepare("DELETE FROM bible_cards WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM writing_jobs WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM hook_marks WHERE book_id = ?").run(id);
+    db.prepare("DELETE FROM context_snapshots WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM api_usage WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM idempotency_keys WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM books WHERE id = ?").run(id);
@@ -741,7 +739,12 @@ export async function waitMemoryExtract(bookId: string, chapterNumber: number, t
   return !timedOut || Boolean(artifactBody(bookId, "chapter_memory", chapterNumber).trim());
 }
 
-export function buildContext(bookId: string, chapterNumber: number | null, instruction: string): string {
+export function buildContext(
+  bookId: string,
+  chapterNumber: number | null,
+  instruction: string,
+  opts?: { scene?: string | null; generationId?: string | null; persist?: boolean },
+): string {
   const book = mustBook(bookId);
   const chapters = db
     .prepare("SELECT * FROM chapters WHERE book_id = ? ORDER BY number")
@@ -749,13 +752,12 @@ export function buildContext(bookId: string, chapterNumber: number | null, instr
   const current = chapterNumber ? chapters.find((chapter) => chapter.number === chapterNumber) : undefined;
   const prev = chapterNumber && chapterNumber > 1 ? artifactBody(bookId, "chapter_body", chapterNumber - 1) : "";
   const tail = Array.from(prev).slice(-800).join("");
-  const memories = formatMemoriesForContext(bookId, chapterNumber);
-  const bible = formatBibleForContext(bookId);
-  const openHooks = formatOpenHooksForContext(bookId, chapterNumber);
-  const reviewHooks =
-    /* review scene gets extra injection via instruction in executeScene */ "";
-  void reviewHooks;
-  return [
+  const { bible, memories, openHooks, manifest } = buildContextManifest(
+    bookId,
+    chapterNumber,
+    opts?.scene ?? null,
+  );
+  const text = [
     "【书】",
     `书名：${book.title}`,
     `题材：${book.genre}`,
@@ -786,6 +788,21 @@ export function buildContext(bookId: string, chapterNumber: number | null, instr
     "【作者指令】",
     instruction,
   ].join("\n");
+  if (opts?.persist) {
+    try {
+      saveContextSnapshot({
+        bookId,
+        scene: opts.scene ?? null,
+        chapterNumber,
+        renderedText: text,
+        manifest,
+        generationId: opts.generationId ?? null,
+      });
+    } catch (error) {
+      console.error("[context] snapshot save failed", error);
+    }
+  }
+  return text;
 }
 
 
@@ -838,7 +855,11 @@ export async function executeScene(input: {
     const hookBlock = formatOpenHooksForReview(input.bookId, chapterNumber);
     if (hookBlock) instruction = [instruction, hookBlock].filter(Boolean).join("\n\n");
   }
-  const context = buildContext(input.bookId, chapterNumber, instruction);
+  const context = buildContext(input.bookId, chapterNumber, instruction, {
+    scene: input.scene,
+    generationId: input.generationId,
+    persist: true,
+  });
   const route = routeFor(input.scene);
   throwIfGenerationCancelled(input.generationId, input.signal);
   const result = await getAdapter(route).runScene({
@@ -1546,7 +1567,7 @@ export async function chat(
       skillPromptMeta: skillPromptMeta(skillTexts),
     };
     try {
-      const context = buildContext(bookId, null, text);
+      const context = buildContext(bookId, null, text, { scene: "chat", persist: true });
       throwIfAborted(signal);
       const result = await getAdapter(route).runScene({
         scene: chatScene,

@@ -443,6 +443,18 @@ export const api = {
     };
   },
   hooks: (id: string) => request<{ hooks: HookItem[] }>(`/api/books/${id}/hooks`),
+  contextPreview: (id: string, chapterNumber?: number | null) =>
+    request<{
+      mode: string;
+      chapterNumber: number | null;
+      missing: string[];
+      manifest: { counts: { bibleCards: number; memories: number; openHooks: number }; missing: string[] };
+      sections: { bible: string; memories: string; openHooks: string };
+    }>(
+      `/api/books/${id}/context-preview${
+        chapterNumber ? `?chapterNumber=${encodeURIComponent(String(chapterNumber))}` : ""
+      }`,
+    ),
   markHook: (
     id: string,
     body: { key: string; status: string; recycledChapter?: number | null; note?: string },

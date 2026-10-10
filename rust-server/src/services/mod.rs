@@ -1,4 +1,5 @@
 pub mod books;
+pub mod context;
 pub mod chapters;
 pub mod engine;
 pub mod features;

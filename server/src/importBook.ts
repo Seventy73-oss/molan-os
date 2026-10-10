@@ -136,6 +136,7 @@ function wipeBookContent(bookId: string) {
   db.prepare("DELETE FROM messages WHERE book_id = ?").run(bookId);
   db.prepare("DELETE FROM bible_cards WHERE book_id = ?").run(bookId);
   db.prepare("DELETE FROM hook_marks WHERE book_id = ?").run(bookId);
+  db.prepare("DELETE FROM context_snapshots WHERE book_id = ?").run(bookId);
 }
 
 type BookSnapshot = {

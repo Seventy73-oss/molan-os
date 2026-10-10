@@ -3799,3 +3799,12 @@ label {
 .thinking-inline:focus-within {
   border-color: color-mix(in srgb, var(--ink) 28%, var(--line));
 }
+
+.context-ready {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted, #6b7280);
+  line-height: 1.45;
+}
+.context-missing { color: #b45309; }
+.context-ok { color: #047857; }

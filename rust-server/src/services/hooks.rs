@@ -203,3 +203,61 @@ pub fn mark_hook(
     })?;
     Ok(list_hooks(db, book_id)?.into_iter().find(|h| h.get("key").and_then(|v| v.as_str()) == Some(hook_key_value)))
 }
+
+pub fn format_open_hooks_for_context(
+    db: &Db,
+    book_id: &str,
+    before_chapter: Option<i64>,
+) -> AppResult<String> {
+    let hooks = list_hooks(db, book_id)?;
+    let relevant: Vec<_> = hooks
+        .into_iter()
+        .filter(|h| {
+            let warning = h.get("warning").and_then(|v| v.as_bool()).unwrap_or(false);
+            let status = h.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            if !(warning || status == "open") {
+                return false;
+            }
+            let from = h.get("fromChapter").and_then(|v| v.as_i64()).unwrap_or(0);
+            match before_chapter {
+                Some(before) => from < before,
+                None => true,
+            }
+        })
+        .collect();
+    if relevant.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(relevant
+        .into_iter()
+        .map(|h| {
+            let from = h.get("fromChapter").and_then(|v| v.as_i64()).unwrap_or(0);
+            let text = h.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            format!("第{from}章未回收钩子：{text}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+pub fn format_open_hooks_for_review(db: &Db, book_id: &str, chapter_number: i64) -> AppResult<String> {
+    let hooks = list_hooks(db, book_id)?;
+    let open: Vec<_> = hooks
+        .into_iter()
+        .filter(|h| {
+            let from = h.get("fromChapter").and_then(|v| v.as_i64()).unwrap_or(0);
+            let warning = h.get("warning").and_then(|v| v.as_bool()).unwrap_or(false);
+            let status = h.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            from < chapter_number && (warning || status == "open")
+        })
+        .collect();
+    if open.is_empty() {
+        return Ok(String::new());
+    }
+    let mut lines = vec!["【跨章未回收钩子 — 请核对本章是否接住】".to_string()];
+    for h in open {
+        let from = h.get("fromChapter").and_then(|v| v.as_i64()).unwrap_or(0);
+        let text = h.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        lines.push(format!("- 第{from}章：{text}"));
+    }
+    Ok(lines.join("\n"))
+}

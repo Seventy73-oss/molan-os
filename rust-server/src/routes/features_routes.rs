@@ -12,6 +12,7 @@ use crate::services::features::{
     create_bible_card, delete_bible_card, get_book_progress, list_bible_cards, review_issues,
     search_book, update_bible_card,
 };
+use crate::services::context::preview_context;
 use crate::services::hooks::{list_hooks, mark_hook};
 use crate::services::usage::{list_usage, usage_summary};
 use serde::Deserialize;
@@ -97,6 +98,20 @@ pub async fn bible_delete(
     Path((id, card_id)): Path<(String, String)>,
 ) -> AppResult<impl IntoResponse> {
     Ok(Json(delete_bible_card(&db, &id, &card_id)?))
+}
+
+
+pub async fn context_preview(
+    State(db): State<Db>,
+    Path(id): Path<String>,
+    Query(q): Query<ChapterQuery>,
+) -> AppResult<impl IntoResponse> {
+    let chapter = q
+        .chapter_number
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok())
+        .filter(|n| *n > 0);
+    Ok(Json(preview_context(&db, &id, chapter)?))
 }
 
 pub async fn hooks_list(

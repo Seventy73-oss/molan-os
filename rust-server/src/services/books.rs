@@ -510,6 +510,7 @@ pub fn delete_book(db: &Db, id: &str) -> AppResult<()> {
         tx.execute("DELETE FROM bible_cards WHERE book_id = ?1", params![id])?;
         tx.execute("DELETE FROM writing_jobs WHERE book_id = ?1", params![id])?;
         tx.execute("DELETE FROM hook_marks WHERE book_id = ?1", params![id])?;
+        tx.execute("DELETE FROM context_snapshots WHERE book_id = ?1", params![id])?;
         tx.execute("DELETE FROM api_usage WHERE book_id = ?1", params![id])?;
         tx.execute("DELETE FROM idempotency_keys WHERE book_id = ?1", params![id])?;
         tx.execute("DELETE FROM books WHERE id = ?1", params![id])?;

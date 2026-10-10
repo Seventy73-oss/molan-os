@@ -16,6 +16,7 @@ import {
   rewriteSelection,
   saveRevision,
 } from "./engine";
+import { formatOpenHooksForReview } from "./hooks";
 import { db, type RouteRow } from "./db";
 import { skillPromptMeta, skillsForScene, toSkillTexts } from "./skills";
 import { sceneKind } from "./agent/adapter";
@@ -157,8 +158,16 @@ export async function streamSceneRun(
   try {
     const skills = skillsForScene(input.scene, input.skillIds);
     const skillTexts = toSkillTexts(skills);
-    const instruction = input.instruction?.trim() ?? "";
-    const context = buildContext(input.bookId, chapterNumber, instruction);
+    let instruction = input.instruction?.trim() ?? "";
+    if (input.scene === "review" && chapterNumber) {
+      const hookBlock = formatOpenHooksForReview(input.bookId, chapterNumber);
+      if (hookBlock) instruction = [instruction, hookBlock].filter(Boolean).join("\n\n");
+    }
+    const context = buildContext(input.bookId, chapterNumber, instruction, {
+      scene: input.scene,
+      generationId: input.generationId,
+      persist: true,
+    });
     const route = routeFor(input.scene);
     const result = await streamAdapterRun(
       route,

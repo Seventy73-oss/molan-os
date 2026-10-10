@@ -820,6 +820,116 @@ z.close()
     restoreLocal();
   }
 
+
+
+  // --- T01 context bible / memory / hooks + source match ---
+  {
+    const { createBook, saveRevision, buildContext } = await import("../src/engine");
+    const { createBibleCard } = await import("../src/features");
+    const { previewContext } = await import("../src/contextSnapshot");
+    const { db: regDb } = await import("../src/db");
+
+    const book = createBook({
+      title: "T01上下文书",
+      genre: "测试",
+      targetChapters: 3,
+      wordsPerChapter: 800,
+    });
+    const bookId = book.payload.book.id as string;
+    createBibleCard(bookId, { kind: "character", name: "林舟", summary: "城门守卫", details: "左手旧伤" });
+    const body1 = saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "林舟守在城门，看见旧徽记。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    const body1Id = body1.revisionId;
+    saveRevision({
+      bookId,
+      kind: "chapter_memory",
+      chapterNumber: 1,
+      body: "未回收：城门旧徽记\n摘要：林舟见徽记变色。",
+      source: "agent",
+      model: null,
+      skillIds: [],
+      scene: "memory_extract",
+      sourceRevisionId: body1Id,
+      skipMemory: true,
+    });
+    saveRevision({
+      bookId,
+      kind: "chapter_outline",
+      chapterNumber: 1,
+      body: "未回收：旧徽记之谜",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_outline",
+      skipMemory: true,
+    });
+
+    const ctx = buildContext(bookId, 2, "续写第二章", { scene: "chapter_body", persist: true });
+    const hasBible = ctx.includes("【设定卡】") && ctx.includes("林舟");
+    const hasMemory = ctx.includes("【前文记忆】") && ctx.includes("林舟见徽记");
+    const hasHook = ctx.includes("【未回收钩子】") && /旧徽记/.test(ctx);
+    check("T01 三栏上下文注入设定卡", hasBible);
+    check(
+      "T01 三栏上下文注入前文记忆",
+      hasMemory,
+      hasMemory ? undefined : ctx.slice(Math.max(0, ctx.indexOf("【前文记忆】")), Math.max(0, ctx.indexOf("【前文记忆】")) + 240),
+    );
+    check("T01 三栏上下文注入未回收钩子", hasHook);
+
+    saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "林舟已经离开城门。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    const ctxStale = buildContext(bookId, 2, "续写", { scene: "chapter_body", persist: false });
+    check("T01 源版本不匹配的记忆不注入", !ctxStale.includes("林舟见徽记"));
+
+    const legacy = saveRevision({
+      bookId,
+      kind: "chapter_memory",
+      chapterNumber: 1,
+      body: "legacy记忆：城门风很大。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "memory_extract",
+      sourceRevisionId: null,
+      skipMemory: true,
+    });
+    regDb.prepare("UPDATE artifact_revisions SET source_revision_id = NULL WHERE id = ?").run(legacy.revisionId);
+    const ctxLegacy = buildContext(bookId, 2, "续写", { scene: "chapter_body", persist: false });
+    check(
+      "T01 legacy_current 记忆可注入并标注",
+      ctxLegacy.includes("legacy记忆") && ctxLegacy.includes("legacy_current"),
+    );
+
+    const preview = previewContext(bookId, 2);
+    check(
+      "T01 context-preview 返回缺失提示结构",
+      Array.isArray(preview.missing) && Boolean(preview.manifest?.counts),
+    );
+    const snap = regDb
+      .prepare("SELECT COUNT(*) AS n FROM context_snapshots WHERE book_id = ?")
+      .get(bookId) as { n: number };
+    check("T01 生成时写入 ContextSnapshot", snap.n >= 1, `n=${snap.n}`);
+  }
+
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

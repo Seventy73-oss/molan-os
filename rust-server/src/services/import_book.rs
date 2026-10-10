@@ -143,6 +143,7 @@ fn wipe_book_content(conn: &Connection, book_id: &str) -> AppResult<()> {
     conn.execute("DELETE FROM messages WHERE book_id = ?1", params![book_id])?;
     conn.execute("DELETE FROM bible_cards WHERE book_id = ?1", params![book_id])?;
     conn.execute("DELETE FROM hook_marks WHERE book_id = ?1", params![book_id])?;
+    conn.execute("DELETE FROM context_snapshots WHERE book_id = ?1", params![book_id])?;
     Ok(())
 }
 

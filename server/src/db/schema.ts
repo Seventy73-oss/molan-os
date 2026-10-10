@@ -166,6 +166,20 @@ CREATE TABLE IF NOT EXISTS bible_cards (
 );
 
 CREATE INDEX IF NOT EXISTS bible_cards_book ON bible_cards(book_id, kind, sort_order);
+
+CREATE TABLE IF NOT EXISTS context_snapshots (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL DEFAULT '',
+  chapter_number INTEGER,
+  mode TEXT NOT NULL DEFAULT 'legacy_current',
+  rendered_text TEXT NOT NULL,
+  rendered_hash TEXT NOT NULL,
+  manifest_json TEXT NOT NULL DEFAULT '{}',
+  generation_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
 `;
 }
 
@@ -323,6 +337,20 @@ CREATE TABLE IF NOT EXISTS bible_cards (
 );
 
 CREATE INDEX IF NOT EXISTS bible_cards_book ON bible_cards(book_id, kind, sort_order);
+
+CREATE TABLE IF NOT EXISTS context_snapshots (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL DEFAULT '',
+  chapter_number INTEGER,
+  mode TEXT NOT NULL DEFAULT 'legacy_current',
+  rendered_text TEXT NOT NULL,
+  rendered_hash TEXT NOT NULL,
+  manifest_json TEXT NOT NULL DEFAULT '{}',
+  generation_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
 `;
 }
 /** Additive migrations for existing DBs (CREATE IF NOT EXISTS won't alter columns). */
@@ -402,6 +430,21 @@ CREATE TABLE IF NOT EXISTS generations (
   updated_at TEXT NOT NULL
 );
 `);
+  exec(`
+CREATE TABLE IF NOT EXISTS context_snapshots (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL DEFAULT '',
+  chapter_number INTEGER,
+  mode TEXT NOT NULL DEFAULT 'legacy_current',
+  rendered_text TEXT NOT NULL,
+  rendered_hash TEXT NOT NULL,
+  manifest_json TEXT NOT NULL DEFAULT '{}',
+  generation_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
+`);
 }
 
 export function migratePostgres(exec: (sql: string) => Promise<void>) {
@@ -458,5 +501,18 @@ CREATE TABLE IF NOT EXISTS generations (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS context_snapshots (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  scene TEXT NOT NULL DEFAULT '',
+  chapter_number INTEGER,
+  mode TEXT NOT NULL DEFAULT 'legacy_current',
+  rendered_text TEXT NOT NULL,
+  rendered_hash TEXT NOT NULL,
+  manifest_json TEXT NOT NULL DEFAULT '{}',
+  generation_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
 `);
 }

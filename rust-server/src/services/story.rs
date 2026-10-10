@@ -703,7 +703,11 @@ pub fn apply_proposal(db: &Db, input: ApplyProposalInput) -> AppResult<Value> {
             body: summary_text.clone(),
             source: "story_ledger".into(),
             model: Some("author_accepted".into()),
-            skill_ids: vec![],
+            skill_ids: db
+                .with_conn(|conn| crate::services::skills::skills_for_scene(conn, "memory_extract", None))?
+                .into_iter()
+                .map(|r| r.id)
+                .collect(),
             scene: Some("memory_extract".into()),
             expected_revision_id: None,
             as_candidate: false,

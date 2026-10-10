@@ -99,6 +99,14 @@ pub fn attach_scenes_of_pack(pack_id: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Selection rewrite: planning docs use their own stage packs; prose uses humanize stage.
+pub fn selection_skill_scene(scene: &str) -> &str {
+    match scene {
+        "outline" | "chapter_outline" | "book_setup" => scene,
+        _ => "humanize",
+    }
+}
+
 pub fn user_pack_ids_for_scene(scene: &str) -> Vec<String> {
     user_packs()
         .iter()
@@ -554,4 +562,22 @@ pub fn prompt_preview(db: &Db, id: &str) -> AppResult<Value> {
         "packChars": pack_prompt.as_ref().map(|p| p.chars().count()),
         "packSources": if is_user_pack(id) { user_pack_sources(id) } else { vec![row.path] },
     }))
+}
+
+#[cfg(test)]
+mod selection_scene_tests {
+    use super::*;
+    #[test]
+    fn selection_scene_matrix() {
+        assert_eq!(selection_skill_scene("outline"), "outline");
+        assert_eq!(selection_skill_scene("chapter_outline"), "chapter_outline");
+        assert_eq!(selection_skill_scene("book_setup"), "book_setup");
+        assert_eq!(selection_skill_scene("chapter_body"), "humanize");
+        assert_eq!(selection_skill_scene("review"), "humanize");
+        for s in ["outline", "chapter_outline", "book_setup"] {
+            assert!(!user_pack_ids_for_scene(selection_skill_scene(s)).contains(&"humanize".to_string()));
+        }
+        let h = user_pack_ids_for_scene(selection_skill_scene("chapter_body"));
+        assert!(h.contains(&"humanize".to_string()) && h.contains(&"style-corpus".to_string()));
+    }
 }

@@ -613,7 +613,7 @@ pub async fn rewrite_selection(
         .filter(|s| allowed.contains(s))
         .unwrap_or("humanize");
     let route = route_for(db, scene)?;
-    let skills = db.with_conn(|conn| skills_for_scene(conn, "humanize", None))?;
+    let skills = db.with_conn(|conn| skills_for_scene(conn, crate::services::skills::selection_skill_scene(scene), None))?;
     let skill_texts = to_skill_texts(db, &skills, Some(36000))?;
     let (skills_json, skill_meta) = skill_info_json(&skills, &skill_texts);
 

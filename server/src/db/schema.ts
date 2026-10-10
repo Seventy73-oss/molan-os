@@ -180,6 +180,105 @@ CREATE TABLE IF NOT EXISTS context_snapshots (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
+
+CREATE TABLE IF NOT EXISTS story_book_heads (
+  book_id TEXT PRIMARY KEY,
+  story_epoch INTEGER NOT NULL DEFAULT 0 CHECK (story_epoch >= 0),
+  fact_set_version INTEGER NOT NULL DEFAULT 0 CHECK (fact_set_version >= 0),
+  protocol_version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chapter_publications (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT NOT NULL,
+  body_revision_id TEXT NOT NULL,
+  publication_version INTEGER NOT NULL CHECK (publication_version > 0),
+  status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
+  memory_state TEXT NOT NULL CHECK (
+    memory_state IN ('pending', 'proposed', 'ready', 'failed', 'needs_review')
+  ),
+  accepted_at TEXT NOT NULL,
+  accepted_by TEXT NOT NULL DEFAULT 'author'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS chapter_publications_version
+  ON chapter_publications(book_id, chapter_id, publication_version);
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_publication_per_chapter
+  ON chapter_publications(book_id, chapter_id)
+  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS chapter_publications_book
+  ON chapter_publications(book_id, status);
+CREATE TABLE IF NOT EXISTS memory_proposals (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT NOT NULL,
+  publication_id TEXT,
+  source_revision_id TEXT NOT NULL,
+  basis_epoch INTEGER NOT NULL DEFAULT 0,
+  schema_version TEXT NOT NULL DEFAULT 'molan.memory-proposal/v1',
+  status TEXT NOT NULL CHECK (
+    status IN ('queued', 'extracting', 'proposed', 'accepted', 'rejected', 'stale', 'failed')
+  ),
+  summary TEXT NOT NULL DEFAULT '',
+  operations_json TEXT NOT NULL DEFAULT '[]',
+  decision_json TEXT,
+  diagnostics_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memory_proposals_book ON memory_proposals(book_id, status, created_at);
+CREATE TABLE IF NOT EXISTS story_fact_sets (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  publication_id TEXT,
+  source_revision_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'superseded', 'invalidated')),
+  proposal_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_facts (
+  id TEXT PRIMARY KEY,
+  fact_set_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT '',
+  predicate TEXT NOT NULL DEFAULT '',
+  value_json TEXT NOT NULL DEFAULT '{}',
+  evidence_quote TEXT NOT NULL DEFAULT '',
+  source_revision_id TEXT NOT NULL,
+  publication_id TEXT,
+  effective_from_chapter INTEGER,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invalidated')),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_operation_results (
+  book_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(book_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS story_outbox (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  dedup_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (
+    status IN ('queued', 'running', 'retry_wait', 'completed', 'failed', 'obsolete')
+  ),
+  attempt INTEGER NOT NULL DEFAULT 0,
+  next_run_at TEXT,
+  lease_owner TEXT,
+  lease_until TEXT,
+  lease_generation INTEGER NOT NULL DEFAULT 0,
+  last_error_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(book_id, dedup_key)
+);
+CREATE INDEX IF NOT EXISTS story_outbox_status ON story_outbox(status, next_run_at);
 `;
 }
 
@@ -444,6 +543,105 @@ CREATE TABLE IF NOT EXISTS context_snapshots (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
+
+CREATE TABLE IF NOT EXISTS story_book_heads (
+  book_id TEXT PRIMARY KEY,
+  story_epoch INTEGER NOT NULL DEFAULT 0 CHECK (story_epoch >= 0),
+  fact_set_version INTEGER NOT NULL DEFAULT 0 CHECK (fact_set_version >= 0),
+  protocol_version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chapter_publications (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT NOT NULL,
+  body_revision_id TEXT NOT NULL,
+  publication_version INTEGER NOT NULL CHECK (publication_version > 0),
+  status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
+  memory_state TEXT NOT NULL CHECK (
+    memory_state IN ('pending', 'proposed', 'ready', 'failed', 'needs_review')
+  ),
+  accepted_at TEXT NOT NULL,
+  accepted_by TEXT NOT NULL DEFAULT 'author'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS chapter_publications_version
+  ON chapter_publications(book_id, chapter_id, publication_version);
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_publication_per_chapter
+  ON chapter_publications(book_id, chapter_id)
+  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS chapter_publications_book
+  ON chapter_publications(book_id, status);
+CREATE TABLE IF NOT EXISTS memory_proposals (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT NOT NULL,
+  publication_id TEXT,
+  source_revision_id TEXT NOT NULL,
+  basis_epoch INTEGER NOT NULL DEFAULT 0,
+  schema_version TEXT NOT NULL DEFAULT 'molan.memory-proposal/v1',
+  status TEXT NOT NULL CHECK (
+    status IN ('queued', 'extracting', 'proposed', 'accepted', 'rejected', 'stale', 'failed')
+  ),
+  summary TEXT NOT NULL DEFAULT '',
+  operations_json TEXT NOT NULL DEFAULT '[]',
+  decision_json TEXT,
+  diagnostics_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memory_proposals_book ON memory_proposals(book_id, status, created_at);
+CREATE TABLE IF NOT EXISTS story_fact_sets (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  publication_id TEXT,
+  source_revision_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'superseded', 'invalidated')),
+  proposal_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_facts (
+  id TEXT PRIMARY KEY,
+  fact_set_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT '',
+  predicate TEXT NOT NULL DEFAULT '',
+  value_json TEXT NOT NULL DEFAULT '{}',
+  evidence_quote TEXT NOT NULL DEFAULT '',
+  source_revision_id TEXT NOT NULL,
+  publication_id TEXT,
+  effective_from_chapter INTEGER,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invalidated')),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_operation_results (
+  book_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(book_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS story_outbox (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  dedup_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (
+    status IN ('queued', 'running', 'retry_wait', 'completed', 'failed', 'obsolete')
+  ),
+  attempt INTEGER NOT NULL DEFAULT 0,
+  next_run_at TEXT,
+  lease_owner TEXT,
+  lease_until TEXT,
+  lease_generation INTEGER NOT NULL DEFAULT 0,
+  last_error_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(book_id, dedup_key)
+);
+CREATE INDEX IF NOT EXISTS story_outbox_status ON story_outbox(status, next_run_at);
 `);
 }
 
@@ -514,5 +712,104 @@ CREATE TABLE IF NOT EXISTS context_snapshots (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS context_snapshots_book ON context_snapshots(book_id, created_at);
+
+CREATE TABLE IF NOT EXISTS story_book_heads (
+  book_id TEXT PRIMARY KEY,
+  story_epoch INTEGER NOT NULL DEFAULT 0 CHECK (story_epoch >= 0),
+  fact_set_version INTEGER NOT NULL DEFAULT 0 CHECK (fact_set_version >= 0),
+  protocol_version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chapter_publications (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT NOT NULL,
+  body_revision_id TEXT NOT NULL,
+  publication_version INTEGER NOT NULL CHECK (publication_version > 0),
+  status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
+  memory_state TEXT NOT NULL CHECK (
+    memory_state IN ('pending', 'proposed', 'ready', 'failed', 'needs_review')
+  ),
+  accepted_at TEXT NOT NULL,
+  accepted_by TEXT NOT NULL DEFAULT 'author'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS chapter_publications_version
+  ON chapter_publications(book_id, chapter_id, publication_version);
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_publication_per_chapter
+  ON chapter_publications(book_id, chapter_id)
+  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS chapter_publications_book
+  ON chapter_publications(book_id, status);
+CREATE TABLE IF NOT EXISTS memory_proposals (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT NOT NULL,
+  publication_id TEXT,
+  source_revision_id TEXT NOT NULL,
+  basis_epoch INTEGER NOT NULL DEFAULT 0,
+  schema_version TEXT NOT NULL DEFAULT 'molan.memory-proposal/v1',
+  status TEXT NOT NULL CHECK (
+    status IN ('queued', 'extracting', 'proposed', 'accepted', 'rejected', 'stale', 'failed')
+  ),
+  summary TEXT NOT NULL DEFAULT '',
+  operations_json TEXT NOT NULL DEFAULT '[]',
+  decision_json TEXT,
+  diagnostics_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memory_proposals_book ON memory_proposals(book_id, status, created_at);
+CREATE TABLE IF NOT EXISTS story_fact_sets (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  publication_id TEXT,
+  source_revision_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'superseded', 'invalidated')),
+  proposal_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_facts (
+  id TEXT PRIMARY KEY,
+  fact_set_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT '',
+  predicate TEXT NOT NULL DEFAULT '',
+  value_json TEXT NOT NULL DEFAULT '{}',
+  evidence_quote TEXT NOT NULL DEFAULT '',
+  source_revision_id TEXT NOT NULL,
+  publication_id TEXT,
+  effective_from_chapter INTEGER,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invalidated')),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_operation_results (
+  book_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(book_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS story_outbox (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  dedup_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (
+    status IN ('queued', 'running', 'retry_wait', 'completed', 'failed', 'obsolete')
+  ),
+  attempt INTEGER NOT NULL DEFAULT 0,
+  next_run_at TEXT,
+  lease_owner TEXT,
+  lease_until TEXT,
+  lease_generation INTEGER NOT NULL DEFAULT 0,
+  last_error_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(book_id, dedup_key)
+);
+CREATE INDEX IF NOT EXISTS story_outbox_status ON story_outbox(status, next_run_at);
 `);
 }

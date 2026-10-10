@@ -24,7 +24,7 @@
 
 ## 刻意未做（路线后续）
 
-- G2 定稿 / 提案批准 / outbox / story epoch
+- G2 定稿 / 提案批准 / outbox / story epoch → 见 `AUDIT_PHASE_G2_STORY.md`
 - G3 人物动态状态、有来源伏笔账本、知识边界
 - 知识图谱、多 Agent、完整预算裁剪算法
 - 正式 `published_only` 模式（当前仅 legacy_current）

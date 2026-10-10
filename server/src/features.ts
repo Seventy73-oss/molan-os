@@ -428,8 +428,10 @@ export type MemoryContextParts = {
   excluded: Array<Record<string, unknown>>;
 };
 
-/** Chapter memories before `beforeChapter`. Only include when source_revision matches
- *  current chapter_body revision, or legacy (no source) marked legacy_current. */
+/** Chapter memories before `beforeChapter`.
+ *  G2: if chapter has active publication, match source against publication body revision;
+ *  otherwise match current (legacy_current). Legacy (no source) excluded under publication.
+ */
 export function formatMemoriesForContextParts(
   bookId: string,
   beforeChapter: number | null,
@@ -439,11 +441,13 @@ export function formatMemoriesForContextParts(
     .prepare(
       `SELECT c.number AS number, c.title AS title, r.body AS body,
               r.id AS memoryRevisionId, r.source_revision_id AS sourceRevisionId,
-              body_a.current_revision_id AS bodyCurrentId
+              body_a.current_revision_id AS bodyCurrentId,
+              pub.body_revision_id AS publishedBodyId
        FROM chapters c
        JOIN artifacts a ON a.book_id = c.book_id AND a.chapter_id = c.id AND a.kind = 'chapter_memory'
        JOIN artifact_revisions r ON r.id = a.current_revision_id
        LEFT JOIN artifacts body_a ON body_a.book_id = c.book_id AND body_a.chapter_id = c.id AND body_a.kind = 'chapter_body'
+       LEFT JOIN chapter_publications pub ON pub.book_id = c.book_id AND pub.chapter_id = c.id AND pub.status = 'active'
        WHERE c.book_id = ? AND c.number < ?
        ORDER BY c.number`,
     )
@@ -454,6 +458,7 @@ export function formatMemoriesForContextParts(
       memoryRevisionId: string;
       sourceRevisionId: string | null;
       bodyCurrentId: string | null;
+      publishedBodyId: string | null;
     }[];
   const lines: string[] = [];
   const included: Array<Record<string, unknown>> = [];
@@ -462,7 +467,16 @@ export function formatMemoriesForContextParts(
     if (!row.body?.trim()) continue;
     const source = row.sourceRevisionId ?? "";
     if (!source) {
-      lines.push(`第${row.number}章《${row.title}》〔legacy_current〕\n${row.body}`);
+      if (row.publishedBodyId) {
+        excluded.push({
+          kind: "chapter_summary",
+          sourceId: row.memoryRevisionId,
+          chapterNumber: row.number,
+          reason: "legacy_excluded_under_publication",
+        });
+        continue;
+      }
+      lines.push("第" + row.number + "章《" + row.title + "》〔legacy_current〕\n" + row.body);
       included.push({
         kind: "chapter_summary",
         sourceId: row.memoryRevisionId,
@@ -472,14 +486,16 @@ export function formatMemoriesForContextParts(
       });
       continue;
     }
-    if (row.bodyCurrentId === source) {
-      lines.push(`第${row.number}章《${row.title}》\n${row.body}`);
+    const target = row.publishedBodyId ?? row.bodyCurrentId;
+    if (target === source) {
+      lines.push("第" + row.number + "章《" + row.title + "》\n" + row.body);
       included.push({
         kind: "chapter_summary",
         sourceId: row.memoryRevisionId,
         sourceRevisionId: source,
         chapterNumber: row.number,
-        reason: "source_matched",
+        reason: row.publishedBodyId ? "previous_publication" : "source_matched",
+        mode: row.publishedBodyId ? "published_only" : "legacy_current",
       });
     } else {
       excluded.push({
@@ -487,6 +503,7 @@ export function formatMemoriesForContextParts(
         sourceId: row.memoryRevisionId,
         sourceRevisionId: source,
         bodyCurrentId: row.bodyCurrentId,
+        publishedBodyId: row.publishedBodyId,
         chapterNumber: row.number,
         reason: "superseded_source",
       });

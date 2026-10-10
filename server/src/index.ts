@@ -31,6 +31,16 @@ import { cancelGeneration,
 } from "./engine";
 import { listHooks, markHook } from "./hooks";
 import { previewContext } from "./contextSnapshot";
+import {
+  applyProposal,
+  chapterStoryStatus,
+  chapterStoryStatusByNumber,
+  finalizeChapter,
+  getBookHead,
+  getProposal,
+  rejectProposal,
+  schedulePublicationMemoryExtract,
+} from "./story";
 import { importBookFromZipBuffer, recoverInterruptedImports, recoverPhysicalImportBackups } from "./importBook";
 import { listUsage, usageSummary } from "./usage";
 import {
@@ -603,6 +613,71 @@ app.delete("/api/books/:id/bible/:cardId", (c) => {
 });
 
 app.get("/api/books/:id/hooks", (c) => c.json({ hooks: listHooks(c.req.param("id")) }));
+
+
+app.get("/api/books/:id/story/head", (c) => {
+  return c.json(getBookHead(c.req.param("id")));
+});
+app.get("/api/books/:id/story/status", (c) => {
+  const n = Number(c.req.query("chapterNumber") || "");
+  if (!Number.isFinite(n) || n <= 0) return c.json({ error: "chapterNumber required" }, 400);
+  return c.json(chapterStoryStatusByNumber(c.req.param("id"), n));
+});
+app.get("/api/books/:id/story/chapters/:chapterId/status", (c) => {
+  return c.json(chapterStoryStatus(c.req.param("id"), c.req.param("chapterId")));
+});
+app.post("/api/books/:id/story/chapters/:chapterId/finalize", async (c) => {
+  const body = await c.req.json();
+  if (!("expectedPublicationId" in (body ?? {}))) {
+    return c.json({ error: "expectedPublicationId 必须显式传入（null 表示尚无定稿）" }, 400);
+  }
+  const result = finalizeChapter({
+    bookId: c.req.param("id"),
+    chapterId: c.req.param("chapterId"),
+    bodyRevisionId: String(body.bodyRevisionId || ""),
+    expectedPublicationId: body.expectedPublicationId,
+    expectedCurrentRevisionId: body.expectedCurrentRevisionId ?? null,
+    expectedStoryEpoch: body.expectedStoryEpoch ?? null,
+    idempotencyKey: String(body.idempotencyKey || ""),
+    acceptedBy: body.acceptedBy,
+  });
+  return c.json(result);
+});
+app.post("/api/books/:id/story/memory/extract", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const bookId = c.req.param("id");
+  let status;
+  if (body.chapterNumber) status = chapterStoryStatusByNumber(bookId, Number(body.chapterNumber));
+  else if (body.publicationId) {
+    const row = db.prepare("SELECT chapter_id AS chapterId FROM chapter_publications WHERE id = ? AND book_id = ?")
+      .get(body.publicationId, bookId) as { chapterId: string } | undefined;
+    if (!row) return c.json({ error: "定稿不存在" }, 404);
+    status = chapterStoryStatus(bookId, row.chapterId);
+  } else return c.json({ error: "publicationId 或 chapterNumber 必填" }, 400);
+  if (!status.publication) return c.json({ error: "本章尚无活跃定稿，请先定稿" }, 400);
+  void schedulePublicationMemoryExtract(bookId, status.chapterNumber, status.publication.bodyRevisionId);
+  return c.json({ ok: true, memoryState: "pending", publicationId: status.publication.id });
+});
+app.get("/api/books/:id/story/memory/proposals/:proposalId", (c) => {
+  return c.json(getProposal(c.req.param("id"), c.req.param("proposalId")));
+});
+app.post("/api/books/:id/story/memory/proposals/:proposalId/apply", async (c) => {
+  const body = await c.req.json();
+  return c.json(
+    applyProposal({
+      bookId: c.req.param("id"),
+      proposalId: c.req.param("proposalId"),
+      acceptedOperationIds: body.acceptedOperationIds || [],
+      expectedSourceRevisionId: String(body.expectedSourceRevisionId || ""),
+      expectedStoryEpoch: body.expectedStoryEpoch ?? null,
+      idempotencyKey: String(body.idempotencyKey || ""),
+    }),
+  );
+});
+app.post("/api/books/:id/story/memory/proposals/:proposalId/reject", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  return c.json(rejectProposal(c.req.param("id"), c.req.param("proposalId"), body.reason));
+});
 
 app.get("/api/books/:id/context-preview", (c) => {
   const raw = c.req.query("chapterNumber");

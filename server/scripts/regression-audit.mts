@@ -930,6 +930,244 @@ z.close()
   }
 
 
+
+  // --- G2 publication / proposal / epoch / invalidate ---
+  {
+    const { createBook, saveRevision } = await import("../src/engine");
+    const {
+      finalizeChapter,
+      createMemoryProposal,
+      applyProposal,
+      getProposal,
+      chapterStoryStatusByNumber,
+      getBookHead,
+    } = await import("../src/story");
+    const { formatMemoriesForContextParts } = await import("../src/features");
+    const { db: regDb } = await import("../src/db");
+
+    const book = createBook({ title: "G2定稿书", genre: "测试", logline: "", style: "", targetChapters: 3, wordsPerChapter: 800 });
+    const bookId = book.payload.book.id as string;
+    const ch1 = book.payload.chapters.find((c: { number: number }) => c.number === 1)!;
+
+    const bodyA = saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "林舟左手受伤，鲜血染红了衣袖。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+
+    // T04: candidate body does not affect formal story (no publication yet)
+    saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "候选：林舟毫发无伤。",
+      source: "agent",
+      model: "test",
+      skillIds: [],
+      scene: "chapter_body",
+      asCandidate: true,
+      skipMemory: true,
+    });
+    const head0 = getBookHead(bookId);
+    check("T04/G2 候选不创建定稿", head0.storyEpoch === 0);
+
+    // First finalize
+    const fin1 = finalizeChapter({
+      bookId,
+      chapterId: ch1.id,
+      bodyRevisionId: bodyA.revisionId,
+      expectedPublicationId: null,
+      expectedCurrentRevisionId: bodyA.revisionId,
+      expectedStoryEpoch: 0,
+      idempotencyKey: "g2-fin-1",
+    });
+    check("T06/G2 首次定稿 memory pending", fin1.memoryState === "pending" && fin1.storyEpoch === 1);
+
+    // T08 idempotent same key
+    const fin1b = finalizeChapter({
+      bookId,
+      chapterId: ch1.id,
+      bodyRevisionId: bodyA.revisionId,
+      expectedPublicationId: null,
+      expectedCurrentRevisionId: bodyA.revisionId,
+      expectedStoryEpoch: 0,
+      idempotencyKey: "g2-fin-1",
+    });
+    check("T08/G2 同键同参定稿幂等", fin1b.publicationId === fin1.publicationId && fin1b.storyEpoch === 1);
+
+    // T09 same key different params
+    let reused = false;
+    try {
+      finalizeChapter({
+        bookId,
+        chapterId: ch1.id,
+        bodyRevisionId: bodyA.revisionId,
+        expectedPublicationId: null,
+        expectedCurrentRevisionId: "other",
+        expectedStoryEpoch: 0,
+        idempotencyKey: "g2-fin-1",
+      });
+    } catch (e: any) {
+      reused = String(e?.message || e).includes("IDEMPOTENCY_KEY_REUSED");
+    }
+    check("T09/G2 同键异参拒绝", reused);
+
+    // Create proposal manually (extract async may race)
+    const proposal = createMemoryProposal({
+      bookId,
+      chapterNumber: 1,
+      sourceRevisionId: bodyA.revisionId,
+      summary: "事实：林舟左手受伤。",
+      publicationId: fin1.publicationId,
+      basisEpoch: fin1.storyEpoch,
+    });
+    check("G2 提案 status=proposed", proposal.status === "proposed");
+
+    const applied = applyProposal({
+      bookId,
+      proposalId: proposal.id,
+      acceptedOperationIds: ["op-summary"],
+      expectedSourceRevisionId: bodyA.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g2-apply-1",
+    });
+    check("G2 批准后 memory ready", applied.memoryState === "ready");
+
+    const stReady = chapterStoryStatusByNumber(bookId, 1);
+    check("G2 status memoryState ready", stReady.publication?.memoryState === "ready");
+
+    // T05: save new draft without replacing publication — formal memory still matches publication
+    const bodyB = saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "草稿改写：林舟没有受伤。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    const stDraft = chapterStoryStatusByNumber(bookId, 1);
+    check("T05/G2 草稿与定稿分歧", stDraft.draftDivergesFromPublication === true);
+    check("T05/G2 定稿指针仍为旧修订", stDraft.publication?.bodyRevisionId === bodyA.revisionId);
+
+    // Memory for ch1 should still inject for ch2 because source matches publication not current
+    const memParts = formatMemoriesForContextParts(bookId, 2);
+    check(
+      "T05/G2 正式上下文仍用定稿记忆",
+      memParts.text.includes("林舟左手受伤") && !memParts.text.includes("没有受伤"),
+      memParts.text.slice(0, 200),
+    );
+
+    // T06 replace publication → invalidate old facts, memory pending
+    const fin2 = finalizeChapter({
+      bookId,
+      chapterId: ch1.id,
+      bodyRevisionId: bodyB.revisionId,
+      expectedPublicationId: fin1.publicationId,
+      expectedCurrentRevisionId: bodyB.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g2-fin-2",
+    });
+    check("T06/G2 替换定稿 memory pending", fin2.memoryState === "pending");
+    const invalidated = (
+      regDb.prepare(`SELECT COUNT(*) AS n FROM story_facts WHERE book_id = ? AND status = 'invalidated'`).get(bookId) as { n: number }
+    ).n;
+    check("T06/G2 旧事实立即失效", invalidated >= 1, `n=${invalidated}`);
+
+    // Old memory no longer matches new publication → excluded
+    const memAfter = formatMemoriesForContextParts(bookId, 2);
+    check(
+      "T06/G2 旧记忆因源不匹配被排除",
+      !memAfter.text.includes("林舟左手受伤") || memAfter.excluded.some((e) => e.reason === "superseded_source"),
+    );
+
+    // T07: cannot create proposal against wrong publication source
+    let createStaleBlocked = false;
+    let staleApply = false;
+    try {
+      createMemoryProposal({
+        bookId,
+        chapterNumber: 1,
+        sourceRevisionId: bodyA.revisionId,
+        summary: "应失败",
+        publicationId: fin2.publicationId,
+        basisEpoch: 0,
+      });
+    } catch (e: any) {
+      createStaleBlocked = String(e?.message || e).includes("PROPOSAL_STALE") || String(e?.message || e).includes("定稿");
+    }
+    check("T07/G2 源不匹配不能建提案", createStaleBlocked);
+
+    const propB = createMemoryProposal({
+      bookId,
+      chapterNumber: 1,
+      sourceRevisionId: bodyB.revisionId,
+      summary: "新定稿记忆：林舟没有受伤。",
+      publicationId: fin2.publicationId,
+      basisEpoch: fin2.storyEpoch,
+    });
+    // Replace publication again to stale propB
+    const bodyC = saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "第三次定稿正文。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    finalizeChapter({
+      bookId,
+      chapterId: ch1.id,
+      bodyRevisionId: bodyC.revisionId,
+      expectedPublicationId: fin2.publicationId,
+      expectedCurrentRevisionId: bodyC.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g2-fin-3",
+    });
+    try {
+      applyProposal({
+        bookId,
+        proposalId: propB.id,
+        acceptedOperationIds: ["op-summary"],
+        expectedSourceRevisionId: bodyB.revisionId,
+        expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+        idempotencyKey: "g2-apply-stale",
+      });
+    } catch (e: any) {
+      staleApply = String(e?.message || e).includes("PROPOSAL_STALE");
+    }
+    check("T07/G2 定稿变化后批准返回 stale", staleApply);
+
+    // Missing expectedPublicationId
+    let missing = false;
+    try {
+      finalizeChapter({
+        bookId,
+        chapterId: ch1.id,
+        bodyRevisionId: bodyC.revisionId,
+        expectedPublicationId: undefined as unknown as null,
+        idempotencyKey: "g2-fin-missing",
+      });
+    } catch (e: any) {
+      missing = String(e?.message || e).includes("expectedPublicationId");
+    }
+    check("G2 expectedPublicationId 必填", missing);
+
+    void getProposal;
+  }
+
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

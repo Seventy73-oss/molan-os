@@ -1168,6 +1168,227 @@ z.close()
   }
 
 
+
+  // --- G3 character state / foreshadow provenance / knowledge / impact ---
+  {
+    const {
+      finalizeChapter,
+      createMemoryProposal,
+      applyProposal,
+      getBookHead,
+    } = await import("../src/story");
+    const {
+      projectCharacterState,
+      listForeshadowing,
+      filterFactsByKnowledge,
+      storyImpact,
+      listStoryCharacters,
+    } = await import("../src/storyState");
+    const { createBibleCard } = await import("../src/features");
+    const { db: regDb } = await import("../src/db");
+
+    const book = createBook({
+      title: "G3状态书",
+      genre: "测试",
+      logline: "",
+      style: "",
+      targetChapters: 10,
+      wordsPerChapter: 800,
+    });
+    const bookId = book.payload.book.id as string;
+    const card = createBibleCard(bookId, {
+      kind: "character",
+      name: "林舟",
+      summary: "主角",
+      details: "持剑客",
+    });
+    const charId = card.id;
+
+    // Ensure chapters 1,5,6,8 exist via body saves
+    function body(n: number, text: string) {
+      return saveRevision({
+        bookId,
+        kind: "chapter_body",
+        chapterNumber: n,
+        body: text,
+        source: "human",
+        model: null,
+        skillIds: [],
+        scene: "chapter_body",
+        skipMemory: true,
+      });
+    }
+    const b1 = body(1, "第一章：林舟在城门。");
+    const b5 = body(5, "第五章：林舟左手受伤。");
+    const b6 = body(6, "第六章：续写。");
+    const b8 = body(8, "第八章：林舟左手痊愈。");
+
+    const ch5 = regDb.prepare("SELECT id FROM chapters WHERE book_id = ? AND number = 5").get(bookId) as { id: string };
+    const fin5 = finalizeChapter({
+      bookId,
+      chapterId: ch5.id,
+      bodyRevisionId: b5.revisionId,
+      expectedPublicationId: null,
+      expectedCurrentRevisionId: b5.revisionId,
+      expectedStoryEpoch: 0,
+      idempotencyKey: "g3-fin-5",
+    });
+    const prop5 = createMemoryProposal({
+      bookId,
+      chapterNumber: 5,
+      sourceRevisionId: b5.revisionId,
+      summary: "林舟左手受伤。",
+      publicationId: fin5.publicationId,
+      basisEpoch: fin5.storyEpoch,
+      operations: [
+        {
+          operationId: "op-summary",
+          kind: "summary_update",
+          subjectId: `chapter:5`,
+          field: "chapter_summary",
+          proposedValue: { text: "林舟左手受伤。" },
+          assertionKind: "explicit",
+          evidence: { quote: "左手受伤" },
+          requiresAuthorApproval: true,
+        },
+        {
+          operationId: "op-injury",
+          kind: "character_state_change",
+          subjectId: charId,
+          field: "injury",
+          proposedValue: { part: "left_hand", state: "injured" },
+          assertionKind: "explicit",
+          audience: "reader",
+          evidence: { quote: "林舟的左手已经抬不起来。" },
+          requiresAuthorApproval: true,
+        },
+        {
+          operationId: "op-secret",
+          kind: "character_state_change",
+          subjectId: charId,
+          field: "knows_fact",
+          proposedValue: { secret: "旧徽记来历" },
+          assertionKind: "explicit",
+          audience: "author",
+          evidence: { quote: "他想起旧徽记。" },
+          requiresAuthorApproval: true,
+        },
+        {
+          operationId: "op-hook",
+          kind: "foreshadow_planted",
+          subjectId: "hook-city-gate",
+          field: "foreshadow",
+          proposedValue: { description: "城门守卫识出了旧徽记", plannedPayoffChapter: 10 },
+          assertionKind: "inferred",
+          audience: "reader",
+          evidence: { quote: "守卫盯着那枚旧徽记。" },
+          requiresAuthorApproval: true,
+        },
+      ],
+    });
+    applyProposal({
+      bookId,
+      proposalId: prop5.id,
+      acceptedOperationIds: ["op-summary", "op-injury", "op-secret", "op-hook"],
+      expectedSourceRevisionId: b5.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g3-apply-5",
+    });
+
+    // ch8 heal
+    const ch8 = regDb.prepare("SELECT id FROM chapters WHERE book_id = ? AND number = 8").get(bookId) as { id: string };
+    const fin8 = finalizeChapter({
+      bookId,
+      chapterId: ch8.id,
+      bodyRevisionId: b8.revisionId,
+      expectedPublicationId: null,
+      expectedCurrentRevisionId: b8.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g3-fin-8",
+    });
+    const prop8 = createMemoryProposal({
+      bookId,
+      chapterNumber: 8,
+      sourceRevisionId: b8.revisionId,
+      summary: "林舟左手痊愈。",
+      publicationId: fin8.publicationId,
+      basisEpoch: fin8.storyEpoch,
+      operations: [
+        {
+          operationId: "op-heal",
+          kind: "character_state_change",
+          subjectId: charId,
+          field: "injury",
+          proposedValue: { part: "left_hand", state: "healed" },
+          assertionKind: "explicit",
+          audience: "reader",
+          evidence: { quote: "左手已无大碍。" },
+          requiresAuthorApproval: true,
+        },
+      ],
+    });
+    applyProposal({
+      bookId,
+      proposalId: prop8.id,
+      acceptedOperationIds: ["op-heal"],
+      expectedSourceRevisionId: b8.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g3-apply-8",
+    });
+
+    // T03: writing ch6 must not see ch8 healed
+    const st6 = projectCharacterState(bookId, charId, 6, "author");
+    const injury6 = st6.dynamic.injury as { state?: string } | undefined;
+    check("T03/G3 第6章不见第8章痊愈", injury6?.state === "injured", JSON.stringify(st6.dynamic));
+
+    const st9 = projectCharacterState(bookId, charId, 9, "author");
+    const injury9 = st9.dynamic.injury as { state?: string } | undefined;
+    check("T03/G3 第9章可见痊愈", injury9?.state === "healed", JSON.stringify(st9.dynamic));
+
+    // T14: character/reader knowledge gate hides author secret
+    const readerState = projectCharacterState(bookId, charId, 6, "reader");
+    const hasSecretReader = JSON.stringify(readerState.dynamic).includes("旧徽记来历");
+    check("T14/G3 读者模式不注入作者秘密", !hasSecretReader, JSON.stringify(readerState.dynamic));
+    check(
+      "T14/G3 读者模式排除 knowledge_gate",
+      readerState.excluded.some((e) => e.reason === "knowledge_gate"),
+      JSON.stringify(readerState.excluded),
+    );
+    const authorState = projectCharacterState(bookId, charId, 6, "author");
+    check(
+      "T14/G3 作者模式可见秘密",
+      JSON.stringify(authorState.dynamic).includes("旧徽记来历"),
+      JSON.stringify(authorState.dynamic),
+    );
+
+    // T15: planned payoff chapter 10 does not make hook paid_off at ch6
+    const foreshadow6 = listForeshadowing(bookId, 6);
+    const gate = foreshadow6.find((h) => h.hookStableId === "hook-city-gate");
+    check("T15/G3 伏笔已种植", gate?.status === "planted", JSON.stringify(gate));
+    check("T15/G3 计划回收不等于 paid_off", gate?.status !== "paid_off" && gate?.plannedPayoffChapter === 10);
+
+    // Future-only planned without plant shouldn't be paid_off either — add planned-only hook via direct event? 
+    // Already covered: planted + plannedPayoff stays planted.
+
+    // Impact of republish ch5
+    const impact = storyImpact(bookId, ch5.id);
+    check("G3 impact 列出将失效事实", impact.wouldInvalidate.facts.length >= 1);
+    check("G3 impact 不自动改正文", impact.autoRewriteSubsequentBodies === false);
+    check(
+      "G3 impact 后章可能需复核",
+      impact.subsequentChaptersPossiblyStale.some((c) => c.chapterNumber === 8),
+      JSON.stringify(impact.subsequentChaptersPossiblyStale),
+    );
+
+    const chars = listStoryCharacters(bookId, 6);
+    check("G3 人物列表含动态", chars.some((c) => c.id === charId && (c.dynamic as any)?.injury?.state === "injured"));
+
+    void b1;
+    void b6;
+    void filterFactsByKnowledge;
+  }
+
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

@@ -460,7 +460,7 @@ export function BibleCardsPanel({ bookId }: BibleProps) {
 
 type DrawerProps = {
   open: boolean;
-  tab: "tools" | "bible" | "history" | "review" | "meta" | "hooks";
+  tab: "tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow";
   onTab: (tab: DrawerProps["tab"]) => void;
   onClose: () => void;
   children: ReactNode;
@@ -477,6 +477,8 @@ export function ToolsDrawer({ open, tab, onTab, onClose, children }: DrawerProps
               ["tools", "进度"],
               ["meta", "信息"],
               ["hooks", "钩子"],
+              ["foreshadow", "伏笔"],
+              ["story", "人物态"],
               ["bible", "设定卡"],
               ["history", "版本"],
               ["review", "审核"],
@@ -690,6 +692,138 @@ export function HooksPanel({ bookId, onJumpChapter }: HooksProps) {
                 </button>
               )}
             </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
+type StoryStateProps = { bookId: string; chapterNumber?: number | null };
+
+/** G3 minimal: character dynamic state as-of chapter. */
+export function StoryStatePanel({ bookId, chapterNumber }: StoryStateProps) {
+  const [chars, setChars] = useState<Array<{ id: string; name: string; summary: string; dynamic: Record<string, unknown> }>>([]);
+  const [impact, setImpact] = useState<string>("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const asOf = chapterNumber && chapterNumber > 0 ? chapterNumber : null;
+
+  async function reload() {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.storyCharacters(bookId, asOf);
+      setChars(res.characters);
+      if (asOf) {
+        const imp = await api.storyImpact(bookId, { chapterNumber: asOf });
+        setImpact(
+          `第${imp.chapterNumber}章影响：将失效事实 ${imp.wouldInvalidate.facts.length}、钩子事件 ${imp.wouldInvalidate.hookEvents.length}；后章可能需复核 ${imp.subsequentChaptersPossiblyStale.length}；不自动改正文。`,
+        );
+      } else setImpact("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void reload();
+  }, [bookId, chapterNumber]);
+
+  return (
+    <div className="panel-block story-state-panel">
+      <div className="panel-row">
+        <span className="panel-label">人物动态{asOf ? ` · 截至第${asOf}章前` : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
+          刷新
+        </button>
+      </div>
+      <p className="panel-muted">地点/伤势/目标等按章合并；作者秘密默认不进读者视角。</p>
+      {impact ? <p className="panel-muted">{impact}</p> : null}
+      {error ? <p className="panel-error">{error}</p> : null}
+      {!chars.length ? <p className="panel-muted">暂无人物动态。定稿并批准含 character_state 的提案后出现。</p> : null}
+      <ul className="hook-list">
+        {chars.map((c) => (
+          <li key={c.id}>
+            <div className="hook-head">
+              <strong>{c.name || c.id}</strong>
+            </div>
+            {c.summary ? <p className="bible-summary">{c.summary}</p> : null}
+            <p className="hook-text">
+              {Object.keys(c.dynamic || {}).length
+                ? Object.entries(c.dynamic)
+                    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+                    .join("；")
+                : "尚无动态字段"}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+type ForeshadowProps = { bookId: string; chapterNumber?: number | null };
+
+/** G3 minimal: foreshadow ledger with provenance. */
+export function ForeshadowPanel({ bookId, chapterNumber }: ForeshadowProps) {
+  const [hooks, setHooks] = useState<
+    Array<{
+      hookStableId: string;
+      description: string;
+      status: string;
+      plannedPayoffChapter: number | null;
+      plantedChapter: number | null;
+      paidOffChapter: number | null;
+      events: Array<Record<string, unknown>>;
+    }>
+  >([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const asOf = chapterNumber && chapterNumber > 0 ? chapterNumber : null;
+
+  async function reload() {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.storyForeshadowing(bookId, asOf);
+      setHooks(res.hooks);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void reload();
+  }, [bookId, chapterNumber]);
+
+  return (
+    <div className="panel-block foreshadow-panel">
+      <div className="panel-row">
+        <span className="panel-label">有来源伏笔{asOf ? ` · 截至第${asOf}章前` : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
+          刷新
+        </button>
+      </div>
+      <p className="panel-muted">计划回收章不等于已回收；仅 paid_off 事件才算收回。</p>
+      {error ? <p className="panel-error">{error}</p> : null}
+      {!hooks.length ? <p className="panel-muted">暂无伏笔账本事件。</p> : null}
+      <ul className="hook-list">
+        {hooks.map((h) => (
+          <li key={h.hookStableId} className={h.status === "paid_off" || h.status === "abandoned" ? "hook-ok" : "hook-open"}>
+            <div className="hook-head">
+              <span className="hook-flag">{h.status}</span>
+              {h.plantedChapter ? <span className="hook-src">埋于第{h.plantedChapter}章</span> : null}
+              {h.plannedPayoffChapter ? <span className="hook-src">计划第{h.plannedPayoffChapter}章</span> : null}
+              {h.paidOffChapter ? <span className="hook-src">回收第{h.paidOffChapter}章</span> : null}
+            </div>
+            <p className="hook-text">{h.description}</p>
+            <p className="panel-muted">{h.events.length} 条事件 · 有出处</p>
           </li>
         ))}
       </ul>

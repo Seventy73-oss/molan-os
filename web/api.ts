@@ -519,6 +519,54 @@ export const api = {
         chapterNumber ? `?chapterNumber=${encodeURIComponent(String(chapterNumber))}` : ""
       }`,
     ),
+  storyCharacters: (id: string, asOfChapter?: number | null) =>
+    request<{ characters: Array<{ id: string; name: string; summary: string; dynamic: Record<string, unknown> }> }>(
+      `/api/books/${id}/story/characters${asOfChapter ? `?asOfChapter=${asOfChapter}` : ""}`,
+    ),
+  storyCharacterState: (
+    id: string,
+    characterId: string,
+    opts?: { asOfChapter?: number | null; knowledgeMode?: string },
+  ) => {
+    const q = new URLSearchParams();
+    if (opts?.asOfChapter) q.set("asOfChapter", String(opts.asOfChapter));
+    if (opts?.knowledgeMode) q.set("knowledgeMode", opts.knowledgeMode);
+    const qs = q.toString();
+    return request<{
+      characterId: string;
+      asOfChapter: number | null;
+      knowledgeMode: string;
+      static: { id: string; name: string; summary: string; details: string } | null;
+      dynamic: Record<string, unknown>;
+      history: Array<Record<string, unknown>>;
+      excluded: Array<{ sourceId: string; reason: string }>;
+    }>(`/api/books/${id}/story/characters/${encodeURIComponent(characterId)}/state${qs ? `?${qs}` : ""}`);
+  },
+  storyForeshadowing: (id: string, asOfChapter?: number | null) =>
+    request<{
+      hooks: Array<{
+        hookStableId: string;
+        description: string;
+        status: string;
+        plannedPayoffChapter: number | null;
+        plantedChapter: number | null;
+        paidOffChapter: number | null;
+        events: Array<Record<string, unknown>>;
+      }>;
+    }>(`/api/books/${id}/story/foreshadowing${asOfChapter ? `?asOfChapter=${asOfChapter}` : ""}`),
+  storyImpact: (id: string, opts: { chapterId?: string; chapterNumber?: number }) => {
+    const q = new URLSearchParams();
+    if (opts.chapterId) q.set("chapterId", opts.chapterId);
+    if (opts.chapterNumber) q.set("chapterNumber", String(opts.chapterNumber));
+    return request<{
+      chapterNumber: number;
+      draftDiverges: boolean;
+      wouldInvalidate: { facts: unknown[]; hookEvents: unknown[]; knowledgeEvents: number };
+      subsequentChaptersPossiblyStale: Array<{ chapterNumber: number; memoryState: string }>;
+      note: string;
+      autoRewriteSubsequentBodies: boolean;
+    }>(`/api/books/${id}/story/impact?${q.toString()}`);
+  },
   markHook: (
     id: string,
     body: { key: string; status: string; recycledChapter?: number | null; note?: string },

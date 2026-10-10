@@ -51,6 +51,17 @@ async function main() {
     "T08 公网 HTTPS+Key 白名单通过",
     assertSafeBaseUrl("https://api.openai.com/v1", { withApiKey: true }).startsWith("https://"),
   );
+  const prevAllowHosts = process.env.MOLAN_ALLOWED_BASE_HOSTS;
+  process.env.MOLAN_ALLOWED_BASE_HOSTS = "47.108.232.192";
+  try {
+    check(
+      "T08 显式白名单 HTTP+Key 放行",
+      assertSafeBaseUrl("http://47.108.232.192:54483/v1", { withApiKey: true }).startsWith("http://"),
+    );
+  } finally {
+    if (prevAllowHosts === undefined) delete process.env.MOLAN_ALLOWED_BASE_HOSTS;
+    else process.env.MOLAN_ALLOWED_BASE_HOSTS = prevAllowHosts;
+  }
 
   let lanBlocked = false;
   try {

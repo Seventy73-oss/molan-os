@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
+use crate::services::import_book::recover_interrupted_imports;
+use crate::services::worker::start_job_worker;
 
 fn project_root() -> PathBuf {
     if let Ok(p) = std::env::var("MOLAN_ROOT") {
@@ -73,6 +75,13 @@ async fn main() -> anyhow::Result<()> {
 
     let root = project_root();
     let db = Db::open(root.clone())?;
+    let recovery = recover_interrupted_imports(&db);
+    if recovery.get("restored").and_then(|v| v.as_array()).map(|a| !a.is_empty()).unwrap_or(false)
+        || recovery.get("physicalRestored").and_then(|v| v.as_array()).map(|a| !a.is_empty()).unwrap_or(false)
+    {
+        tracing::warn!("import recovery on boot: {recovery}");
+    }
+    start_job_worker(db.clone());
     let app = routes::api_router(db.clone()).layer(TraceLayer::new_for_http()).layer(cors_layer());
 
     let host = listen_hostname();

@@ -1,9 +1,15 @@
 pub mod books;
 pub mod chapters;
 pub mod engine;
+pub mod features;
 pub mod generations;
+pub mod hooks;
+pub mod import_book;
+pub mod jobs;
 pub mod manuscripts;
 pub mod revisions;
 pub mod scene_routes;
 pub mod settings;
 pub mod skills;
+pub mod usage;
+pub mod worker;

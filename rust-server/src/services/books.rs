@@ -38,7 +38,7 @@ fn count_chars(text: &str) -> i64 {
     text.chars().filter(|c| !c.is_whitespace()).count() as i64
 }
 
-fn book_progress(conn: &rusqlite::Connection, book_id: &str) -> AppResult<Value> {
+pub fn book_progress(conn: &rusqlite::Connection, book_id: &str) -> AppResult<Value> {
     let book = must_book(conn, book_id)?;
     let mut stmt = conn.prepare(
         "SELECT id, number, title, status FROM chapters WHERE book_id = ?1 ORDER BY number",

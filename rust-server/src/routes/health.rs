@@ -2,6 +2,7 @@ use axum::{Json, extract::State};
 use serde_json::{Value, json};
 use crate::db::Db;
 use crate::error::AppResult;
+use crate::services::worker::worker_status;
 
 pub async fn health(State(db): State<Db>) -> AppResult<Json<Value>> {
     Ok(Json(json!({
@@ -11,11 +12,7 @@ pub async fn health(State(db): State<Db>) -> AppResult<Json<Value>> {
             "detail": db.path.display().to_string(),
             "ready": true,
         },
-        "jobsWorker": {
-            "running": false,
-            "backend": "rust-scaffold",
-            "note": "job worker not yet ported",
-        },
+        "jobsWorker": worker_status(),
         "runtime": "rust",
     })))
 }

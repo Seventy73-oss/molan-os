@@ -120,7 +120,7 @@ pub fn route_message(message: &str) -> Option<&'static str> {
     None
 }
 
-fn artifact_body(conn: &rusqlite::Connection, book_id: &str, kind: &str, chapter_number: Option<i64>) -> String {
+pub(crate) fn artifact_body(conn: &rusqlite::Connection, book_id: &str, kind: &str, chapter_number: Option<i64>) -> String {
     let n = chapter_number.unwrap_or(0);
     conn.query_row(
         r#"SELECT r.body AS body
@@ -354,6 +354,8 @@ pub struct ExecuteSceneInput {
     pub on_conflict: OnConflict,
     pub generation_id: Option<String>,
     pub cancelled: Option<Arc<AtomicBool>>,
+    /// When set, cancelled/done job forces candidate write (parity with Node asCandidate).
+    pub job_id: Option<String>,
 }
 
 pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value> {
@@ -422,8 +424,22 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
     let result = adapter.run_scene(&run_input).await?;
     throw_if_generation_cancelled(db, input.generation_id.as_deref(), &input.cancelled)?;
 
+    let job_forces_candidate = input.job_id.as_ref().map(|jid| {
+        db.with_conn(|conn| {
+            let st: Option<String> = conn
+                .query_row(
+                    "SELECT status FROM writing_jobs WHERE id = ?1",
+                    params![jid],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(matches!(st.as_deref(), Some("cancelled") | Some("done")))
+        })
+        .unwrap_or(false)
+    }).unwrap_or(false);
     let as_candidate_now =
-        generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled);
+        generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled)
+        || job_forces_candidate;
     let saved = if let Some(k) = kind {
         let source = if as_candidate_now
             && generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled)
@@ -699,6 +715,7 @@ pub async fn chat(
                 on_conflict: OnConflict::Candidate,
                 generation_id: generation_id.map(|s| s.to_string()),
                 cancelled: cancelled.clone(),
+                job_id: None,
             },
         )
         .await
@@ -997,8 +1014,22 @@ pub async fn stream_scene_run(
     };
 
     throw_if_cancelled(&input.cancelled)?;
+    let job_forces_candidate = input.job_id.as_ref().map(|jid| {
+        db.with_conn(|conn| {
+            let st: Option<String> = conn
+                .query_row(
+                    "SELECT status FROM writing_jobs WHERE id = ?1",
+                    params![jid],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(matches!(st.as_deref(), Some("cancelled") | Some("done")))
+        })
+        .unwrap_or(false)
+    }).unwrap_or(false);
     let as_candidate_now =
-        generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled);
+        generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled)
+        || job_forces_candidate;
     let saved = if let Some(k) = kind {
         Some(save_revision(
             db,

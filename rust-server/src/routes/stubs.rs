@@ -4,12 +4,12 @@ use axum::{
     Json, Router,
     http::StatusCode,
     response::IntoResponse,
-    routing::{any, get},
+    routing::any,
 };
 use serde_json::json;
 use crate::db::Db;
 
-async fn not_ported() -> impl IntoResponse {
+pub async fn not_ported_handler() -> impl IntoResponse {
     (
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
@@ -20,8 +20,5 @@ async fn not_ported() -> impl IntoResponse {
 }
 
 pub fn stub_router() -> Router<Db> {
-    Router::new()
-        .route("/api/jobs/worker", get(not_ported))
-        .route("/api/agent/runtime", get(not_ported))
-        .route("/api/{*rest}", any(not_ported))
+    Router::new().route("/api/{*rest}", any(not_ported_handler))
 }

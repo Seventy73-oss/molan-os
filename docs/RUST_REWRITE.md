@@ -31,8 +31,8 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | 4 | scene-routes + provider test/models refresh + outbound | ✅ |
 | 5 | chat / scene-runs / selection-rewrite（含 stream） | ✅ |
 | 6 | generations begin / cancel / complete / demote + stream 接线 | ✅ |
-| 7 | writing_jobs + lease worker | ⬜ |
-| 8 | import/export ZIP、bible、hooks、usage、search | ⬜ |
+| 7 | writing_jobs + lease worker | ✅ |
+| 8 | import/export ZIP、bible、hooks、usage、search、progress | ✅ |
 | 9 | 浏览器 E2E / regression 对拍 Node | ⬜ |
 
 ## API 对拍矩阵
@@ -41,72 +41,73 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 
 | 方法 | 路径 | Rust | 备注 |
 |------|------|------|------|
-| GET | `/api/health` | ✅ | 含 `runtime: rust`；worker 尚未移植 |
+| GET | `/api/health` | ✅ | `runtime: rust` + 真实 `jobsWorker` |
+| GET | `/api/jobs/worker` | ✅ | |
+| GET | `/api/agent/runtime` | ✅ | pi 边界「仅代调」；Rust 暂标 pi unavailable |
 | GET | `/api/books` | ✅ | |
 | POST | `/api/books` | ✅ | Idempotency-Key |
 | GET | `/api/books/:id` | ✅ | 调 md sync |
 | PATCH | `/api/books/:id` | ✅ | confirmTrim / 缩章冲突 |
-| DELETE | `/api/books/:id` | ✅ | 删库行 + 尽力删 `data/books/:id` |
-| POST | `/api/books/:id/chapters` | ✅ | 加章 + sync |
-| PATCH | `/api/books/:id/chapters/:number` | ✅ | 重命名 + sync |
-| DELETE | `/api/books/:id/chapters/:number` | ✅ | 删章重编号 + wipe + sync |
-| PUT | `/api/books/:id/artifacts` | ✅ | `saveRevision` + `expectedRevisionId` CAS；正文对白 `“…”` |
-| GET | `/api/books/:id/artifacts/revisions` | ✅ | |
-| GET | `/api/books/:id/artifacts/revisions/:revId` | ✅ | |
-| GET | `/api/books/:id/artifacts/revisions/:revId/diff` | ✅ | 行级 hunk |
-| POST | `/api/books/:id/artifacts/revisions/:revId/restore` | ✅ | |
-| GET | `/api/settings/provider` | ✅ | 不回传明文 Key；enc:v1 兼容 |
-| PUT | `/api/settings/provider` | ✅ | Base URL 白名单 |
-| GET | `/api/settings/provider/models` | ✅ | 读缓存；未实现 refresh |
-| POST | `/api/settings/provider/test` | ✅ | secureFetch + 白名单 |
-| POST | `/api/settings/provider/models/refresh` | ✅ | |
-| GET/PUT | `/api/scene-routes` | ✅ | thinkingIntensity + Base 白名单 |
-| GET | `/api/skills` | ✅ | 启动时 `reloadSkills`；用户包 `attachScenes` |
-| POST | `/api/skills/reload` | ✅ | |
-| PATCH | `/api/skills/:id` | ✅ | enabled |
-| GET | `/api/skills/for-scene` | ✅ | 阶段矩阵强制挂用户包 |
-| GET | `/api/skills/:id/prompt-preview` | ✅ | 加载 `skills/<id>/pack/` |
-| POST | `/api/generations/begin` | ✅ | 幂等 stub（供后续 stream 接线） |
-| GET | `/api/generations/:id` | ✅ | |
-| POST | `/api/generations/:id/cancel` | ✅ | demote / completed 不静默撤回 |
-| POST | `/api/books/:id/chat` (+stream) | ✅ | routeMessage + skills + generations |
-| POST | `/api/books/:id/scene-runs` (+stream) | ✅ | CAS baseline + beginGeneration + SSE |
-| POST | `/api/books/:id/selection-rewrite` (+stream) | ✅ | local / openai；无静默降级 |
-| Jobs / worker / lease | `/api/jobs*` | ⬜ | |
-| Import/export / bible / hooks / usage / search | 多条 | ⬜ | catch-all 501 |
-| GET | `/api/agent/runtime` | ⬜ | pi 边界保持「仅代调」 |
+| DELETE | `/api/books/:id` | ✅ | |
+| POST | `/api/books/:id/chapters` | ✅ | |
+| PATCH/DELETE | `/api/books/:id/chapters/:number` | ✅ | |
+| PUT | `/api/books/:id/artifacts` | ✅ | CAS + 对白 `“…”` |
+| GET/… | `/api/books/:id/artifacts/revisions*` | ✅ | list/get/diff/restore |
+| GET | `/api/books/:id/artifacts/file` | ✅ | |
+| GET | `/api/books/:id/export.zip` | ✅ | md 目录打包 |
+| GET | `/api/books/:id/chapters/:n/export.zip` | ✅ | |
+| GET | `/api/books/:id/chapters/:n/export.md` | ✅ | |
+| POST | `/api/books/import` | ✅ | JSON `zipBase64`；validate-then-commit；覆盖=逻辑 JSON + 按书 `.book.phys.sqlite`；失败回滚 |
+| GET/POST | `/api/books/:id/jobs` | ✅ | |
+| GET/PATCH | `/api/jobs/:id` | ✅ | pause/cancel/running/done |
+| POST | `/api/jobs/:id/tick` | ✅ | SQLite lease + in-process lock |
+| POST | `/api/jobs/:id/retry` | ✅ | |
+| GET | `/api/books/:id/progress` | ✅ | |
+| GET | `/api/books/:id/search` | ✅ | |
+| GET/POST/PATCH/DELETE | `/api/books/:id/bible*` | ✅ | |
+| GET/PATCH | `/api/books/:id/hooks` | ✅ | |
+| GET | `/api/books/:id/review-issues` | ✅ | |
+| GET | `/api/usage` `/api/usage/summary` `/api/books/:id/usage` | ✅ | |
+| GET/PUT | `/api/settings/provider*` | ✅ | |
+| GET/PUT | `/api/scene-routes` | ✅ | |
+| GET/PATCH/POST | `/api/skills*` | ✅ | |
+| POST | `/api/generations/*` | ✅ | |
+| POST | `/api/books/:id/chat` (+stream) | ✅ | |
+| POST | `/api/books/:id/scene-runs` (+stream) | ✅ | |
+| POST | `/api/books/:id/selection-rewrite` (+stream) | ✅ | |
+| GET | `/api/books/:id/messages` | ✅ | |
+| POST | `/api/books/auto-setup` | ⬜ | 显式 501（避免被 `:id` 吃掉变 405） |
+| POST | `/api/books/:id/auto-setup` | ⬜ | 显式 501 |
+| 其他未列 | catch-all | ⬜ | 501 |
 
-## 本轮实现要点（阶段 4–5：出站 / 场景路由 / 写作流）
+## 本轮实现要点（阶段 7–8：jobs / 导入导出 / 高流量）
 
-- **出站**：`outbound::secure_fetch`（拒重定向、Base URL 白名单、DNS 内网拒绝、`MOLAN_ALLOW_PUBLIC_HTTP_BASE` / `MOLAN_ALLOWED_BASE_HOSTS` / `MOLAN_ALLOW_LOCAL_LLM`）。
-- **OpenAI 兼容客户端**：`agent/openai.rs`；**仅当场景 provider=local** 才走 `local-draft`；openai 缺 Key/Base/Model **硬失败**，不静默降级。
-- **scene-routes** GET/PUT：`thinkingIntensity` + 路由级 Base 白名单。
-- **provider test / models refresh**：走 secureFetch；错误脱敏。
-- **chat / scene-runs / selection-rewrite**（含 `/stream` SSE）：技能 `attachScenes` 与 Node 同矩阵；写前 CAS `expectedRevisionId`（默认 `onConflict=candidate`）；stream 调 `beginGeneration`；取消 demote 接线。
-- **local-draft**：精简适配器 + `rewriteSelectionLocal`（对白弯引号、润色/改写/续写/对白）。
+- **writing_jobs**：创建 / 列表 / 查询 / `PATCH status`（paused/running/cancelled/done）/ retry / tick。
+- **SQLite 租约**：`lease_owner` / `lease_until` 谓词与 Node `SQLITE_ACQUIRE_SQL` 一致；HTTP tick 与后台 worker 共用 in-process Set + DB lease。
+- **Worker**：启动时 `start_job_worker`（默认每 2.5s）；health / `/api/jobs/worker` 返回真实状态。
+- **tick 阶段机**：outline → chapter_outline → chapter_body → memory →（可选 review）→ 下一章 / done；取消中途写候选（`job_id` → execute_scene）。
+- **ZIP 导出**：全书 / 单章 zip、章 md；基于 `data/books` sync。
+- **ZIP 导入**：`zipBase64` JSON；解压限额 / zip-slip / symlink 拒绝；**先校验预读章节文件再写库**；覆盖前逻辑 JSON + 按书物理 SQLite；失败逻辑回滚；启动 `recover_interrupted_imports`。
+- **高流量**：progress / search / bible CRUD / hooks / usage / review-issues / agent runtime。
 
-冒烟（:8799 临时库）：scene-routes → 建书 → scene-run 大纲挂用户包 → 选区润色 → chat 写意图/闲聊 → CAS 候选 → SSE stream → openai 无 Key 不降级。
+冒烟（临时库 :8798/:8797）：health worker running → 建书 → progress/search/bible → job pause/resume/tick/cancel/retry → export.zip → import new/overwrite/skip → `MOLAN_IMPORT_FAIL_AFTER_WIPE=1` 覆盖失败回滚保留原大纲。
 
 ## Schema 对拍
 
-Rust `rust-server/src/schema.rs` 镜像 Node `server/src/db/schema.ts` 的 `sqliteSchema()` + `migrateSqlite()`（含 `writing_jobs` lease 列、`thinking_intensity`、`source_revision_id`、`generations`、`bible_cards` 等）。默认驱动仍为 SQLite；Postgres/PGlite 原生驱动后续再议。
+Rust `rust-server/src/schema.rs` 镜像 Node `sqliteSchema()` + `migrateSqlite()`（含 `writing_jobs` lease 列、`thinking_intensity`、`source_revision_id`、`generations`、`bible_cards`、`hook_marks`、`api_usage` 等）。默认驱动仍为 SQLite。
 
 ## 前端切换
-
-`vite.config.ts` 已支持 `MOLAN_API_PROXY`（默认 `http://127.0.0.1:8787`）。指向 Rust：
 
 ```bash
 MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 ```
 
-Node 后端继续用 `npm run dev:server`（:8787）。
-
-## 冒烟（本轮）
-
-临时库 + `:8799`：建书 → 大纲 CAS → 加/改/删章 → md 落盘 → 正文对白规范化 → `for-scene` / prompt-preview → generations begin/cancel/demote/restore。全部通过。
-
-## 刻意保留
+## 刻意保留 / 剩余缺口
 
 - 产品默认仍是 **SQLite**；Rust 不引入 PG。
-- **pi** 不做自主编排（与 Node 边界一致）。
+- **pi** 不做自主编排（`/api/agent/runtime` 标明 model-relay；Rust 暂未链 npm pi 包）。
+- 导入暂只接 **JSON zipBase64**（multipart 未接）。
+- **auto-setup** 仍 501。
+- **异步记忆抽取 / waitMemoryExtract** 未对拍（job memory 阶段改为现场 `memory_extract`）。
+- 阶段 9：浏览器 E2E / regression 对拍 Node 尚未跑。
 - 未移植接口返回 **501** + 中文说明，避免静默假成功。

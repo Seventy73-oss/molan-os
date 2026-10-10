@@ -78,6 +78,7 @@ pub async fn post_scene_run(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             cancelled: None,
+            job_id: None,
         },
     )
     .await?;
@@ -174,6 +175,7 @@ pub async fn post_scene_run_stream(
         },
         generation_id: generation_id.clone(),
         cancelled: Some(cancelled.clone()),
+        job_id: None,
     };
 
     tokio::spawn(async move {

@@ -29,6 +29,7 @@ export const MIGRATE_TABLE_ORDER = [
   "bible_cards",
   "api_usage",
   "hook_marks",
+  "context_snapshots",
   "generations",
 ] as const;
 

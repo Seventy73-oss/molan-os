@@ -422,20 +422,81 @@ export function formatBibleForContext(bookId: string): string {
     .join("\n");
 }
 
-export function formatMemoriesForContext(bookId: string, beforeChapter: number | null): string {
-  if (!beforeChapter || beforeChapter <= 1) return "";
+export type MemoryContextParts = {
+  text: string;
+  included: Array<Record<string, unknown>>;
+  excluded: Array<Record<string, unknown>>;
+};
+
+/** Chapter memories before `beforeChapter`. Only include when source_revision matches
+ *  current chapter_body revision, or legacy (no source) marked legacy_current. */
+export function formatMemoriesForContextParts(
+  bookId: string,
+  beforeChapter: number | null,
+): MemoryContextParts {
+  if (!beforeChapter || beforeChapter <= 1) return { text: "", included: [], excluded: [] };
   const rows = db
     .prepare(
-      `SELECT c.number AS number, c.title AS title, r.body AS body
+      `SELECT c.number AS number, c.title AS title, r.body AS body,
+              r.id AS memoryRevisionId, r.source_revision_id AS sourceRevisionId,
+              body_a.current_revision_id AS bodyCurrentId
        FROM chapters c
        JOIN artifacts a ON a.book_id = c.book_id AND a.chapter_id = c.id AND a.kind = 'chapter_memory'
        JOIN artifact_revisions r ON r.id = a.current_revision_id
+       LEFT JOIN artifacts body_a ON body_a.book_id = c.book_id AND body_a.chapter_id = c.id AND body_a.kind = 'chapter_body'
        WHERE c.book_id = ? AND c.number < ?
        ORDER BY c.number`,
     )
-    .all(bookId, beforeChapter) as { number: number; title: string; body: string }[];
-  if (!rows.length) return "";
-  return rows.map((row) => `第${row.number}章《${row.title}》\n${row.body}`).join("\n\n");
+    .all(bookId, beforeChapter) as {
+      number: number;
+      title: string;
+      body: string;
+      memoryRevisionId: string;
+      sourceRevisionId: string | null;
+      bodyCurrentId: string | null;
+    }[];
+  const lines: string[] = [];
+  const included: Array<Record<string, unknown>> = [];
+  const excluded: Array<Record<string, unknown>> = [];
+  for (const row of rows) {
+    if (!row.body?.trim()) continue;
+    const source = row.sourceRevisionId ?? "";
+    if (!source) {
+      lines.push(`第${row.number}章《${row.title}》〔legacy_current〕\n${row.body}`);
+      included.push({
+        kind: "chapter_summary",
+        sourceId: row.memoryRevisionId,
+        chapterNumber: row.number,
+        mode: "legacy_current",
+        reason: "legacy_current",
+      });
+      continue;
+    }
+    if (row.bodyCurrentId === source) {
+      lines.push(`第${row.number}章《${row.title}》\n${row.body}`);
+      included.push({
+        kind: "chapter_summary",
+        sourceId: row.memoryRevisionId,
+        sourceRevisionId: source,
+        chapterNumber: row.number,
+        reason: "source_matched",
+      });
+    } else {
+      excluded.push({
+        kind: "chapter_summary",
+        sourceId: row.memoryRevisionId,
+        sourceRevisionId: source,
+        bodyCurrentId: row.bodyCurrentId,
+        chapterNumber: row.number,
+        reason: "superseded_source",
+      });
+    }
+  }
+  return { text: lines.join("\n\n"), included, excluded };
+}
+
+export function formatMemoriesForContext(bookId: string, beforeChapter: number | null): string {
+  return formatMemoriesForContextParts(bookId, beforeChapter).text;
 }
 
 /** -------- Review parse -------- */

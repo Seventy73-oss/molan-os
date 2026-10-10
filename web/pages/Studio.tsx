@@ -163,6 +163,7 @@ export function Studio() {
   const [pickingModel, setPickingModel] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
+  const [contextHint, setContextHint] = useState<{ missing: string[]; counts: { bibleCards: number; memories: number; openHooks: number } } | null>(null);
   const [chatText, setChatText] = useState("");
   const [busy, setBusy] = useState<"" | "chat" | "assist">("");
   const [error, setError] = useState("");
@@ -374,6 +375,30 @@ export function Studio() {
     setJobFrom(from);
     setJobTo(Math.min(from + 1, max));
   }, [data?.book.id, doc.chapterNumber, data?.book.targetChapters, data?.chapters.length]);
+
+  useEffect(() => {
+    if (!data?.book.id) {
+      setContextHint(null);
+      return;
+    }
+    let cancelled = false;
+    const chapter =
+      doc.kind === "chapter_body" || doc.kind === "chapter_outline" || scene === "chapter_body" || scene === "chapter_outline" || scene === "review"
+        ? doc.chapterNumber
+        : doc.chapterNumber;
+    void api
+      .contextPreview(data.book.id, chapter)
+      .then((res) => {
+        if (cancelled) return;
+        setContextHint({ missing: res.missing ?? [], counts: res.manifest?.counts ?? { bibleCards: 0, memories: 0, openHooks: 0 } });
+      })
+      .catch(() => {
+        if (!cancelled) setContextHint(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.book.id, doc.chapterNumber, doc.kind, scene]);
 
   useEffect(() => {
     if (leaveBlocker.state !== "blocked") return;
@@ -1618,6 +1643,16 @@ export function Studio() {
             ) : (
               <p className="skill-empty">这个场景还没有启用的技能。</p>
             )}
+            {contextHint ? (
+              <p className="context-ready" title="生成时会注入设定卡、前文记忆、未回收钩子">
+                上下文 · 设定卡 {contextHint.counts.bibleCards} · 前文记忆 {contextHint.counts.memories} · 钩子 {contextHint.counts.openHooks}
+                {contextHint.missing.length ? (
+                  <span className="context-missing"> · {contextHint.missing[0]}</span>
+                ) : (
+                  <span className="context-ok"> · 资料齐全</span>
+                )}
+              </p>
+            ) : null}
           </div>
         ) : (
           <button type="button" className="context-summary" onClick={() => setSettingsOpen(true)} aria-expanded={false}>

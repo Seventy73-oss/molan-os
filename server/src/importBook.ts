@@ -287,6 +287,79 @@ function quarantineLegacyWholeDbFiles(bookId: string, legacyPath: string) {
   }
 }
 
+/**
+ * Phase12: scan import-recovery for leftover whole-DB `.sqlite.phys` (not `.book.phys.sqlite`).
+ * Prefer convert → per-book; else quarantine. Never whole-DB replace.
+ * `recoveryDir` overrides the scan root (tests / CLI `--dir`); quarantine still lands under
+ * that dir's `legacy-quarantine/` when convert is skipped, or the live import-recovery
+ * quarantine when convert runs (convert uses live paths).
+ */
+export function quarantineOrphanLegacyWholeDbPhys(recoveryDir?: string): {
+  scanned: string[];
+  converted: string[];
+  quarantined: string[];
+  skipped: string[];
+} {
+  const dir = recoveryDir || importRecoveryDir();
+  const scanned: string[] = [];
+  const converted: string[] = [];
+  const quarantined: string[] = [];
+  const skipped: string[] = [];
+  if (!fs.existsSync(dir)) {
+    return { scanned, converted, quarantined, skipped };
+  }
+  const names = fs.readdirSync(dir).filter(
+    (n) =>
+      n.endsWith(".sqlite.phys") &&
+      !n.endsWith(".book.phys.sqlite") &&
+      !n.endsWith("-wal") &&
+      !n.endsWith("-shm"),
+  );
+  for (const name of names) {
+    const full = path.join(dir, name);
+    scanned.push(full);
+    const bookId = name.slice(0, -".sqlite.phys".length);
+    if (!bookId || bookId.includes(path.sep)) {
+      skipped.push(full);
+      continue;
+    }
+    // Only attempt convert when scanning the live recovery dir (needs live schema helpers).
+    const canConvert = path.resolve(dir) === path.resolve(importRecoveryDir());
+    try {
+      if (canConvert) {
+        const dest = convertLegacyWholeDbPhysToPerBook(bookId, full);
+        if (dest) {
+          converted.push(bookId);
+          continue;
+        }
+      }
+      // Quarantine into <dir>/legacy-quarantine (works for CLI --dir and live dir).
+      const qdir = path.join(dir, "legacy-quarantine");
+      fs.mkdirSync(qdir, { recursive: true });
+      const stamp = Date.now();
+      for (const p of [full, `${full}-wal`, `${full}-shm`, path.join(dir, `${bookId}.phys.pending`)]) {
+        if (!fs.existsSync(p)) continue;
+        const dest = path.join(qdir, `${stamp}.${path.basename(p)}`);
+        try {
+          fs.renameSync(p, dest);
+        } catch {
+          try {
+            fs.unlinkSync(p);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      quarantined.push(bookId);
+      console.warn(`[import] quarantined orphan whole-DB phys for ${bookId}`);
+    } catch (error) {
+      console.error(`[import] orphan legacy phys handling failed for ${bookId}`, error);
+      skipped.push(full);
+    }
+  }
+  return { scanned, converted, quarantined, skipped };
+}
+
 function insertRows(dump: InstanceType<typeof Database>, table: string, rows: Record<string, unknown>[]) {
   if (!rows.length) return;
   const cols = Object.keys(rows[0]!);
@@ -1070,4 +1143,10 @@ export function __legacyWholeDbPendingForTest(bookId: string) {
 }
 export function __convertLegacyWholeDbPhysToPerBookForTest(bookId: string, legacyPath?: string) {
   return convertLegacyWholeDbPhysToPerBook(bookId, legacyPath);
+}
+export function __quarantineOrphanLegacyWholeDbPhysForTest(dir?: string) {
+  return quarantineOrphanLegacyWholeDbPhys(dir);
+}
+export function __legacyQuarantineDirForTest() {
+  return legacyQuarantineDir();
 }

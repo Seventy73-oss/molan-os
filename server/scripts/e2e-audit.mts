@@ -1032,6 +1032,39 @@ z.close()
     caps.note.slice(0, 100),
   );
 
+  // --- Phase12: whole-DB restore deprecated + orphan quarantine CLI path ---
+  {
+    const { replaceSqliteFromPhysicalBackup, WHOLE_DB_PHYS_RESTORE_ENV } = await import("../src/db");
+    const {
+      __quarantineOrphanLegacyWholeDbPhysForTest,
+      importRecoveryDir,
+    } = await import("../src/importBook");
+    const prev = process.env[WHOLE_DB_PHYS_RESTORE_ENV];
+    delete process.env[WHOLE_DB_PHYS_RESTORE_ENV];
+    let refused = false;
+    try {
+      await replaceSqliteFromPhysicalBackup("/tmp/molan-e2e-missing.sqlite.phys");
+    } catch (e) {
+      refused = /弃用|quarantine:legacy-phys|ALLOW_WHOLE_DB/.test(
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+    check("E2E P12 整库 phys 恢复默认拒绝", refused);
+    if (prev === undefined) delete process.env[WHOLE_DB_PHYS_RESTORE_ENV];
+    else process.env[WHOLE_DB_PHYS_RESTORE_ENV] = prev;
+
+    const rec = importRecoveryDir();
+    fs.mkdirSync(rec, { recursive: true });
+    const orphanId = `e2e-orphan-${Date.now()}`;
+    const orphanPath = path.join(rec, `${orphanId}.sqlite.phys`);
+    fs.writeFileSync(orphanPath, "not-sqlite");
+    const q = __quarantineOrphanLegacyWholeDbPhysForTest(rec);
+    check(
+      "E2E P12 孤儿整库 phys 隔离",
+      q.quarantined.includes(orphanId) && !fs.existsSync(orphanPath),
+      JSON.stringify(q),
+    );
+  }
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

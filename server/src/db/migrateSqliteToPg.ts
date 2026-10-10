@@ -2,8 +2,13 @@
  * SQLite → native Postgres data migration (opt-in tooling).
  * Default product path remains SQLite; this does not change boot driver.
  *
- * CLI: npm run migrate:sqlite-to-pg -- [--dry-run] [--force] [--sqlite path]
+ * CLI: npm run migrate:sqlite-to-pg -- [--dry-run] [--sync|--force] [--sqlite path]
  * Requires DATABASE_URL. Target schema is applied via createNativePostgresClient.
+ *
+ * Re-run safety (phase12):
+ *   --sync (or --force) → ON CONFLICT DO UPDATE upsert; safe to repeat.
+ *   Without --sync, target with existing books → refuse.
+ *   Does NOT delete PG rows missing from SQLite (one-way upsert, no prune).
  */
 import fs from "node:fs";
 import Database from "better-sqlite3";
@@ -33,10 +38,15 @@ export type MigrateSqliteToPgOptions = {
   /** When true, only count / plan — no writes to Postgres. */
   dryRun?: boolean;
   /**
-   * When target already has book rows (or non-empty primary tables), refuse unless force.
-   * With force: ON CONFLICT DO UPDATE for primary key.
+   * When target already has book rows, refuse unless force/sync.
+   * With force: ON CONFLICT DO UPDATE (legacy alias of sync).
    */
   force?: boolean;
+  /**
+   * Idempotent re-run / incremental upsert (phase12).
+   * Same SQL as force: ON CONFLICT DO UPDATE. Preferred flag for repeat sync.
+   */
+  sync?: boolean;
   /** Injected PG client (tests); caller still owns close unless we opened it. */
   pgClient?: NativePgDbClient;
 };
@@ -44,6 +54,8 @@ export type MigrateSqliteToPgOptions = {
 export type MigrateSqliteToPgResult = {
   dryRun: boolean;
   forced: boolean;
+  /** True when --sync or --force enabled upsert mode. */
+  synced: boolean;
   sqlitePath: string;
   tables: Record<string, { source: number; written: number }>;
   refused?: string;
@@ -82,7 +94,9 @@ function countPg(pg: NativePgDbClient, table: string): number {
  */
 export async function migrateSqliteToPg(opts: MigrateSqliteToPgOptions): Promise<MigrateSqliteToPgResult> {
   const dryRun = !!opts.dryRun;
-  const forced = !!opts.force;
+  /** Upsert mode: --sync or legacy --force */
+  const synced = !!(opts.sync || opts.force);
+  const forced = synced; // keep field for older callers/tests
   if (!fs.existsSync(opts.sqlitePath)) {
     throw new Error(`SQLite 源不存在: ${opts.sqlitePath}`);
   }
@@ -99,13 +113,14 @@ export async function migrateSqliteToPg(opts: MigrateSqliteToPgOptions): Promise
     }
 
     const bookCount = countPg(pg, "books");
-    if (bookCount > 0 && !forced && !dryRun) {
+    if (bookCount > 0 && !synced && !dryRun) {
       return {
         dryRun,
         forced,
+        synced,
         sqlitePath: opts.sqlitePath,
         tables: {},
-        refused: `目标 Postgres 已有 ${bookCount} 本书；请加 --force 覆盖同主键，或换空库`,
+        refused: `目标 Postgres 已有 ${bookCount} 本书；请加 --sync（或 --force）做幂等 upsert，或换空库`,
         openedPg,
       };
     }
@@ -140,7 +155,7 @@ export async function migrateSqliteToPg(opts: MigrateSqliteToPgOptions): Promise
         .filter((c) => c !== pk)
         .map((c) => `${c} = EXCLUDED.${c}`)
         .join(", ");
-      const sql = forced
+      const sql = synced
         ? `INSERT INTO ${table} (${colList}) VALUES (${placeholders})
            ON CONFLICT (${pk}) DO UPDATE SET ${updates || `${pk} = EXCLUDED.${pk}`}`
         : `INSERT INTO ${table} (${colList}) VALUES (${placeholders})
@@ -188,7 +203,7 @@ export async function migrateSqliteToPg(opts: MigrateSqliteToPgOptions): Promise
       }
     }
 
-    return { dryRun, forced, sqlitePath: opts.sqlitePath, tables, openedPg };
+    return { dryRun, forced, synced, sqlitePath: opts.sqlitePath, tables, openedPg };
   } finally {
     sqlite.close();
     if (openedPg && pg) {

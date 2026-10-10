@@ -65,26 +65,36 @@ MOLAN_LEASE_DATABASE_URL=postgres://molan:molan@127.0.0.1:5432/molan_lease \
 - 逻辑回滚成功或导入成功后清除。
 - 逻辑 JSON 仍优先；无 JSON 时才走物理按书恢复。
 
-### 遗留：整库 `.sqlite.phys`（阶段 9 → 阶段 11 收紧）
+### 遗留：整库 `.sqlite.phys`（阶段 9 → 11 → 12 弃用）
 
 - 新写入不再生成整库副本（阶段 10 起为按书 `.book.phys.sqlite`）。
 - 启动若仍发现 `<bookId>.sqlite.phys` + `.phys.pending`：
   1. **优先转换**为按书 dump，再 `restoreBookSnapshot`（**不动其他书**）；
   2. 无法抽出该书 → **拒绝**整库替换，并将遗留文件移入 `data/import-recovery/legacy-quarantine/`；
   3. **不会**再自动 `replaceSqliteFromPhysicalBackup`（避免静默覆盖同库其他书）。
-- 手写灾难恢复仍可用 `replaceSqliteFromPhysicalBackup`（仅脚本/人工，不走启动自动路径）。
+- **阶段 12**：`replaceSqliteFromPhysicalBackup` **默认拒绝**；仅当 `MOLAN_ALLOW_WHOLE_DB_PHYS_RESTORE=1` 时允许（灾难脚本）。
+- 清理遗留整库文件：
 
-### SQLite → 原生 Postgres 迁移（阶段 11）
+```bash
+npm run quarantine:legacy-phys
+npm run quarantine:legacy-phys -- --dir /path/to/import-recovery
+```
+
+### SQLite → 原生 Postgres 迁移（阶段 11 → 12 幂等）
 
 ```bash
 DATABASE_URL=postgres://user:pass@127.0.0.1:5432/molan \
   npm run migrate:sqlite-to-pg -- --dry-run
+# 首次或重复同步（幂等 upsert，可反复跑）：
 DATABASE_URL=postgres://user:pass@127.0.0.1:5432/molan \
-  npm run migrate:sqlite-to-pg -- --force   # 目标已有书时需显式 force
+  npm run migrate:sqlite-to-pg -- --sync
+# --force 为 --sync 的别名（兼容阶段 11）
 ```
 
 - 默认读 `MOLAN_SQLITE_PATH` 或 `data/changjuan.sqlite`；`--sqlite <path>` 可覆盖。
-- 目标已有 `books` 且未 `--force` → 拒绝迁移（防误覆盖）。
+- 目标已有 `books` 且未 `--sync`/`--force` → 拒绝迁移（防误覆盖）。
+- `--sync`：`ON CONFLICT DO UPDATE`，**可重复执行**；SQLite 侧改动会 upsert 进 PG。
+- **不做 prune**：PG 上有、SQLite 已删的行不会自动删除（单向同步）。
 - 迁移**不会**自动改 boot 驱动；迁完后自行 `MOLAN_NATIVE_PG=1` 启动。
 - Markdown `data/books/` 布局不变，无需随库迁移。
 

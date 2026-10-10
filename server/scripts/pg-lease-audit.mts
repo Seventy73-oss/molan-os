@@ -281,6 +281,46 @@ async function main() {
     try {
       const row = verify.get<{ title: string }>("SELECT title FROM books WHERE id = ?", [bookId]);
       check("P11 migrate 后 PG 可读书名", row?.title === "migrate-smoke", String(row?.title));
+
+      // Phase12: refuse without sync when books exist
+      const refused = await migrateSqliteToPg({
+        sqlitePath: tmpSqlite,
+        databaseUrl: url,
+        pgClient: verify,
+      });
+      check(
+        "P12 migrate 无 sync 时拒绝非空目标",
+        !!refused.refused && /--sync|--force/.test(refused.refused || ""),
+        refused.refused,
+      );
+
+      // Mutate sqlite title and --sync upsert again
+      const src2 = new Database(tmpSqlite);
+      src2.prepare("UPDATE books SET title = ? WHERE id = ?").run("migrate-resync", bookId);
+      src2.close();
+      const syncResult = await migrateSqliteToPg({
+        sqlitePath: tmpSqlite,
+        databaseUrl: url,
+        sync: true,
+        pgClient: verify,
+      });
+      check(
+        "P12 migrate --sync 幂等写入",
+        !syncResult.refused && syncResult.synced === true && (syncResult.tables.books?.written ?? 0) >= 1,
+        JSON.stringify(syncResult.tables.books),
+      );
+      const row2 = verify.get<{ title: string }>("SELECT title FROM books WHERE id = ?", [bookId]);
+      check("P12 sync 后书名已更新", row2?.title === "migrate-resync", String(row2?.title));
+
+      // Second sync with same data still ok
+      const sync2 = await migrateSqliteToPg({
+        sqlitePath: tmpSqlite,
+        databaseUrl: url,
+        sync: true,
+        pgClient: verify,
+      });
+      check("P12 二次 sync 不拒绝", !sync2.refused && sync2.synced === true, JSON.stringify(sync2.tables.books));
+
       verify.run("DELETE FROM books WHERE id = ?", [bookId]);
     } finally {
       await verify.close();

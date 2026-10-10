@@ -2,10 +2,13 @@
  * CLI: migrate local SQLite → native Postgres.
  *
  *   DATABASE_URL=postgres://... npm run migrate:sqlite-to-pg -- --dry-run
- *   DATABASE_URL=postgres://... npm run migrate:sqlite-to-pg -- --force
+ *   DATABASE_URL=postgres://... npm run migrate:sqlite-to-pg -- --sync
+ *   DATABASE_URL=postgres://... npm run migrate:sqlite-to-pg -- --force   # alias of --sync
  *   DATABASE_URL=postgres://... npm run migrate:sqlite-to-pg -- --sqlite /path/to.sqlite
  *
- * Does not enable MOLAN_NATIVE_PG; after success, start with MOLAN_NATIVE_PG=1.
+ * --sync / --force: idempotent upsert (ON CONFLICT DO UPDATE); safe to re-run.
+ * Without --sync, target with existing books → refuse.
+ * Does not delete PG-only orphans; does not enable MOLAN_NATIVE_PG.
  * Markdown under data/books/ is unchanged (shared layout).
  */
 import path from "node:path";
@@ -14,6 +17,7 @@ import { countSqliteMigrateTables, migrateSqliteToPg } from "../src/db/migrateSq
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run") || args.includes("-n");
+const sync = args.includes("--sync") || args.includes("--force") || args.includes("-f");
 const force = args.includes("--force") || args.includes("-f");
 const sqliteIdx = args.findIndex((a) => a === "--sqlite" || a === "-s");
 const sqlitePath =
@@ -29,7 +33,7 @@ async function main() {
   }
   console.log(`[migrate] source sqlite=${sqlitePath}`);
   console.log(`[migrate] target=${databaseUrl.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@")}`);
-  console.log(`[migrate] dryRun=${dryRun} force=${force}`);
+  console.log(`[migrate] dryRun=${dryRun} sync=${sync} force=${force}`);
 
   const counts = countSqliteMigrateTables(sqlitePath);
   console.log("[migrate] source row counts:", counts);
@@ -38,6 +42,7 @@ async function main() {
     sqlitePath,
     databaseUrl,
     dryRun,
+    sync,
     force,
   });
 
@@ -52,6 +57,11 @@ async function main() {
   }
   if (dryRun) {
     console.log("[migrate] dry-run complete — no Postgres writes");
+  } else if (result.synced) {
+    console.log(
+      "[migrate] sync upsert done (re-run safe). 启用原生驱动：MOLAN_NATIVE_PG=1 DATABASE_URL=... npm run dev:server",
+    );
+    console.log("[migrate] note: PG-only rows not in SQLite are left untouched (no prune)");
   } else {
     console.log(
       "[migrate] done. 启用原生驱动：MOLAN_NATIVE_PG=1 DATABASE_URL=... npm run dev:server",

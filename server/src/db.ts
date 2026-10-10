@@ -455,13 +455,31 @@ export async function initDb(): Promise<DbClient> {
 }
 
 
+/** Env gate for deprecated whole-DB physical restore (phase12). Default: refused. */
+export const WHOLE_DB_PHYS_RESTORE_ENV = "MOLAN_ALLOW_WHOLE_DB_PHYS_RESTORE";
+
+export function wholeDbPhysRestoreAllowed(): boolean {
+  return process.env[WHOLE_DB_PHYS_RESTORE_ENV] === "1";
+}
+
 /**
  * Close live SQLite (if open), replace DB file from a physical backup, reopen.
  * Phase11+: NOT used by automatic import recovery (would nuke other books).
- * Kept for manual disaster scripts / explicit operator use only.
- * Auto path: convert legacy `.sqlite.phys` → per-book dump, or refuse.
+ * Phase12: DEPRECATED for scripts — refused unless MOLAN_ALLOW_WHOLE_DB_PHYS_RESTORE=1.
+ * Prefer: convertLegacyWholeDbPhysToPerBook / quarantineOrphanLegacyWholeDbPhys /
+ *   npm run quarantine:legacy-phys
  */
 export async function replaceSqliteFromPhysicalBackup(backupDbPath: string): Promise<string> {
+  if (!wholeDbPhysRestoreAllowed()) {
+    throw new Error(
+      `整库物理恢复已弃用（会覆盖同库其他书）。` +
+        `请用按书备份 .book.phys.sqlite，或 npm run quarantine:legacy-phys 隔离遗留 .sqlite.phys。` +
+        `确需整库替换时显式设置 ${WHOLE_DB_PHYS_RESTORE_ENV}=1（仅灾难脚本）。`,
+    );
+  }
+  console.warn(
+    `[db] WARNING: whole-DB physical restore enabled via ${WHOLE_DB_PHYS_RESTORE_ENV}=1 — other books in the live DB will be overwritten`,
+  );
   const target = resolveSqliteFilePath();
   if (_db?.driver === "sqlite") {
     await _db.close();

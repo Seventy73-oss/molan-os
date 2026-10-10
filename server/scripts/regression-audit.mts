@@ -272,7 +272,7 @@ z.close()
   );
 
   // Phase11: legacy path + migrate tooling (sqlite-side, no PG required)
-  const { legacyWholeDbPhysPath } = await import("../src/importBook");
+  const { legacyWholeDbPhysPath, quarantineOrphanLegacyWholeDbPhys } = await import("../src/importBook");
   const { MIGRATE_TABLE_ORDER, countSqliteMigrateTables } = await import("../src/db/migrateSqliteToPg");
   check(
     "P11 遗留整库路径仍可识别",
@@ -290,6 +290,56 @@ z.close()
     typeof counts.books === "number" && counts.books >= 0,
     JSON.stringify(counts),
   );
+
+  // Phase12: whole-DB restore gate + orphan quarantine + sync flag semantics
+  const {
+    replaceSqliteFromPhysicalBackup,
+    wholeDbPhysRestoreAllowed,
+    WHOLE_DB_PHYS_RESTORE_ENV,
+  } = await import("../src/db");
+  const prevAllow = process.env[WHOLE_DB_PHYS_RESTORE_ENV];
+  delete process.env[WHOLE_DB_PHYS_RESTORE_ENV];
+  check("P12 默认禁止整库 phys 恢复", wholeDbPhysRestoreAllowed() === false);
+  let refusedWhole = false;
+  let refuseMsg = "";
+  try {
+    await replaceSqliteFromPhysicalBackup("/tmp/does-not-exist-molan.sqlite.phys");
+  } catch (e) {
+    refusedWhole = true;
+    refuseMsg = e instanceof Error ? e.message : String(e);
+  }
+  check(
+    "P12 replaceSqlite 无开关时拒绝",
+    refusedWhole && /弃用|ALLOW_WHOLE_DB|quarantine:legacy-phys/.test(refuseMsg),
+    refuseMsg.slice(0, 120),
+  );
+  process.env[WHOLE_DB_PHYS_RESTORE_ENV] = "1";
+  check("P12 显式开关允许整库恢复标记", wholeDbPhysRestoreAllowed() === true);
+  if (prevAllow === undefined) delete process.env[WHOLE_DB_PHYS_RESTORE_ENV];
+  else process.env[WHOLE_DB_PHYS_RESTORE_ENV] = prevAllow;
+
+  const qDir = path.join(os.tmpdir(), `molan-qphys-${Date.now()}`);
+  fs.mkdirSync(qDir, { recursive: true });
+  const orphanPhys = path.join(qDir, "orphan-book.sqlite.phys");
+  // minimal invalid sqlite so convert fails → quarantine
+  fs.writeFileSync(orphanPhys, "not-a-sqlite-db");
+  const qres = quarantineOrphanLegacyWholeDbPhys(qDir);
+  check(
+    "P12 孤儿整库 phys 被扫描",
+    qres.scanned.some((p) => p.endsWith("orphan-book.sqlite.phys")),
+    JSON.stringify(qres),
+  );
+  check(
+    "P12 无法转换则隔离",
+    qres.quarantined.includes("orphan-book") && !fs.existsSync(orphanPhys),
+    JSON.stringify(qres),
+  );
+  // cleanup quarantine under qDir/legacy-quarantine
+  try {
+    fs.rmSync(qDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

@@ -51,4 +51,4 @@ npm run quarantine:legacy-phys
 - `docs/STORAGE_LEASE.md` — sync / quarantine
 - `docs/PI_RUNTIME.md` / `docs/LIVE_MODEL.md` — 产品选择未变
 
-本阶段代码 `f1fb053`；文档链至 HEAD `f1fb053`。
+本阶段代码 `f1fb053`；文档链至 HEAD `5b12c48`。

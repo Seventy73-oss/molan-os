@@ -273,7 +273,7 @@ fn read_cache(conn: &rusqlite::Connection) -> AppResult<Option<Value>> {
 }
 
 pub async fn refresh_models(db: &Db, _force: bool) -> AppResult<Value> {
-    use crate::outbound::{SecureFetchOptions, secure_fetch};
+    use crate::outbound::{MODEL_FETCH_RETRIES, MODEL_FETCH_RETRY_BACKOFF_MS, SecureFetchOptions, secure_fetch};
     use crate::security::redact_secrets;
     use reqwest::Method;
 
@@ -312,6 +312,8 @@ pub async fn refresh_models(db: &Db, _force: bool) -> AppResult<Value> {
             body: None,
             with_api_key: Some(true),
             timeout_ms: 15_000,
+            retries: MODEL_FETCH_RETRIES,
+            retry_backoff_ms: MODEL_FETCH_RETRY_BACKOFF_MS,
         },
     )
     .await
@@ -386,7 +388,7 @@ pub async fn refresh_models(db: &Db, _force: bool) -> AppResult<Value> {
 }
 
 pub async fn test_provider(db: &Db, input: &Value) -> AppResult<Value> {
-    use crate::outbound::{SecureFetchOptions, secure_fetch};
+    use crate::outbound::{MODEL_FETCH_RETRIES, MODEL_FETCH_RETRY_BACKOFF_MS, SecureFetchOptions, secure_fetch};
     use crate::security::{assert_safe_base_url, assert_safe_base_url_resolved, redact_secrets};
     use reqwest::Method;
 
@@ -461,6 +463,8 @@ pub async fn test_provider(db: &Db, input: &Value) -> AppResult<Value> {
             body: Some(body.to_string()),
             with_api_key: Some(true),
             timeout_ms: 12_000,
+            retries: MODEL_FETCH_RETRIES,
+            retry_backoff_ms: MODEL_FETCH_RETRY_BACKOFF_MS,
         },
     )
     .await

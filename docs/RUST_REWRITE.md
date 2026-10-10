@@ -143,3 +143,8 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 - chat/stream 在 local-draft 下仍是「先完整 `chat()` 再 chunk 吐字」（与 Node 同构）；真流式只在 OpenAI 兼容适配器路径。
 - catch-all 未列接口仍 **501** + 中文说明，避免静默假成功。
 - Node 专有：SQLite→PG 迁移工具、PGlite worker 开关等 **不在** Rust 范围。
+
+## 出站自动重试（与 Node 对齐）
+
+`secure_fetch` 支持 `retries` / `retry_backoff_ms`：模型调用与 provider 探测默认 `MODEL_FETCH_RETRIES=2`，仅网络/5xx；4xx/取消不重试，失败不降本地。
+

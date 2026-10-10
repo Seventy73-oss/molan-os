@@ -2,7 +2,7 @@
 
 use crate::agent::{RunInput, RunOutput, Usage, throw_if_cancelled};
 use crate::error::{AppError, AppResult};
-use crate::outbound::{SecureFetchOptions, secure_fetch};
+use crate::outbound::{MODEL_FETCH_RETRIES, MODEL_FETCH_RETRY_BACKOFF_MS, SecureFetchOptions, secure_fetch};
 use crate::security::redact_secrets;
 use crate::thinking::{
     max_tokens_hint, model_likely_supports_reasoning, reasoning_effort_for_model, temperature_of,
@@ -144,6 +144,8 @@ impl OpenAiCompatibleAdapter {
                 body: Some(body.to_string()),
                 with_api_key: Some(true),
                 timeout_ms: 120_000,
+                retries: MODEL_FETCH_RETRIES,
+                retry_backoff_ms: MODEL_FETCH_RETRY_BACKOFF_MS,
             },
         )
         .await
@@ -205,6 +207,8 @@ impl OpenAiCompatibleAdapter {
                 body: Some(body.to_string()),
                 with_api_key: Some(true),
                 timeout_ms: 120_000,
+                retries: MODEL_FETCH_RETRIES,
+                retry_backoff_ms: MODEL_FETCH_RETRY_BACKOFF_MS,
             },
         )
         .await

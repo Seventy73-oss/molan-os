@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { secureFetch } from "./outbound";
+import { MODEL_FETCH_RETRIES, MODEL_FETCH_RETRY_BACKOFF_MS, secureFetch } from "./outbound";
 import {
   assertSafeBaseUrl,
   assertSafeBaseUrlResolved,
@@ -246,6 +246,8 @@ export async function refreshModels(force = true): Promise<ModelsList> {
       headers: { Authorization: `Bearer ${apiKey}` },
       withApiKey: Boolean(apiKey),
       timeoutMs: 15_000,
+      retries: MODEL_FETCH_RETRIES,
+      retryBackoffMs: MODEL_FETCH_RETRY_BACKOFF_MS,
     });
     if (!response.ok) {
       const detail = redact(await response.text());
@@ -339,6 +341,8 @@ export async function testProvider(input: { baseUrl?: unknown; apiKey?: unknown;
       }),
       withApiKey: Boolean(apiKey),
       timeoutMs: 12_000,
+      retries: MODEL_FETCH_RETRIES,
+      retryBackoffMs: MODEL_FETCH_RETRY_BACKOFF_MS,
     });
     if (!response.ok) {
       const detail = redact(await response.text());

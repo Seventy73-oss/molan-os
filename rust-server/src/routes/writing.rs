@@ -98,6 +98,7 @@ pub async fn post_scene_run(
             job_id: None,
             source_revision_id: None,
             tools_requested: body_tools_requested(&body),
+            skip_persist: false,
         },
     )
     .await?;
@@ -197,6 +198,7 @@ pub async fn post_scene_run_stream(
         job_id: None,
             source_revision_id: None,
             tools_requested: body_tools_requested(&body),
+            skip_persist: false,
         };
 
     tokio::spawn(async move {

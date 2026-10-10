@@ -333,6 +333,8 @@ pub fn save_revision(db: &Db, mut input: SaveRevisionInput) -> AppResult<Value> 
     })?;
 
     // After chapter body is saved/generated, quietly refresh chapter memory ledger.
+    // G2: if chapter already has an active publication, formal memory is owned by
+    // finalize → proposal → accept; draft saves must not rewrite formal memory.
     if !input.skip_memory
         && !input.as_candidate
         && input.kind == "chapter_body"
@@ -344,7 +346,17 @@ pub fn save_revision(db: &Db, mut input: SaveRevisionInput) -> AppResult<Value> 
             .get("current")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if current {
+        let chapter_number = input.chapter_number.unwrap();
+        let has_pub = db
+            .with_conn(|conn| {
+                Ok(crate::services::story::chapter_has_active_publication(
+                    conn,
+                    &input.book_id,
+                    chapter_number,
+                ))
+            })
+            .unwrap_or(false);
+        if current && !has_pub {
             let rid = saved
                 .get("revisionId")
                 .and_then(|v| v.as_str())
@@ -352,7 +364,7 @@ pub fn save_revision(db: &Db, mut input: SaveRevisionInput) -> AppResult<Value> 
             crate::services::memory::schedule_memory_extract(
                 db.clone(),
                 input.book_id.clone(),
-                input.chapter_number.unwrap(),
+                chapter_number,
                 rid,
             );
         }

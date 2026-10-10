@@ -25,6 +25,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 const MODE_LEGACY_CURRENT: &str = "legacy_current";
+const MODE_PUBLISHED: &str = "published_only";
 
 #[derive(Debug, Clone)]
 pub struct BuiltContext {
@@ -95,15 +96,17 @@ pub fn format_memories_for_context(
     let mut stmt = conn.prepare(
         r#"SELECT c.number AS number, c.title AS title, r.body AS body,
                   r.id AS memory_revision_id, r.source_revision_id AS source_revision_id,
-                  body_a.current_revision_id AS body_current_id
+                  body_a.current_revision_id AS body_current_id,
+                  pub.body_revision_id AS published_body_id
            FROM chapters c
            JOIN artifacts a ON a.book_id = c.book_id AND a.chapter_id = c.id AND a.kind = 'chapter_memory'
            JOIN artifact_revisions r ON r.id = a.current_revision_id
            LEFT JOIN artifacts body_a ON body_a.book_id = c.book_id AND body_a.chapter_id = c.id AND body_a.kind = 'chapter_body'
+           LEFT JOIN chapter_publications pub ON pub.book_id = c.book_id AND pub.chapter_id = c.id AND pub.status = 'active'
            WHERE c.book_id = ?1 AND c.number < ?2
            ORDER BY c.number"#,
     )?;
-    let rows: Vec<(i64, String, String, String, Option<String>, Option<String>)> = stmt
+    let rows: Vec<(i64, String, String, String, Option<String>, Option<String>, Option<String>)> = stmt
         .query_map(params![book_id, before], |r| {
             Ok((
                 r.get(0)?,
@@ -112,6 +115,7 @@ pub fn format_memories_for_context(
                 r.get(3)?,
                 r.get(4)?,
                 r.get(5)?,
+                r.get(6)?,
             ))
         })?
         .collect::<Result<_, _>>()?;
@@ -119,12 +123,21 @@ pub fn format_memories_for_context(
     let mut lines = Vec::new();
     let mut included = Vec::new();
     let mut excluded = Vec::new();
-    for (number, title, body, mem_rev, source_rev, body_current) in rows {
+    for (number, title, body, mem_rev, source_rev, body_current, published_body) in rows {
         if body.trim().is_empty() {
             continue;
         }
         let source = source_rev.unwrap_or_default();
         if source.is_empty() {
+            if published_body.is_some() {
+                excluded.push(json!({
+                    "kind": "chapter_summary",
+                    "sourceId": mem_rev,
+                    "chapterNumber": number,
+                    "reason": "legacy_excluded_under_publication",
+                }));
+                continue;
+            }
             lines.push(format!("第{number}章《{title}》〔legacy_current〕\n{body}"));
             included.push(json!({
                 "kind": "chapter_summary",
@@ -135,15 +148,22 @@ pub fn format_memories_for_context(
             }));
             continue;
         }
-        let body_ok = body_current.as_deref() == Some(source.as_str());
+        let target = published_body.as_ref().or(body_current.as_ref());
+        let body_ok = target.map(|s| s.as_str()) == Some(source.as_str());
         if body_ok {
+            let reason = if published_body.is_some() {
+                "previous_publication"
+            } else {
+                "source_matched"
+            };
             lines.push(format!("第{number}章《{title}》\n{body}"));
             included.push(json!({
                 "kind": "chapter_summary",
                 "sourceId": mem_rev,
                 "sourceRevisionId": source,
                 "chapterNumber": number,
-                "reason": "source_matched",
+                "reason": reason,
+                "mode": if published_body.is_some() { MODE_PUBLISHED } else { MODE_LEGACY_CURRENT },
             }));
         } else {
             excluded.push(json!({
@@ -151,12 +171,13 @@ pub fn format_memories_for_context(
                 "sourceId": mem_rev,
                 "sourceRevisionId": source,
                 "bodyCurrentId": body_current,
+                "publishedBodyId": published_body,
                 "chapterNumber": number,
                 "reason": "superseded_source",
             }));
         }
     }
-    Ok((lines.join("\n\n"), included, excluded))
+Ok((lines.join("\n\n"), included, excluded))
 }
 
 pub fn format_open_hooks_bundle(
@@ -219,6 +240,16 @@ pub fn build_context_bundle(
     generation_id: Option<&str>,
     persist: bool,
 ) -> AppResult<BuiltContext> {
+    let mode = db.with_conn(|conn| {
+        must_book(conn, book_id)?;
+        Ok(
+            if crate::services::story::book_has_any_publication(conn, book_id) {
+                MODE_PUBLISHED.to_string()
+            } else {
+                MODE_LEGACY_CURRENT.to_string()
+            },
+        )
+    })?;
     let (bible, bible_inc) = db.with_conn(|conn| {
         must_book(conn, book_id)?;
         format_bible_for_context(conn, book_id)
@@ -310,7 +341,7 @@ pub fn build_context_bundle(
     included.extend(mem_inc);
     included.extend(hook_inc);
     let manifest = json!({
-        "mode": MODE_LEGACY_CURRENT,
+        "mode": mode,
         "chapterNumber": chapter_number,
         "scene": scene,
         "included": included,
@@ -321,7 +352,7 @@ pub fn build_context_bundle(
             "memories": if memories.trim().is_empty() { 0 } else { memories.split("\n\n").filter(|s| !s.trim().is_empty()).count() },
             "openHooks": hooks_text.lines().filter(|l| !l.is_empty()).count(),
         },
-        "note": "G1 legacy_current：尚无正式定稿协议；记忆仅在 source_revision 匹配正文 current 或无来源时注入",
+        "note": "G2：有活跃定稿时按 publication 匹配记忆；否则 legacy_current",
     });
 
     let snapshot_id = Uuid::new_v4().to_string();
@@ -341,7 +372,7 @@ pub fn build_context_bundle(
                     book_id,
                     scene_s,
                     chapter_number,
-                    MODE_LEGACY_CURRENT,
+                    mode,
                     text,
                     rendered_hash,
                     manifest_s,
@@ -356,7 +387,7 @@ pub fn build_context_bundle(
     Ok(BuiltContext {
         text,
         snapshot_id,
-        mode: MODE_LEGACY_CURRENT.into(),
+        mode: mode.clone(),
         missing,
         manifest,
     })

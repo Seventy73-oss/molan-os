@@ -343,6 +343,8 @@ pub struct ExecuteSceneInput {
     pub source_revision_id: Option<String>,
     /// Refuse under pi when tools/autonomous requested.
     pub tools_requested: bool,
+    /// When true, run model but do not save artifact revision (G2 proposal extract).
+    pub skip_persist: bool,
 }
 
 pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value> {
@@ -460,7 +462,16 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
         })?;
     }
 
-    let saved = if let Some(k) = kind {
+    let saved = if input.skip_persist {
+        Some(json!({
+            "kind": kind.unwrap_or(""),
+            "revisionId": null,
+            "current": false,
+            "persisted": false,
+            "text": result.text,
+            "model": result.model_used,
+        }))
+    } else if let Some(k) = kind {
         let source = if as_candidate_now
             && generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled)
         {
@@ -742,6 +753,7 @@ pub async fn chat(
                 job_id: None,
             source_revision_id: None,
             tools_requested: false,
+            skip_persist: false,
         },
         )
         .await
@@ -1090,7 +1102,16 @@ pub async fn stream_scene_run(
         })?;
     }
 
-    let saved = if let Some(k) = kind {
+    let saved = if input.skip_persist {
+        Some(json!({
+            "kind": kind.unwrap_or(""),
+            "revisionId": null,
+            "current": false,
+            "persisted": false,
+            "text": result.text,
+            "model": result.model_used,
+        }))
+    } else if let Some(k) = kind {
         Some(save_revision(
             db,
             SaveRevisionInput {

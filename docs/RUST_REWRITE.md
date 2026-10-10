@@ -148,3 +148,8 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 
 `secure_fetch` 支持 `retries` / `retry_backoff_ms`：模型调用与 provider 探测默认 `MODEL_FETCH_RETRIES=2`，网络与 HTTP 4xx/5xx（含 400/401/403/429）有限重试；取消/Abort 不重试，失败不降本地。
 
+
+
+## G2 StoryLedger
+
+定稿指针 / 记忆提案 / epoch·幂等 / 替换失效已落地，见 `docs/AUDIT_PHASE_G2_STORY.md`。

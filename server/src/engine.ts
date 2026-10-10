@@ -468,6 +468,8 @@ export function saveRevision(input: {
   skillIds: string[];
   scene: string | null;
   skipMemory?: boolean;
+  /** G2: run model but do not save artifact (proposal extract). */
+  skipPersist?: boolean;
   /** Optimistic concurrency: must match current revision id (or null if none). */
   expectedRevisionId?: string | null;
   /** When true (or returns true at commit time), insert revision but do not set as current (candidate / late AI). */
@@ -591,7 +593,17 @@ export function saveRevision(input: {
       input.model !== "import" &&
       !input.skipMemory
     ) {
-      scheduleMemoryExtract(input.bookId, chapterNumber, saved.revisionId);
+      // G2: formal memory owned by finalize→proposal→accept once published.
+      const hasPub = db
+        .prepare(
+          `SELECT 1 AS ok FROM chapter_publications p
+           JOIN chapters c ON c.id = p.chapter_id
+           WHERE p.book_id = ? AND c.number = ? AND p.status = 'active'`,
+        )
+        .get(input.bookId, chapterNumber) as { ok: number } | undefined;
+      if (!hasPub) {
+        scheduleMemoryExtract(input.bookId, chapterNumber, saved.revisionId);
+      }
     }
   }
   return {
@@ -825,6 +837,9 @@ export async function executeScene(input: {
   onConflict?: "throw" | "candidate";
   generationId?: string | null;
   signal?: AbortSignal;
+  skipMemory?: boolean;
+  /** G2: run model but do not save artifact (proposal extract). */
+  skipPersist?: boolean;
 }) {
   mustBook(input.bookId);
   const needsChapter = input.scene === "chapter_outline" || input.scene === "chapter_body" || input.scene === "review" || input.scene === "humanize" || input.scene === "memory_extract";
@@ -909,7 +924,9 @@ export async function executeScene(input: {
     return Boolean(input.asCandidate);
   };
   const asCandidateNow = cancelCandidate();
-  const saved = kind
+  const saved = input.skipPersist
+    ? null
+    : kind
     ? saveRevision({
         bookId: input.bookId,
         kind,

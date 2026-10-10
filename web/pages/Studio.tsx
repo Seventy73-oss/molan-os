@@ -164,6 +164,16 @@ export function Studio() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
   const [contextHint, setContextHint] = useState<{ missing: string[]; counts: { bibleCards: number; memories: number; openHooks: number } } | null>(null);
+  const [storyStatus, setStoryStatus] = useState<{
+    chapterId: string;
+    storyEpoch: number;
+    currentRevisionId: string | null;
+    publication: null | { id: string; bodyRevisionId: string; memoryState: string; publicationVersion: number };
+    draftDivergesFromPublication: boolean;
+    openProposal: null | { id: string; status: string };
+    mode: string;
+  } | null>(null);
+  const [storyBusy, setStoryBusy] = useState(false);
   const [chatText, setChatText] = useState("");
   const [busy, setBusy] = useState<"" | "chat" | "assist">("");
   const [error, setError] = useState("");
@@ -395,6 +405,18 @@ export function Studio() {
       .catch(() => {
         if (!cancelled) setContextHint(null);
       });
+    if (chapter) {
+      api
+        .storyStatus(data.book.id, chapter)
+        .then((res) => {
+          if (!cancelled) setStoryStatus(res);
+        })
+        .catch(() => {
+          if (!cancelled) setStoryStatus(null);
+        });
+    } else {
+      setStoryStatus(null);
+    }
     return () => {
       cancelled = true;
     };
@@ -492,6 +514,65 @@ export function Studio() {
   function release() {
     busyRef.current = false;
     setBusy("");
+  }
+
+
+  async function finalizeCurrentChapter() {
+    if (!data || !doc.chapterNumber || doc.kind !== "chapter_body") return;
+    const chapter = data.chapters.find((c) => c.number === doc.chapterNumber);
+    const art = data.artifacts.find(
+      (a) => a.kind === "chapter_body" && a.chapterNumber === doc.chapterNumber,
+    );
+    if (!chapter?.id || !art?.revisionId) {
+      setError("请先保存正文再定稿");
+      return;
+    }
+    if (dirty) {
+      setError("请先保存草稿，再定稿");
+      return;
+    }
+    setStoryBusy(true);
+    try {
+      const head = await api.storyHead(data.book.id);
+      const st = await api.storyStatus(data.book.id, doc.chapterNumber);
+      const res = await api.finalizeChapter(data.book.id, chapter.id, {
+        bodyRevisionId: art.revisionId,
+        expectedPublicationId: st.publication?.id ?? null,
+        expectedCurrentRevisionId: art.revisionId,
+        expectedStoryEpoch: head.storyEpoch,
+        idempotencyKey: `finalize:${chapter.id}:${art.revisionId}`,
+      });
+      setNotice(`已定稿 v${res.publicationId.slice(0, 8)} · 记忆待抽取/批准（epoch ${res.storyEpoch}）`);
+      const next = await api.storyStatus(data.book.id, doc.chapterNumber);
+      setStoryStatus(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "定稿失败");
+    } finally {
+      setStoryBusy(false);
+    }
+  }
+
+  async function acceptOpenProposal() {
+    if (!data || !storyStatus?.openProposal || !doc.chapterNumber) return;
+    setStoryBusy(true);
+    try {
+      const proposal = await api.getMemoryProposal(data.book.id, storyStatus.openProposal.id);
+      const res = await api.applyMemoryProposal(data.book.id, proposal.id, {
+        acceptedOperationIds: (proposal.operations || []).map((o) => o.operationId),
+        expectedSourceRevisionId: proposal.sourceRevisionId,
+        expectedStoryEpoch: storyStatus.storyEpoch,
+        idempotencyKey: `apply:${proposal.id}:all`,
+      });
+      setNotice(`已接受记忆提案 · 正式记忆已更新（epoch ${res.storyEpoch}）`);
+      const next = await api.storyStatus(data.book.id, doc.chapterNumber);
+      setStoryStatus(next);
+      const payload = await api.book(data.book.id);
+      setData(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "接受提案失败");
+    } finally {
+      setStoryBusy(false);
+    }
   }
 
   async function persist(text = draft) {
@@ -1300,6 +1381,29 @@ export function Studio() {
               {saving ? "保存中" : "保存"}
               {!saving ? <kbd>⌘S</kbd> : null}
             </button>
+            {doc.kind === "chapter_body" && doc.chapterNumber ? (
+              <button
+                type="button"
+                className="btn small"
+                disabled={storyBusy || dirty || saving}
+                title="将当前正文修订定为正式剧情（不自动改记忆，需再批准提案）"
+                onClick={() => void finalizeCurrentChapter()}
+              >
+                {storyBusy ? <Spinner /> : null}
+                定稿
+              </button>
+            ) : null}
+            {storyStatus?.openProposal ? (
+              <button
+                type="button"
+                className="btn small primary"
+                disabled={storyBusy}
+                title="接受记忆提案，写入正式前文记忆"
+                onClick={() => void acceptOpenProposal()}
+              >
+                接受记忆提案
+              </button>
+            ) : null}
           </div>
         </div>
         <article className="page-doc sheet">
@@ -1315,6 +1419,16 @@ export function Studio() {
               {words.toLocaleString("zh-CN")} 字
             </span>
             {dirty ? <span className="unsaved">未保存</span> : null}
+            {storyStatus?.draftDivergesFromPublication ? (
+              <span className="unsaved" title="草稿与正式定稿不同；正式记忆仍依据定稿，直到你再次定稿并批准记忆">
+                草稿≠定稿
+              </span>
+            ) : null}
+            {storyStatus?.publication ? (
+              <span className="sep-meta" title={`记忆状态 ${storyStatus.publication.memoryState}`}>
+                · 定稿 v{storyStatus.publication.publicationVersion} · {storyStatus.publication.memoryState}
+              </span>
+            ) : null}
           </p>
           <h1 className="doc-title">{docTitle}</h1>
           {showEmpty ? (

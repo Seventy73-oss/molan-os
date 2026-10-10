@@ -10,6 +10,7 @@ pub mod scene_routes;
 pub mod settings;
 pub mod skills;
 pub mod stubs;
+pub mod story;
 pub mod writing;
 
 use axum::{
@@ -103,6 +104,32 @@ pub fn api_router(db: Db) -> Router {
         .route("/api/books/{id}/selection-rewrite", post(writing::post_selection_rewrite))
         .route("/api/books/{id}/selection-rewrite/stream", post(writing::post_selection_rewrite_stream))
         .route("/api/books/{id}/messages", get(writing::get_messages))
+        .route("/api/books/{id}/story/head", get(story::book_head))
+        .route("/api/books/{id}/story/status", get(story::status_by_number))
+        .route(
+            "/api/books/{id}/story/chapters/{chapter_id}/finalize",
+            post(story::finalize),
+        )
+        .route(
+            "/api/books/{id}/story/chapters/{chapter_id}/status",
+            get(story::status),
+        )
+        .route(
+            "/api/books/{id}/story/memory/extract",
+            post(story::extract_memory),
+        )
+        .route(
+            "/api/books/{id}/story/memory/proposals/{proposal_id}",
+            get(story::get_proposal_route),
+        )
+        .route(
+            "/api/books/{id}/story/memory/proposals/{proposal_id}/apply",
+            post(story::apply_proposal_route),
+        )
+        .route(
+            "/api/books/{id}/story/memory/proposals/{proposal_id}/reject",
+            post(story::reject_proposal_route),
+        )
         .merge(stubs::stub_router())
         .with_state(db)
 }

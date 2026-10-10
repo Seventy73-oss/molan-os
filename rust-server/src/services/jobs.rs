@@ -311,6 +311,7 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                             job_id: Some(id.to_string()),
                         source_revision_id: None,
                         tools_requested: false,
+                        skip_persist: false,
                     },
                     )
                     .await?;
@@ -351,6 +352,7 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                         job_id: Some(id.to_string()),
                         source_revision_id: None,
                         tools_requested: false,
+                        skip_persist: false,
                     },
                 )
                 .await?;
@@ -391,6 +393,7 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                         job_id: Some(id.to_string()),
                         source_revision_id: None,
                         tools_requested: false,
+                        skip_persist: false,
                     },
                 )
                 .await?;
@@ -461,6 +464,7 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                         job_id: Some(id.to_string()),
                         source_revision_id: None,
                         tools_requested: false,
+                        skip_persist: false,
                     },
                 )
                 .await?;

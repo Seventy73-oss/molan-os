@@ -4,6 +4,7 @@ use crate::db::Db;
 use crate::error::AppResult;
 use crate::services::engine::{ExecuteSceneInput, artifact_body, execute_scene};
 use crate::services::revisions::OnConflict;
+use rusqlite::OptionalExtension;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -83,6 +84,7 @@ pub fn schedule_memory_extract(db: Db, book_id: String, chapter_number: i64, sou
                     Some(target_rev.clone())
                 },
             tools_requested: false,
+            skip_persist: false,
         },
         )
         .await;
@@ -179,4 +181,117 @@ pub async fn wait_memory_extract(db: &Db, book_id: &str, chapter_number: i64, ti
         .with_conn(|conn| Ok(artifact_body(conn, book_id, "chapter_memory", Some(chapter_number))))
         .unwrap_or_default();
     !mem.trim().is_empty() || !existing.trim().is_empty()
+}
+
+/// G2: after finalize, extract memory as a proposal (does not write chapter_memory).
+pub fn schedule_publication_memory_extract(
+    db: Db,
+    book_id: String,
+    chapter_number: i64,
+    source_revision_id: String,
+) {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        tracing::warn!("publication memory extract: no tokio runtime");
+        return;
+    };
+    handle.spawn(async move {
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        // Resolve publication id + epoch for this source revision
+        let meta = db.with_conn(|conn| {
+            let row: Option<(String, i64)> = conn
+                .query_row(
+                    r#"SELECT p.id, h.story_epoch
+                       FROM chapter_publications p
+                       JOIN chapters c ON c.id = p.chapter_id
+                       JOIN story_book_heads h ON h.book_id = p.book_id
+                       WHERE p.book_id = ?1 AND c.number = ?2 AND p.status = 'active'
+                         AND p.body_revision_id = ?3"#,
+                    rusqlite::params![book_id, chapter_number, source_revision_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            Ok(row)
+        });
+        let Ok(Some((publication_id, basis_epoch))) = meta else {
+            tracing::warn!(
+                "publication memory extract: no active publication for {book_id} ch{chapter_number}"
+            );
+            return;
+        };
+
+        let result = execute_scene(
+            &db,
+            ExecuteSceneInput {
+                book_id: book_id.clone(),
+                scene: "memory_extract".into(),
+                chapter_number: Some(chapter_number),
+                instruction: String::new(),
+                skill_ids: None,
+                expected_revision_id: None,
+                on_conflict: OnConflict::Candidate,
+                generation_id: None,
+                cancelled: None,
+                job_id: None,
+                source_revision_id: Some(source_revision_id.clone()),
+                tools_requested: false,
+                skip_persist: true,
+            },
+        )
+        .await;
+
+        match result {
+            Ok(saved) => {
+                let text = saved
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if text.trim().is_empty() {
+                    let _ = db.with_conn(|conn| {
+                        conn.execute(
+                            "UPDATE chapter_publications SET memory_state = 'failed' WHERE id = ?1",
+                            rusqlite::params![publication_id],
+                        )?;
+                        Ok(())
+                    });
+                    tracing::error!("[memory] proposal extract empty for {publication_id}");
+                    return;
+                }
+                match crate::services::story::create_memory_proposal(
+                    &db,
+                    &book_id,
+                    chapter_number,
+                    &source_revision_id,
+                    &text,
+                    Some(&publication_id),
+                    basis_epoch,
+                ) {
+                    Ok(p) => tracing::info!(
+                        "[memory] proposal {} for publication {publication_id}",
+                        p.get("id").and_then(|v| v.as_str()).unwrap_or("?")
+                    ),
+                    Err(e) => {
+                        tracing::error!("[memory] create proposal failed: {e}");
+                        let _ = db.with_conn(|conn| {
+                            conn.execute(
+                                "UPDATE chapter_publications SET memory_state = 'failed' WHERE id = ?1",
+                                rusqlite::params![publication_id],
+                            )?;
+                            Ok(())
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("[memory] proposal extract failed: {e}");
+                let _ = db.with_conn(|conn| {
+                    conn.execute(
+                        "UPDATE chapter_publications SET memory_state = 'failed' WHERE id = ?1",
+                        rusqlite::params![publication_id],
+                    )?;
+                    Ok(())
+                });
+            }
+        }
+    });
 }

@@ -443,6 +443,70 @@ export const api = {
     };
   },
   hooks: (id: string) => request<{ hooks: HookItem[] }>(`/api/books/${id}/hooks`),
+  storyHead: (id: string) => request<{ bookId: string; storyEpoch: number; factSetVersion: number }>(`/api/books/${id}/story/head`),
+  storyStatus: (id: string, chapterNumber: number) =>
+    request<{
+      chapterId: string;
+      chapterNumber: number;
+      storyEpoch: number;
+      currentRevisionId: string | null;
+      publication: null | {
+        id: string;
+        bodyRevisionId: string;
+        publicationVersion: number;
+        memoryState: string;
+      };
+      draftDivergesFromPublication: boolean;
+      openProposal: null | { id: string; status: string };
+      mode: string;
+    }>(`/api/books/${id}/story/status?chapterNumber=${chapterNumber}`),
+  finalizeChapter: (
+    id: string,
+    chapterId: string,
+    body: {
+      bodyRevisionId: string;
+      expectedPublicationId: string | null;
+      expectedCurrentRevisionId?: string | null;
+      expectedStoryEpoch?: number | null;
+      idempotencyKey: string;
+    },
+  ) =>
+    request<{
+      publicationId: string;
+      storyEpoch: number;
+      memoryState: string;
+      bodyRevisionId: string;
+    }>(`/api/books/${id}/story/chapters/${chapterId}/finalize`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getMemoryProposal: (id: string, proposalId: string) =>
+    request<{
+      id: string;
+      status: string;
+      summary: string;
+      sourceRevisionId: string;
+      operations: Array<{ operationId: string; kind: string; proposedValue?: { text?: string } }>;
+    }>(`/api/books/${id}/story/memory/proposals/${proposalId}`),
+  applyMemoryProposal: (
+    id: string,
+    proposalId: string,
+    body: {
+      acceptedOperationIds: string[];
+      expectedSourceRevisionId: string;
+      expectedStoryEpoch?: number | null;
+      idempotencyKey: string;
+    },
+  ) =>
+    request<{ status: string; memoryState: string; storyEpoch: number }>(
+      `/api/books/${id}/story/memory/proposals/${proposalId}/apply`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  rejectMemoryProposal: (id: string, proposalId: string, reason?: string) =>
+    request<{ status: string }>(`/api/books/${id}/story/memory/proposals/${proposalId}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   contextPreview: (id: string, chapterNumber?: number | null) =>
     request<{
       mode: string;

@@ -32,3 +32,18 @@ npm run test:live-model
 - **不静默降本地**：耗尽仍失败则原样报错，不会改走 `local-draft`。
 - Node：`server/src/outbound.ts`（`MODEL_FETCH_RETRIES`）；Rust：`rust-server/src/outbound.rs` 对齐。
 
+
+## 自建中转（HTTP + API Key）
+
+公网 Base URL 若走 **http** 且携带 Key，主机必须写入白名单，否则会硬失败（不静默降本地）：
+
+```bash
+MOLAN_LIVE_MODEL=1 \
+MOLAN_API_KEY=sk-... \
+MOLAN_BASE_URL=http://YOUR.RELAY.HOST:PORT/v1 \
+MOLAN_MODEL=your-model \
+MOLAN_ALLOWED_BASE_HOSTS=YOUR.RELAY.HOST \
+npm run test:live-model
+```
+
+官方 `api.openai.com` 等默认已在白名单；自建 IP/域名需显式加入 `MOLAN_ALLOWED_BASE_HOSTS`。

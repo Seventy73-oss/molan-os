@@ -19,3 +19,6 @@ data/.molan-secret
 
 # overwrite-import crash recovery snapshots
 data/import-recovery/
+
+# Rust rewrite
+rust-server/target/

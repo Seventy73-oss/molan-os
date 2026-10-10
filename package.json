@@ -15,7 +15,10 @@
     "test:pg-lease": "tsx server/scripts/pg-lease-audit.mts",
     "test:live-model": "tsx server/scripts/live-model-audit.mts",
     "migrate:sqlite-to-pg": "tsx server/scripts/migrate-sqlite-to-pg.mts",
-    "quarantine:legacy-phys": "tsx server/scripts/quarantine-legacy-phys.mts"
+    "quarantine:legacy-phys": "tsx server/scripts/quarantine-legacy-phys.mts",
+    "dev:rust": "cargo run --manifest-path rust-server/Cargo.toml",
+    "build:rust": "cargo build --release --manifest-path rust-server/Cargo.toml",
+    "dev:web:rust": "MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.1.0",

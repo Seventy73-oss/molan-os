@@ -93,3 +93,12 @@ npm run test:regression
 npm run test:e2e
 npm run test:audit
 ```
+
+## Rust 后端（实验分支）
+
+分支 `rust-rewrite` 用 Axum 1:1 复刻 Hono API。进度与对拍表见 [docs/RUST_REWRITE.md](docs/RUST_REWRITE.md)。
+
+```bash
+npm run dev:rust          # :8788
+npm run dev:web:rust      # Vite 代理到 Rust
+```

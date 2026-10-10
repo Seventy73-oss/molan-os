@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::schema::{SCENES, migrate_sqlite, sqlite_schema};
+use crate::services::skills::reload_skills;
 use rusqlite::{Connection, params};
 use std::{
     path::{Path, PathBuf},
@@ -24,11 +25,15 @@ impl Db {
         conn.execute_batch(sqlite_schema())?;
         migrate_sqlite(&conn)?;
         seed_routes(&conn)?;
-        Ok(Self {
+        let db = Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
             root,
-        })
+        };
+        if let Err(e) = reload_skills(&db) {
+            tracing::warn!("reload skills on boot: {e}");
+        }
+        Ok(db)
     }
 
     pub fn with_conn<T>(&self, f: impl FnOnce(&Connection) -> AppResult<T>) -> AppResult<T> {

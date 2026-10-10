@@ -23,15 +23,15 @@ pub struct BookJson {
 }
 
 #[derive(Debug)]
-struct BookRow {
-    id: String,
-    title: String,
-    genre: String,
-    logline: String,
-    style: String,
-    target_chapters: i64,
-    words_per_chapter: i64,
-    created_at: String,
+pub(crate) struct BookRow {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) genre: String,
+    pub(crate) logline: String,
+    pub(crate) style: String,
+    pub(crate) target_chapters: i64,
+    pub(crate) words_per_chapter: i64,
+    pub(crate) created_at: String,
 }
 
 fn count_chars(text: &str) -> i64 {
@@ -119,7 +119,7 @@ fn book_json(
     }
 }
 
-fn must_book(conn: &rusqlite::Connection, id: &str) -> AppResult<BookRow> {
+pub(crate) fn must_book(conn: &rusqlite::Connection, id: &str) -> AppResult<BookRow> {
     conn.query_row(
         "SELECT id, title, genre, logline, style, target_chapters, words_per_chapter, created_at
          FROM books WHERE id = ?1",

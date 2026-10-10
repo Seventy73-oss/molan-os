@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::services::books::{CreateBookInput, UpdateBookInput, create_book, delete_book, get_book_payload, list_books, update_book};
+use crate::services::manuscripts::sync_book;
 
 pub async fn list(State(db): State<Db>) -> AppResult<impl IntoResponse> {
     let books = list_books(&db)?;
@@ -15,6 +16,7 @@ pub async fn list(State(db): State<Db>) -> AppResult<impl IntoResponse> {
 }
 
 pub async fn get(State(db): State<Db>, Path(id): Path<String>) -> AppResult<impl IntoResponse> {
+    let _ = sync_book(&db, &id);
     Ok(Json(get_book_payload(&db, &id)?))
 }
 

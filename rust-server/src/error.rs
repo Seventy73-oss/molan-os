@@ -19,6 +19,8 @@ pub enum AppError {
     #[error(transparent)]
     Db(#[from] rusqlite::Error),
     #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
@@ -29,7 +31,7 @@ impl AppError {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
-            Self::Db(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Db(_) | Self::Io(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

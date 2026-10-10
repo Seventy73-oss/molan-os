@@ -1,4 +1,4 @@
-//! Outbound Base URL allowlist (parity with Node security.ts, phase-1 subset).
+//! Outbound Base URL allowlist — parity with Node `server/src/security.ts`.
 
 use crate::error::{AppError, AppResult};
 use std::collections::HashSet;
@@ -20,20 +20,35 @@ pub const DEFAULT_ALLOWED_BASE_HOSTS: &[&str] = &[
     "api.x.ai",
 ];
 
-fn allowed_hosts() -> HashSet<String> {
+fn parse_host_list(env_name: &str) -> Vec<String> {
+    std::env::var(env_name)
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+pub fn allowed_hosts() -> HashSet<String> {
     let mut set: HashSet<String> = DEFAULT_ALLOWED_BASE_HOSTS
         .iter()
         .map(|h| h.to_lowercase())
         .collect();
-    if let Ok(extra) = std::env::var("MOLAN_ALLOWED_BASE_HOSTS") {
-        for h in extra.split(',') {
-            let h = h.trim().to_lowercase();
-            if !h.is_empty() {
-                set.insert(h);
-            }
-        }
+    for h in parse_host_list("MOLAN_ALLOWED_BASE_HOSTS") {
+        set.insert(h);
     }
     set
+}
+
+fn local_llm_allowed() -> bool {
+    matches!(
+        std::env::var("MOLAN_ALLOW_LOCAL_LLM")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase()
+            .as_str(),
+        "1" | "true" | "yes"
+    )
 }
 
 fn is_ipv4(host: &str) -> bool {
@@ -107,6 +122,8 @@ pub fn is_private_or_reserved_host(hostname: &str) -> bool {
 struct ParsedUrl {
     scheme: String,
     host: String,
+    hostport: String,
+    path: String,
     normalized: String,
 }
 
@@ -122,11 +139,20 @@ fn parse_http_url(raw: &str) -> AppResult<ParsedUrl> {
     if rest.is_empty() {
         return Err(AppError::BadRequest("Base URL 缺少主机名".into()));
     }
+    if rest.contains('@') && !rest.split('/').next().unwrap_or("").starts_with('[') {
+        // userinfo present (user:pass@host) — reject
+        let authority = rest.split('/').next().unwrap_or(rest);
+        if authority.contains('@') {
+            return Err(AppError::BadRequest("不要把密钥写进地址".into()));
+        }
+    }
     let authority_end = rest.find('/').unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     let path = &rest[authority_end..];
-    // strip userinfo
-    let hostport = authority.rsplit('@').next().unwrap_or(authority);
+    if authority.contains('@') {
+        return Err(AppError::BadRequest("不要把密钥写进地址".into()));
+    }
+    let hostport = authority.to_string();
     let host = if hostport.starts_with('[') {
         let end = hostport
             .find(']')
@@ -136,7 +162,7 @@ fn parse_http_url(raw: &str) -> AppResult<ParsedUrl> {
         hostport
             .split(':')
             .next()
-            .unwrap_or(hostport)
+            .unwrap_or(&hostport)
             .to_string()
     };
     if host.is_empty() {
@@ -149,37 +175,119 @@ fn parse_http_url(raw: &str) -> AppResult<ParsedUrl> {
     Ok(ParsedUrl {
         scheme: scheme.into(),
         host: host.to_lowercase(),
+        hostport,
+        path: path.into(),
         normalized,
     })
 }
 
+/// Validate provider Base URL before attaching credentials.
 pub fn assert_safe_base_url(raw: &str, with_api_key: bool) -> AppResult<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Ok(String::new());
     }
     let parsed = parse_http_url(trimmed)?;
-    if is_private_or_reserved_host(&parsed.host) {
-        return Ok(parsed.normalized);
-    }
+    let allow_local = local_llm_allowed();
+    let private_host = is_private_or_reserved_host(&parsed.host);
     let allowed = allowed_hosts();
-    if allowed.contains(&parsed.host) {
-        return Ok(parsed.normalized);
-    }
-    if with_api_key {
-        let allow_public_http = std::env::var("MOLAN_ALLOW_PUBLIC_HTTP_BASE")
-            .map(|v| v.trim() == "1")
-            .unwrap_or(false);
-        if allow_public_http && is_ipv4(&parsed.host) {
-            return Ok(parsed.normalized);
+    let is_local_host = parsed.host == "127.0.0.1" || parsed.host == "localhost";
+
+    if private_host {
+        if !allow_local {
+            return Err(AppError::BadRequest(
+                "禁止把接口指到内网/本机地址（SSRF 防护）。本地模型请设 MOLAN_ALLOW_LOCAL_LLM=1，并把主机加入 MOLAN_ALLOWED_BASE_HOSTS"
+                    .into(),
+            ));
         }
-        let _ = parsed.scheme;
-        return Err(AppError::BadRequest(format!(
-            "Base URL 主机「{}」不在白名单；请设置 MOLAN_ALLOWED_BASE_HOSTS 或使用官方兼容端点",
-            parsed.host
-        )));
+        if !allowed.contains(&parsed.host) && !is_local_host {
+            return Err(AppError::BadRequest(format!(
+                "内网主机 {} 未在 MOLAN_ALLOWED_BASE_HOSTS 白名单中",
+                parsed.host
+            )));
+        }
     }
+
+    if with_api_key {
+        if allow_local && is_local_host {
+            // ok
+        } else if !allowed.contains(&parsed.host) {
+            // public IP relay opt-in (Sub2API etc.)
+            let allow_public_http = std::env::var("MOLAN_ALLOW_PUBLIC_HTTP_BASE")
+                .map(|v| v.trim() == "1")
+                .unwrap_or(false);
+            if !(allow_public_http && is_ipv4(&parsed.host)) {
+                return Err(AppError::BadRequest(format!(
+                    "携带 API Key 时，Base URL 主机必须在白名单内（当前 {} 不在）。可设 MOLAN_ALLOWED_BASE_HOSTS",
+                    parsed.host
+                )));
+            }
+        } else if parsed.scheme == "http" && !is_local_host {
+            let explicit: HashSet<String> = parse_host_list("MOLAN_ALLOWED_BASE_HOSTS")
+                .into_iter()
+                .collect();
+            let allow_public_http = std::env::var("MOLAN_ALLOW_PUBLIC_HTTP_BASE")
+                .map(|v| v.trim() == "1")
+                .unwrap_or(false);
+            if !explicit.contains(&parsed.host)
+                && !(allow_public_http && is_ipv4(&parsed.host))
+            {
+                return Err(AppError::BadRequest(
+                    "携带 API Key 时公网 Base URL 必须使用 https（本地模型除外；自建中转请把主机写入 MOLAN_ALLOWED_BASE_HOSTS）"
+                        .into(),
+                ));
+            }
+        }
+    }
+
+    let _ = (parsed.hostport, parsed.path);
     Ok(parsed.normalized)
+}
+
+/// DNS rebinding check — rejects private A/AAAA answers unless local LLM mode.
+pub fn assert_safe_base_url_resolved(raw: &str, with_api_key: bool) -> AppResult<String> {
+    let cleaned = assert_safe_base_url(raw, with_api_key)?;
+    if cleaned.is_empty() {
+        return Ok(cleaned);
+    }
+    let parsed = parse_http_url(&cleaned)?;
+    let host = &parsed.host;
+    if is_ipv4(host) || host.contains(':') || host == "localhost" {
+        return Ok(cleaned);
+    }
+    match std::net::ToSocketAddrs::to_socket_addrs(&format!("{host}:0")) {
+        Ok(addrs) => {
+            for addr in addrs {
+                let ip = addr.ip().to_string();
+                if is_private_or_reserved_host(&ip) && !local_llm_allowed() {
+                    return Err(AppError::BadRequest(format!(
+                        "主机 {host} 解析到内网地址 {ip}，已拒绝（SSRF 防护）"
+                    )));
+                }
+            }
+        }
+        Err(_) => {
+            // offline / DNS fail: still allow allowlisted hosts
+        }
+    }
+    Ok(cleaned)
+}
+
+pub fn redact_secrets(text: &str) -> String {
+    let mut out = text.to_string();
+    let patterns: &[(&str, &str)] = &[
+        (r"sk-[A-Za-z0-9_-]{8,}", "sk-…"),
+        (r"sk-proj-[A-Za-z0-9_-]{8,}", "sk-proj-…"),
+        (r"(?i)Bearer\s+\S+", "Bearer …"),
+        (r"(?i)api[_-]?key\s*[:=]\s*\S+", "api_key=…"),
+        (r"enc:v1:[A-Za-z0-9+/=:_-]{16,}", "enc:v1:…"),
+    ];
+    for (pat, repl) in patterns {
+        if let Ok(re) = regex::Regex::new(pat) {
+            out = re.replace_all(&out, *repl).into_owned();
+        }
+    }
+    out.chars().take(220).collect()
 }
 
 pub fn listen_hostname() -> String {

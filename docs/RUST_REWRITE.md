@@ -28,9 +28,9 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | 1 | health / settings/provider / books CRUD + schema | ✅ |
 | 2 | chapters / artifacts 读写 + md sync `data/books` + CAS | ✅ |
 | 3 | skills + attachScenes + for-scene / prompt-preview | ✅ |
-| 4 | scene-routes + provider test/models refresh + outbound | ⬜ |
-| 5 | chat / scene-runs / selection-rewrite（含 stream） | ⬜ |
-| 6 | generations begin / cancel / complete / demote（服务已齐；stream 接线待阶段 5） | 🟡 |
+| 4 | scene-routes + provider test/models refresh + outbound | ✅ |
+| 5 | chat / scene-runs / selection-rewrite（含 stream） | ✅ |
+| 6 | generations begin / cancel / complete / demote + stream 接线 | ✅ |
 | 7 | writing_jobs + lease worker | ⬜ |
 | 8 | import/export ZIP、bible、hooks、usage、search | ⬜ |
 | 9 | 浏览器 E2E / regression 对拍 Node | ⬜ |
@@ -58,9 +58,9 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | GET | `/api/settings/provider` | ✅ | 不回传明文 Key；enc:v1 兼容 |
 | PUT | `/api/settings/provider` | ✅ | Base URL 白名单 |
 | GET | `/api/settings/provider/models` | ✅ | 读缓存；未实现 refresh |
-| POST | `/api/settings/provider/test` | ⬜ | |
-| POST | `/api/settings/provider/models/refresh` | ⬜ | |
-| GET/PUT | `/api/scene-routes` | ⬜ | |
+| POST | `/api/settings/provider/test` | ✅ | secureFetch + 白名单 |
+| POST | `/api/settings/provider/models/refresh` | ✅ | |
+| GET/PUT | `/api/scene-routes` | ✅ | thinkingIntensity + Base 白名单 |
 | GET | `/api/skills` | ✅ | 启动时 `reloadSkills`；用户包 `attachScenes` |
 | POST | `/api/skills/reload` | ✅ | |
 | PATCH | `/api/skills/:id` | ✅ | enabled |
@@ -69,19 +69,23 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | POST | `/api/generations/begin` | ✅ | 幂等 stub（供后续 stream 接线） |
 | GET | `/api/generations/:id` | ✅ | |
 | POST | `/api/generations/:id/cancel` | ✅ | demote / completed 不静默撤回 |
-| POST | `/api/books/:id/chat` (+stream) | ⬜ | |
-| POST | `/api/books/:id/scene-runs` (+stream) | ⬜ | |
-| POST | `/api/books/:id/selection-rewrite` (+stream) | ⬜ | |
+| POST | `/api/books/:id/chat` (+stream) | ✅ | routeMessage + skills + generations |
+| POST | `/api/books/:id/scene-runs` (+stream) | ✅ | CAS baseline + beginGeneration + SSE |
+| POST | `/api/books/:id/selection-rewrite` (+stream) | ✅ | local / openai；无静默降级 |
 | Jobs / worker / lease | `/api/jobs*` | ⬜ | |
 | Import/export / bible / hooks / usage / search | 多条 | ⬜ | catch-all 501 |
 | GET | `/api/agent/runtime` | ⬜ | pi 边界保持「仅代调」 |
 
-## 本轮实现要点（阶段 2–3 + generations 桩）
+## 本轮实现要点（阶段 4–5：出站 / 场景路由 / 写作流）
 
-- **CAS**：`expectedRevisionId` 不匹配 → 409；可选后续 AI 路径用 `onConflict=candidate`。
-- **md sync**：DB 胜出，落盘 `data/books/:id/`（`00-档案.md` / `00-全书大纲.md` / `NN-章名/{细纲,正文,审核,记忆}.md`）。
-- **技能矩阵**：与 Node 一致——大纲挂 volume-arcs / structure-skeleton / novel-craft；正文挂 humanize + style-corpus；chat 挂 novel-craft / opening-cards；大纲/chat **不**挂 humanize。
-- **generations**：`begin` / `get` / `cancel` / `complete` / `demoteCancelledResultRevision` 已移植；chat/stream 尚未接线。
+- **出站**：`outbound::secure_fetch`（拒重定向、Base URL 白名单、DNS 内网拒绝、`MOLAN_ALLOW_PUBLIC_HTTP_BASE` / `MOLAN_ALLOWED_BASE_HOSTS` / `MOLAN_ALLOW_LOCAL_LLM`）。
+- **OpenAI 兼容客户端**：`agent/openai.rs`；**仅当场景 provider=local** 才走 `local-draft`；openai 缺 Key/Base/Model **硬失败**，不静默降级。
+- **scene-routes** GET/PUT：`thinkingIntensity` + 路由级 Base 白名单。
+- **provider test / models refresh**：走 secureFetch；错误脱敏。
+- **chat / scene-runs / selection-rewrite**（含 `/stream` SSE）：技能 `attachScenes` 与 Node 同矩阵；写前 CAS `expectedRevisionId`（默认 `onConflict=candidate`）；stream 调 `beginGeneration`；取消 demote 接线。
+- **local-draft**：精简适配器 + `rewriteSelectionLocal`（对白弯引号、润色/改写/续写/对白）。
+
+冒烟（:8799 临时库）：scene-routes → 建书 → scene-run 大纲挂用户包 → 选区润色 → chat 写意图/闲聊 → CAS 候选 → SSE stream → openai 无 Key 不降级。
 
 ## Schema 对拍
 

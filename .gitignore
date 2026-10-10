@@ -22,3 +22,7 @@ data/import-recovery/
 
 # Rust rewrite
 rust-server/target/
+
+# rust rewrite smoke DBs
+data/rust-smoke*.sqlite*
+data/rust-smoke*.log

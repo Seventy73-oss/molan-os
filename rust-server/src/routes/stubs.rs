@@ -4,7 +4,7 @@ use axum::{
     Json, Router,
     http::StatusCode,
     response::IntoResponse,
-    routing::{any, get, post},
+    routing::{any, get},
 };
 use serde_json::json;
 use crate::db::Db;
@@ -21,13 +21,6 @@ async fn not_ported() -> impl IntoResponse {
 
 pub fn stub_router() -> Router<Db> {
     Router::new()
-        .route("/api/books/{id}/chat", post(not_ported))
-        .route("/api/books/{id}/chat/stream", post(not_ported))
-        .route("/api/books/{id}/scene-runs", post(not_ported))
-        .route("/api/books/{id}/scene-runs/stream", post(not_ported))
-        .route("/api/books/{id}/selection-rewrite", post(not_ported))
-        .route("/api/books/{id}/selection-rewrite/stream", post(not_ported))
-        .route("/api/scene-routes", get(not_ported).put(not_ported))
         .route("/api/jobs/worker", get(not_ported))
         .route("/api/agent/runtime", get(not_ported))
         .route("/api/{*rest}", any(not_ported))

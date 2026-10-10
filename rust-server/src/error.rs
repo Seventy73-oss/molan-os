@@ -15,6 +15,10 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(String),
     #[error("{0}")]
+    BadGateway(String),
+    #[error("{0}")]
+    Cancelled(String),
+    #[error("{0}")]
     NotImplemented(String),
     #[error(transparent)]
     Db(#[from] rusqlite::Error),
@@ -30,9 +34,15 @@ impl AppError {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::BadGateway(_) => StatusCode::BAD_GATEWAY,
+            Self::Cancelled(_) => StatusCode::CONFLICT,
             Self::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
             Self::Db(_) | Self::Io(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
+    }
+
+    pub fn is_abort(&self) -> bool {
+        matches!(self, Self::Cancelled(_))
     }
 }
 

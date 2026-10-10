@@ -1,4 +1,7 @@
 mod crypto;
+mod thinking;
+mod outbound;
+mod agent;
 mod db;
 mod error;
 mod routes;

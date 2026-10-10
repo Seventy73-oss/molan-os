@@ -233,6 +233,7 @@ pub fn migrate_sqlite(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
         [],
     );
     migrate_story_ledger(conn)?;
+    migrate_story_g3(conn)?;
     Ok(())
 }
 
@@ -351,5 +352,69 @@ CREATE TABLE IF NOT EXISTS story_outbox (
 CREATE INDEX IF NOT EXISTS story_outbox_status ON story_outbox(status, next_run_at);
 "#,
     )?;
+    Ok(())
+}
+
+fn migrate_story_g3(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+CREATE TABLE IF NOT EXISTS hook_events (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  hook_stable_id TEXT NOT NULL,
+  event_kind TEXT NOT NULL CHECK (
+    event_kind IN ('planned', 'planted', 'developed', 'paid_off', 'abandoned')
+  ),
+  description TEXT NOT NULL DEFAULT '',
+  planned_payoff_chapter INTEGER,
+  source_revision_id TEXT,
+  publication_id TEXT,
+  evidence_quote TEXT NOT NULL DEFAULT '',
+  effective_chapter INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invalidated')),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hook_events_book ON hook_events(book_id, hook_stable_id, effective_chapter);
+CREATE INDEX IF NOT EXISTS hook_events_pub ON hook_events(publication_id);
+
+CREATE TABLE IF NOT EXISTS story_knowledge_events (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL,
+  fact_id TEXT NOT NULL,
+  audience TEXT NOT NULL CHECK (audience IN ('author', 'reader', 'character')),
+  character_id TEXT,
+  revealed_at_chapter INTEGER NOT NULL,
+  source_revision_id TEXT,
+  publication_id TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invalidated')),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS story_knowledge_events_book ON story_knowledge_events(book_id, audience, revealed_at_chapter);
+CREATE INDEX IF NOT EXISTS story_knowledge_events_fact ON story_knowledge_events(fact_id);
+
+CREATE TABLE IF NOT EXISTS bible_card_revisions (
+  id TEXT PRIMARY KEY,
+  card_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  details TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bible_card_revisions_card ON bible_card_revisions(card_id, created_at);
+"#,
+    )?;
+    for (name, decl) in [
+        ("kind", "TEXT NOT NULL DEFAULT 'generic'"),
+        ("audience", "TEXT NOT NULL DEFAULT 'author'"),
+        ("character_id", "TEXT"),
+    ] {
+        let _ = conn.execute(
+            &format!("ALTER TABLE story_facts ADD COLUMN {name} {decl}"),
+            [],
+        );
+    }
     Ok(())
 }

@@ -1,3 +1,4 @@
+import { snapshotBibleCard } from "./storyState";
 import { db, type BookRow, type ChapterRow } from "./db";
 import { HttpError } from "./httpError";
 
@@ -366,9 +367,18 @@ export function createBibleCard(
     `INSERT INTO bible_cards (id, book_id, kind, name, summary, details, sort_order, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, bookId, kind, name, input.summary?.trim() ?? "", input.details?.trim() ?? "", max.n + 1, ts, ts);
-  return mapCard(
+  const created = mapCard(
     db.prepare("SELECT * FROM bible_cards WHERE id = ?").get(id) as Parameters<typeof mapCard>[0],
   );
+  snapshotBibleCard({
+    id: created.id,
+    bookId,
+    kind: created.kind,
+    name: created.name,
+    summary: created.summary,
+    details: created.details,
+  });
+  return created;
 }
 
 export function updateBibleCard(
@@ -397,9 +407,18 @@ export function updateBibleCard(
     now(),
     cardId,
   );
-  return mapCard(
+  const updated = mapCard(
     db.prepare("SELECT * FROM bible_cards WHERE id = ?").get(cardId) as Parameters<typeof mapCard>[0],
   );
+  snapshotBibleCard({
+    id: updated.id,
+    bookId,
+    kind: updated.kind,
+    name: updated.name,
+    summary: updated.summary,
+    details: updated.details,
+  });
+  return updated;
 }
 
 export function deleteBibleCard(bookId: string, cardId: string) {

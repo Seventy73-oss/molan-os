@@ -14,5 +14,6 @@ pub mod scene_routes;
 pub mod settings;
 pub mod skills;
 pub mod story;
+pub mod story_state;
 pub mod usage;
 pub mod worker;

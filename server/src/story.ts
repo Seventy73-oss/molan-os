@@ -5,6 +5,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "./db";
 import { HttpError, saveRevision } from "./engine";
+import {
+  enrichAcceptedOperations,
+  invalidateKnowledgeAndHooksForPublication,
+} from "./storyState";
 
 const PROTOCOL_VERSION = 1;
 const PROPOSAL_SCHEMA = "molan.memory-proposal/v1";
@@ -207,6 +211,7 @@ export function finalizeChapter(input: FinalizeInput) {
       db.prepare(
         `UPDATE story_fact_sets SET status = 'invalidated' WHERE publication_id = ? AND status = 'active'`,
       ).run(active.id);
+      invalidateKnowledgeAndHooksForPublication(active.id);
       db.prepare(
         `UPDATE memory_proposals SET status = 'stale', updated_at = ?
          WHERE book_id = ? AND chapter_id = ? AND status IN ('queued','extracting','proposed')`,
@@ -331,6 +336,7 @@ export function createMemoryProposal(opts: {
   summary: string;
   publicationId?: string | null;
   basisEpoch: number;
+  operations?: Array<Record<string, unknown>>;
 }) {
   mustBook(opts.bookId);
   ensureBookHead(opts.bookId);
@@ -344,18 +350,20 @@ export function createMemoryProposal(opts: {
       throw new HttpError(409, "PROPOSAL_STALE: 定稿已替换或源修订不匹配");
     }
   }
-  const ops = [
-    {
-      operationId: "op-summary",
-      kind: "summary_update",
-      subjectId: `chapter:${opts.chapterNumber}`,
-      field: "chapter_summary",
-      proposedValue: { text: opts.summary },
-      assertionKind: "explicit",
-      evidence: { quote: opts.summary.slice(0, 120) },
-      requiresAuthorApproval: true,
-    },
-  ];
+  const ops = opts.operations?.length
+    ? opts.operations
+    : [
+        {
+          operationId: "op-summary",
+          kind: "summary_update",
+          subjectId: `chapter:${opts.chapterNumber}`,
+          field: "chapter_summary",
+          proposedValue: { text: opts.summary },
+          assertionKind: "explicit",
+          evidence: { quote: opts.summary.slice(0, 120) },
+          requiresAuthorApproval: true,
+        },
+      ];
   const id = randomUUID();
   const now = nowIso();
   db.prepare(
@@ -549,14 +557,18 @@ export function applyProposal(input: {
       input.proposalId,
       now,
     );
+    const factIdsByOp = new Map<string, string>();
     for (const op of accepted) {
+      const factId = randomUUID();
+      const opId = String(op.operationId ?? "");
+      if (opId) factIdsByOp.set(opId, factId);
       db.prepare(
         `INSERT INTO story_facts
           (id, fact_set_id, book_id, subject, predicate, value_json, evidence_quote,
            source_revision_id, publication_id, effective_from_chapter, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       ).run(
-        randomUUID(),
+        factId,
         factSetId,
         input.bookId,
         String(op.subjectId ?? ""),
@@ -569,6 +581,15 @@ export function applyProposal(input: {
         now,
       );
     }
+    enrichAcceptedOperations({
+      bookId: input.bookId,
+      factSetId,
+      chapterNumber: chapter.number,
+      sourceRevisionId: proposal.sourceRevisionId,
+      publicationId: proposal.publicationId,
+      acceptedOps: accepted,
+      factIdsByOp,
+    });
     db.prepare(
       `UPDATE story_book_heads SET fact_set_version = ?, story_epoch = story_epoch + 1, updated_at = ? WHERE book_id = ?`,
     ).run(nextVer, now, input.bookId);
@@ -672,3 +693,5 @@ export async function schedulePublicationMemoryExtract(
     console.error("[story] publication memory extract failed", e);
   }
 }
+
+export { storyImpact } from "./storyState";

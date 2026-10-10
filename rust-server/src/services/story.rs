@@ -4,6 +4,7 @@ use crate::db::{Db, now_iso};
 use crate::error::{AppError, AppResult};
 use crate::services::books::must_book;
 use crate::services::revisions::{OnConflict, SaveRevisionInput, current_revision_id_for, save_revision};
+use crate::services::story_state::{enrich_accepted_operations, invalidate_knowledge_and_hooks};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -246,6 +247,7 @@ pub fn finalize_chapter(db: &Db, input: FinalizeInput) -> AppResult<Value> {
                 "UPDATE story_fact_sets SET status = 'invalidated' WHERE publication_id = ?1 AND status = 'active'",
                 params![old_id],
             )?;
+            invalidate_knowledge_and_hooks(&tx, &old_id)?;
             // Stale open proposals for this chapter
             tx.execute(
                 r#"UPDATE memory_proposals SET status = 'stale', updated_at = ?1
@@ -400,6 +402,7 @@ pub fn create_memory_proposal(
     summary: &str,
     publication_id: Option<&str>,
     basis_epoch: i64,
+    operations: Option<Value>,
 ) -> AppResult<Value> {
     db.with_conn(|conn| {
         must_book(conn, book_id)?;
@@ -426,18 +429,21 @@ pub fn create_memory_proposal(
             }
         }
 
-        let ops = json!([
-            {
-                "operationId": "op-summary",
-                "kind": "summary_update",
-                "subjectId": format!("chapter:{chapter_number}"),
-                "field": "chapter_summary",
-                "proposedValue": { "text": summary },
-                "assertionKind": "explicit",
-                "evidence": { "quote": summary.chars().take(120).collect::<String>() },
-                "requiresAuthorApproval": true
-            }
-        ]);
+        let ops = match operations {
+            Some(Value::Array(arr)) if !arr.is_empty() => Value::Array(arr),
+            _ => json!([
+                {
+                    "operationId": "op-summary",
+                    "kind": "summary_update",
+                    "subjectId": format!("chapter:{chapter_number}"),
+                    "field": "chapter_summary",
+                    "proposedValue": { "text": summary },
+                    "assertionKind": "explicit",
+                    "evidence": { "quote": summary.chars().take(120).collect::<String>() },
+                    "requiresAuthorApproval": true
+                }
+            ]),
+        };
         let id = Uuid::new_v4().to_string();
         let now = now_iso();
         conn.execute(
@@ -746,8 +752,17 @@ pub fn apply_proposal(db: &Db, input: ApplyProposalInput) -> AppResult<Value> {
                 now
             ],
         )?;
+        let mut fact_ids_by_op: Vec<(String, String)> = Vec::new();
         for op in &accepted {
             let fid = Uuid::new_v4().to_string();
+            let op_id = op
+                .get("operationId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !op_id.is_empty() {
+                fact_ids_by_op.push((op_id, fid.clone()));
+            }
             let subject = op
                 .get("subjectId")
                 .and_then(|v| v.as_str())
@@ -785,6 +800,15 @@ pub fn apply_proposal(db: &Db, input: ApplyProposalInput) -> AppResult<Value> {
                 ],
             )?;
         }
+        enrich_accepted_operations(
+            &tx,
+            &input.book_id,
+            chapter_number,
+            &source,
+            pub_id.as_deref(),
+            &accepted,
+            &fact_ids_by_op,
+        )?;
         tx.execute(
             "UPDATE story_book_heads SET fact_set_version = ?1, story_epoch = story_epoch + 1, updated_at = ?2 WHERE book_id = ?3",
             params![next_ver, now, input.book_id],

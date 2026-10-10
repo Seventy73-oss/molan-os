@@ -40,7 +40,13 @@ import {
   getProposal,
   rejectProposal,
   schedulePublicationMemoryExtract,
+  storyImpact,
 } from "./story";
+import {
+  listForeshadowing,
+  listStoryCharacters,
+  projectCharacterState,
+} from "./storyState";
 import { importBookFromZipBuffer, recoverInterruptedImports, recoverPhysicalImportBackups } from "./importBook";
 import { listUsage, usageSummary } from "./usage";
 import {
@@ -677,6 +683,55 @@ app.post("/api/books/:id/story/memory/proposals/:proposalId/apply", async (c) =>
 app.post("/api/books/:id/story/memory/proposals/:proposalId/reject", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   return c.json(rejectProposal(c.req.param("id"), c.req.param("proposalId"), body.reason));
+});
+
+
+app.get("/api/books/:id/story/characters", (c) => {
+  const raw = c.req.query("asOfChapter");
+  const asOf = raw ? Number(raw) : null;
+  return c.json({
+    characters: listStoryCharacters(
+      c.req.param("id"),
+      Number.isFinite(asOf as number) && (asOf as number) > 0 ? (asOf as number) : null,
+    ),
+  });
+});
+app.get("/api/books/:id/story/characters/:characterId/state", (c) => {
+  const raw = c.req.query("asOfChapter");
+  const asOf = raw ? Number(raw) : null;
+  const mode = (c.req.query("knowledgeMode") || "author") as "author" | "reader" | "character";
+  return c.json(
+    projectCharacterState(
+      c.req.param("id"),
+      c.req.param("characterId"),
+      Number.isFinite(asOf as number) && (asOf as number) > 0 ? (asOf as number) : null,
+      mode,
+    ),
+  );
+});
+app.get("/api/books/:id/story/foreshadowing", (c) => {
+  const raw = c.req.query("asOfChapter");
+  const asOf = raw ? Number(raw) : null;
+  return c.json({
+    hooks: listForeshadowing(
+      c.req.param("id"),
+      Number.isFinite(asOf as number) && (asOf as number) > 0 ? (asOf as number) : null,
+    ),
+  });
+});
+app.get("/api/books/:id/story/impact", (c) => {
+  const chapterId = c.req.query("chapterId");
+  const chapterNumber = c.req.query("chapterNumber");
+  let id = chapterId || "";
+  if (!id && chapterNumber) {
+    const row = db
+      .prepare("SELECT id FROM chapters WHERE book_id = ? AND number = ?")
+      .get(c.req.param("id"), Number(chapterNumber)) as { id: string } | undefined;
+    if (!row) return c.json({ error: "章节不存在" }, 404);
+    id = row.id;
+  }
+  if (!id) return c.json({ error: "chapterId 或 chapterNumber 必填" }, 400);
+  return c.json(storyImpact(c.req.param("id"), id));
 });
 
 app.get("/api/books/:id/context-preview", (c) => {

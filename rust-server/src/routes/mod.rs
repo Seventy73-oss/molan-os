@@ -130,6 +130,13 @@ pub fn api_router(db: Db) -> Router {
             "/api/books/{id}/story/memory/proposals/{proposal_id}/reject",
             post(story::reject_proposal_route),
         )
+        .route("/api/books/{id}/story/characters", get(story::characters_list))
+        .route(
+            "/api/books/{id}/story/characters/{character_id}/state",
+            get(story::character_state),
+        )
+        .route("/api/books/{id}/story/foreshadowing", get(story::foreshadowing_list))
+        .route("/api/books/{id}/story/impact", get(story::impact))
         .merge(stubs::stub_router())
         .with_state(db)
 }

@@ -2,6 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { db } from "./db";
 import { formatBibleForContext, formatMemoriesForContextParts, listBibleCards } from "./features";
 import { formatOpenHooksForContext, listHooks } from "./hooks";
+import {
+  formatCharacterStatesForContext,
+  formatForeshadowForContext,
+  type KnowledgeMode,
+} from "./storyState";
 
 const MODE = "legacy_current";
 
@@ -41,9 +46,12 @@ export function buildContextManifest(
   openHooks: string;
   manifest: ContextManifest;
 } {
+  const knowledgeMode: KnowledgeMode = "author";
   const bible = formatBibleForContext(bookId);
   const memParts = formatMemoriesForContextParts(bookId, chapterNumber);
   const openHooks = formatOpenHooksForContext(bookId, chapterNumber);
+  const charParts = formatCharacterStatesForContext(bookId, chapterNumber, knowledgeMode);
+  const foreshadowParts = formatForeshadowForContext(bookId, chapterNumber);
   const cards = listBibleCards(bookId);
   const openHookItems = listHooks(bookId).filter((h) => {
     if (!(h.warning || h.status === "open")) return false;
@@ -59,6 +67,8 @@ export function buildContextManifest(
       reason: "book_bible",
     })),
     ...memParts.included,
+    ...charParts.included,
+    ...foreshadowParts.included,
     ...openHookItems.map((h) => ({
       kind: "open_hook",
       sourceId: h.key,
@@ -73,16 +83,18 @@ export function buildContextManifest(
     chapterNumber,
     scene: scene ?? null,
     included,
-    excluded: memParts.excluded,
+    excluded: [...memParts.excluded, ...charParts.excluded, ...foreshadowParts.excluded],
     missing,
     counts: {
       bibleCards: cards.length,
       memories: memParts.included.length,
       openHooks: openHookItems.length,
     },
-    note: "G1 legacy_current：尚无正式定稿协议；记忆仅在 source_revision 匹配正文 current 或无来源时注入",
+    note: "G3：作者模式注入人物动态与有来源伏笔；知识门控排除未揭示秘密；计划回收≠已回收",
   };
-  return { bible, memories: memParts.text, openHooks, manifest };
+  const openHooksMerged = [openHooks, foreshadowParts.text].filter(Boolean).join("\n");
+  const bibleMerged = [bible, charParts.text ? `【人物动态】\n${charParts.text}` : ""].filter(Boolean).join("\n");
+  return { bible: bibleMerged, memories: memParts.text, openHooks: openHooksMerged, manifest };
 }
 
 export function saveContextSnapshot(input: {

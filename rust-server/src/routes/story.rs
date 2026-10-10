@@ -32,6 +32,7 @@ use crate::services::story::{
     ApplyProposalInput, FinalizeInput, apply_proposal, chapter_story_status,
     chapter_story_status_by_number, finalize_chapter, get_book_head, get_proposal, reject_proposal,
 };
+use crate::services::story_state::{list_foreshadowing, list_story_characters, project_character_state, story_impact};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -217,4 +218,67 @@ pub async fn extract_memory(
         "publicationId": pub_obj.get("id"),
         "note": "已安排记忆抽取为提案，需作者批准后才写入正式记忆",
     })))
+}
+
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsOfQuery {
+    pub as_of_chapter: Option<i64>,
+    pub knowledge_mode: Option<String>,
+    pub chapter_id: Option<String>,
+    pub chapter_number: Option<i64>,
+}
+
+pub async fn characters_list(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(list_story_characters(&db, &book_id, q.as_of_chapter)?))
+}
+
+pub async fn character_state(
+    State(db): State<Db>,
+    Path((book_id, character_id)): Path<(String, String)>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    let mode = q.knowledge_mode.as_deref().unwrap_or("author");
+    Ok(Json(project_character_state(
+        &db,
+        &book_id,
+        &character_id,
+        q.as_of_chapter,
+        mode,
+    )?))
+}
+
+pub async fn foreshadowing_list(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(list_foreshadowing(&db, &book_id, q.as_of_chapter)?))
+}
+
+pub async fn impact(
+    State(db): State<Db>,
+    Path(book_id): Path<String>,
+    Query(q): Query<AsOfQuery>,
+) -> AppResult<Json<Value>> {
+    let chapter_id = if let Some(id) = q.chapter_id {
+        id
+    } else if let Some(n) = q.chapter_number {
+        db.with_conn(|conn| {
+            conn.query_row(
+                "SELECT id FROM chapters WHERE book_id = ?1 AND number = ?2",
+                rusqlite::params![book_id, n],
+                |r| r.get::<_, String>(0),
+            )
+            .map_err(|_| AppError::NotFound("章节不存在".into()))
+        })?
+    } else {
+        return Err(AppError::BadRequest("chapterId 或 chapterNumber 必填".into()));
+    };
+    Ok(Json(story_impact(&db, &book_id, &chapter_id)?))
 }

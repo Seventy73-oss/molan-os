@@ -1,6 +1,7 @@
 //! progress / search / bible / review — parity with Node features.ts.
 
 use crate::db::{Db, now_iso};
+use crate::services::story_state::snapshot_bible_card;
 use crate::error::{AppError, AppResult};
 use crate::services::books::{book_progress, must_book};
 use rusqlite::{OptionalExtension, params};
@@ -155,6 +156,7 @@ pub fn create_bible_card(
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
             params![id, book_id, kind, name, summary.trim(), details.trim(), max + 1, ts, ts],
         )?;
+        let _ = snapshot_bible_card(conn, &id, book_id, kind, name, summary.trim(), details.trim());
         let row = conn.query_row(
             "SELECT id, book_id, kind, name, summary, details, sort_order, created_at, updated_at FROM bible_cards WHERE id = ?1",
             params![id],
@@ -198,6 +200,7 @@ pub fn update_bible_card(
             "UPDATE bible_cards SET kind = ?1, name = ?2, summary = ?3, details = ?4, sort_order = ?5, updated_at = ?6 WHERE id = ?7",
             params![kind, name, summary, details, sort_order, now_iso(), card_id],
         )?;
+        let _ = snapshot_bible_card(conn, card_id, book_id, &kind, &name, summary, details);
         let row = conn.query_row(
             "SELECT id, book_id, kind, name, summary, details, sort_order, created_at, updated_at FROM bible_cards WHERE id = ?1",
             params![card_id],

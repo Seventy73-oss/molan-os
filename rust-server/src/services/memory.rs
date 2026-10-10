@@ -265,6 +265,7 @@ pub fn schedule_publication_memory_extract(
                     &text,
                     Some(&publication_id),
                     basis_epoch,
+                    None,
                 ) {
                     Ok(p) => tracing::info!(
                         "[memory] proposal {} for publication {publication_id}",

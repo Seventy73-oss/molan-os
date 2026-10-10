@@ -36,7 +36,7 @@ fn normalize_dialogue_quotes(text: &str) -> String {
     out
 }
 
-fn field_of(text: &str, label: &str) -> String {
+pub(crate) fn field_of(text: &str, label: &str) -> String {
     let re = Regex::new(&format!(r"(?m)^{label}：(.+)$")).ok();
     re.and_then(|r| {
         r.captures(text)
@@ -45,7 +45,7 @@ fn field_of(text: &str, label: &str) -> String {
     .unwrap_or_default()
 }
 
-fn titles_from(text: &str) -> Vec<String> {
+pub(crate) fn titles_from(text: &str) -> Vec<String> {
     let Some(start) = text.find("章目：") else {
         return vec![];
     };
@@ -332,7 +332,31 @@ pub fn save_revision(db: &Db, mut input: SaveRevisionInput) -> AppResult<Value> 
         }))
     })?;
 
-    let _ = input.skip_memory; // memory extract not ported yet
+    // After chapter body is saved/generated, quietly refresh chapter memory ledger.
+    if !input.skip_memory
+        && !input.as_candidate
+        && input.kind == "chapter_body"
+        && input.chapter_number.is_some()
+        && input.body.trim().len() > 0
+        && input.model.as_deref() != Some("import")
+    {
+        let current = saved
+            .get("current")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if current {
+            let rid = saved
+                .get("revisionId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            crate::services::memory::schedule_memory_extract(
+                db.clone(),
+                input.book_id.clone(),
+                input.chapter_number.unwrap(),
+                rid,
+            );
+        }
+    }
     Ok(saved)
 }
 

@@ -41,6 +41,23 @@ fn parse_expected(body: &Value) -> Option<Option<String>> {
     }
 }
 
+
+fn body_tools_requested(body: &Value) -> bool {
+    if body.get("tools").is_some()
+        || body.get("toolDefs").is_some()
+        || body.get("orchestration").is_some()
+    {
+        return true;
+    }
+    if body.get("enableTools").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    if body.get("autonomous").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    false
+}
+
 fn parse_skill_ids(body: &Value) -> Option<Vec<String>> {
     body.get("skillIds").and_then(|v| v.as_array()).map(|arr| {
         arr.iter()
@@ -79,6 +96,8 @@ pub async fn post_scene_run(
                 .map(|s| s.to_string()),
             cancelled: None,
             job_id: None,
+            source_revision_id: None,
+            tools_requested: body_tools_requested(&body),
         },
     )
     .await?;
@@ -176,7 +195,9 @@ pub async fn post_scene_run_stream(
         generation_id: generation_id.clone(),
         cancelled: Some(cancelled.clone()),
         job_id: None,
-    };
+            source_revision_id: None,
+            tools_requested: body_tools_requested(&body),
+        };
 
     tokio::spawn(async move {
         let tx2 = tx.clone();

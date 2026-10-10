@@ -1,5 +1,6 @@
 pub mod local_draft;
 pub mod openai;
+pub mod pi;
 pub mod runtime;
 
 use crate::thinking::ThinkingIntensity;
@@ -21,6 +22,8 @@ pub struct RunInput {
     pub instruction: String,
     pub thinking_intensity: ThinkingIntensity,
     pub cancelled: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// When true, pi adapter refuses (tools / enableTools / autonomous / orchestration).
+    pub tools_requested: bool,
 }
 
 #[derive(Debug, Clone)]

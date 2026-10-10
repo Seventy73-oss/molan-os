@@ -3,6 +3,7 @@
 
 use crate::agent::local_draft::LocalDraftAdapter;
 use crate::agent::openai::OpenAiCompatibleAdapter;
+use crate::agent::pi::PiRelayAdapter;
 use crate::agent::{RunInput, RunOutput};
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
@@ -21,6 +22,7 @@ pub struct RouteRow {
 pub enum AdapterKind {
     Local(LocalDraftAdapter),
     OpenAi(OpenAiCompatibleAdapter),
+    Pi(PiRelayAdapter),
 }
 
 impl AdapterKind {
@@ -28,6 +30,7 @@ impl AdapterKind {
         match self {
             Self::Local(a) => a.run_scene(input),
             Self::OpenAi(a) => a.run_scene(input).await,
+            Self::Pi(a) => a.run_scene(input).await,
         }
     }
 
@@ -41,6 +44,7 @@ impl AdapterKind {
     {
         match self {
             Self::OpenAi(a) => a.run_scene_stream(input, on_token).await,
+            Self::Pi(a) => a.run_scene_stream(input, on_token).await,
             Self::Local(a) => {
                 let result = a.run_scene(input)?;
                 crate::agent::openai::emit_chunked(
@@ -69,11 +73,7 @@ pub fn get_adapter(db: &Db, route: &RouteRow) -> AppResult<AdapterKind> {
     };
 
     if provider == "pi" {
-        // Keep pi boundary: model-proxy only; Rust port returns unavailable until wired.
-        return Err(AppError::BadRequest(
-            "pi 运行时在 Rust 重写中暂未接入（边界：仅模型代调，非自主编排）。请改用 openai 或 local。"
-                .into(),
-        ));
+        return Ok(AdapterKind::Pi(PiRelayAdapter::from_db(db)?));
     }
 
     if provider != "openai" {

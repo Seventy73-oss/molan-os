@@ -2,9 +2,9 @@
 
 use axum::{
     Json,
-    body::Body,
-    extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    
+    extract::{FromRequest, Multipart, Path, Query, Request, State},
+    http::{HeaderValue, StatusCode, header},
     response::IntoResponse,
 };
 use crate::db::Db;
@@ -25,24 +25,74 @@ pub struct FileQuery {
     chapter_number: Option<String>,
 }
 
-pub async fn import_book(
-    State(db): State<Db>,
-    headers: HeaderMap,
-    body: Body,
-) -> AppResult<impl IntoResponse> {
-    let ct = headers
+pub async fn import_book(State(db): State<Db>, req: Request) -> AppResult<impl IntoResponse> {
+    let ct = req
+        .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let bytes = axum::body::to_bytes(body, 100 * 1024 * 1024)
-        .await
-        .map_err(|e| AppError::BadRequest(format!("读取上传失败：{e}")))?;
+        .unwrap_or("")
+        .to_string();
 
-    let (conflict, title, buffer) = if ct.contains("application/json") || ct.contains("+json") || bytes.starts_with(b"{") {
+    let (conflict, title, buffer) = if ct.contains("multipart/form-data") {
+        let mut multipart = Multipart::from_request(req, &db)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("multipart 无效：{e}")))?;
+        let mut conflict = ImportConflict::parse("new_book");
+        let mut title: Option<String> = None;
+        let mut buffer: Vec<u8> = Vec::new();
+        while let Some(field) = multipart
+            .next_field()
+            .await
+            .map_err(|e| AppError::BadRequest(format!("multipart 字段读取失败：{e}")))?
+        {
+            let name = field.name().unwrap_or("").to_string();
+            match name.as_str() {
+                "conflict" => {
+                    let text = field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("conflict 字段无效：{e}")))?;
+                    conflict = ImportConflict::parse(&text);
+                }
+                "title" => {
+                    let text = field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("title 字段无效：{e}")))?;
+                    if !text.trim().is_empty() {
+                        title = Some(text);
+                    }
+                }
+                "file" => {
+                    let bytes = field
+                        .bytes()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("file 字段无效：{e}")))?;
+                    buffer = bytes.to_vec();
+                }
+                _ => {
+                    let _ = field.bytes().await;
+                }
+            }
+        }
+        (conflict, title, buffer)
+    } else {
+        let bytes = axum::body::to_bytes(req.into_body(), 100 * 1024 * 1024)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("读取上传失败：{e}")))?;
+        if !(ct.contains("application/json") || ct.contains("+json") || bytes.starts_with(b"{")) {
+            return Err(AppError::BadRequest(
+                "请上传 zip（multipart file）或 JSON { zipBase64, conflict?, title? }".into(),
+            ));
+        }
         let v: Value = serde_json::from_slice(&bytes)
             .map_err(|e| AppError::BadRequest(format!("JSON 无效：{e}")))?;
-        let conflict = ImportConflict::parse(v.get("conflict").and_then(|x| x.as_str()).unwrap_or("new_book"));
-        let title = v.get("title").and_then(|x| x.as_str()).map(|s| s.to_string());
+        let conflict =
+            ImportConflict::parse(v.get("conflict").and_then(|x| x.as_str()).unwrap_or("new_book"));
+        let title = v
+            .get("title")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
         let b64 = v.get("zipBase64").and_then(|x| x.as_str()).unwrap_or("");
         if b64.is_empty() {
             return Err(AppError::BadRequest("请上传 zip 书稿".into()));
@@ -51,10 +101,6 @@ pub async fn import_book(
             .decode(b64)
             .map_err(|e| AppError::BadRequest(format!("zipBase64 无效：{e}")))?;
         (conflict, title, buf)
-    } else {
-        return Err(AppError::BadRequest(
-            "请用 JSON { zipBase64, conflict?, title? } 上传（Rust 路由暂不解析 multipart）".into(),
-        ));
     };
 
     if buffer.is_empty() {
@@ -63,12 +109,19 @@ pub async fn import_book(
     let result = import_book_from_zip_buffer(&db, &buffer, conflict, title.as_deref())?;
     let book_id = result.get("bookId").and_then(|v| v.as_str()).unwrap_or("");
     let book = get_book_payload(&db, book_id)?;
-    let skipped = result.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+    let skipped = result
+        .get("skipped")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let mut out = result;
     if let Some(m) = out.as_object_mut() {
         m.insert("book".into(), book);
     }
-    let status = if skipped { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if skipped {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(out)))
 }
 
@@ -76,8 +129,8 @@ pub async fn export_zip(
     State(db): State<Db>,
     Path(id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    let (filename, buffer) = export_book_zip(&db, &id)
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let (filename, buffer) =
+        export_book_zip(&db, &id).map_err(|e| AppError::BadRequest(e.to_string()))?;
     Ok(zip_response(filename, buffer))
 }
 
@@ -99,7 +152,10 @@ pub async fn export_chapter_md(
     let res = (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, HeaderValue::from_static("text/markdown; charset=utf-8")),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/markdown; charset=utf-8"),
+            ),
             (
                 header::CONTENT_DISPOSITION,
                 HeaderValue::from_str(&format!(
@@ -126,18 +182,28 @@ pub async fn artifact_file(
     let chapter_number = match q.chapter_number.as_deref() {
         None | Some("") | Some("null") => None,
         Some(s) => {
-            let n: i64 = s.parse().map_err(|_| AppError::BadRequest("章节号无效".into()))?;
+            let n: i64 = s
+                .parse()
+                .map_err(|_| AppError::BadRequest("章节号无效".into()))?;
             Some(n)
         }
     };
-    Ok(Json(read_artifact_file(&db, &id, &kind, chapter_number)?))
+    Ok(Json(read_artifact_file(
+        &db,
+        &id,
+        &kind,
+        chapter_number,
+    )?))
 }
 
 fn zip_response(filename: String, buffer: Vec<u8>) -> impl IntoResponse {
     (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, HeaderValue::from_static("application/zip")),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/zip"),
+            ),
             (
                 header::CONTENT_DISPOSITION,
                 HeaderValue::from_str(&format!(

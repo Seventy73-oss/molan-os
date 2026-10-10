@@ -4,6 +4,7 @@ use crate::db::{Db, now_iso};
 use crate::error::{AppError, AppResult};
 use crate::services::books::must_book;
 use crate::services::engine::{ExecuteSceneInput, artifact_body, execute_scene};
+use crate::services::memory::wait_memory_extract;
 use crate::services::revisions::OnConflict;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
@@ -308,7 +309,9 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                             generation_id: None,
                             cancelled: None,
                             job_id: Some(id.to_string()),
-                        },
+                        source_revision_id: None,
+                        tools_requested: false,
+                    },
                     )
                     .await?;
                     db.with_conn(|conn| {
@@ -346,6 +349,8 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                         generation_id: None,
                         cancelled: None,
                         job_id: Some(id.to_string()),
+                        source_revision_id: None,
+                        tools_requested: false,
                     },
                 )
                 .await?;
@@ -384,6 +389,8 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                         generation_id: None,
                         cancelled: None,
                         job_id: Some(id.to_string()),
+                        source_revision_id: None,
+                        tools_requested: false,
                     },
                 )
                 .await?;
@@ -409,39 +416,17 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                 })?;
             }
             "memory" => {
-                let existing = db.with_conn(|conn| {
-                    Ok(artifact_body(
-                        conn,
-                        &book_id,
-                        "chapter_memory",
-                        Some(current_chapter),
-                    ))
-                })?;
-                if existing.trim().is_empty() {
-                    let _ = execute_scene(
-                        db,
-                        ExecuteSceneInput {
-                            book_id: book_id.clone(),
-                            scene: "memory_extract".into(),
-                            chapter_number: Some(current_chapter),
-                            instruction: format!("抽取第 {current_chapter} 章记忆"),
-                            skill_ids: None,
-                            expected_revision_id: None,
-                            on_conflict: OnConflict::Candidate,
-                            generation_id: None,
-                            cancelled: None,
-                            job_id: Some(id.to_string()),
-                        },
-                    )
-                    .await;
-                }
+                let ok = wait_memory_extract(db, &book_id, current_chapter, 40_000).await;
                 db.with_conn(|conn| {
                     append_job_log(
                         conn,
                         id,
                         "memory",
                         current_chapter,
-                        &format!("第 {current_chapter} 章记忆已抽取"),
+                        &format!(
+                            "第 {current_chapter} 章记忆{}",
+                            if ok { "已抽取" } else { "等待超时，继续" }
+                        ),
                     )
                 })?;
                 let lease = job_lease_check(db, id, "memory")?;
@@ -474,6 +459,8 @@ pub async fn tick_job(db: &Db, id: &str) -> AppResult<Value> {
                         generation_id: None,
                         cancelled: None,
                         job_id: Some(id.to_string()),
+                        source_revision_id: None,
+                        tools_requested: false,
                     },
                 )
                 .await?;

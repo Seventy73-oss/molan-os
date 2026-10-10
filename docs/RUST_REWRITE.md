@@ -33,6 +33,7 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | 6 | generations begin / cancel / complete / demote + stream 接线 | ✅ |
 | 7 | writing_jobs + lease worker | ✅ |
 | 8 | import/export ZIP、bible、hooks、usage、search、progress | ✅ |
+| 8b | auto-setup / multipart import / memory extract / pi 边界 | ✅ |
 | 9 | 浏览器 E2E / regression 对拍 Node | ⬜ |
 
 ## API 对拍矩阵
@@ -43,7 +44,7 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 |------|------|------|------|
 | GET | `/api/health` | ✅ | `runtime: rust` + 真实 `jobsWorker` |
 | GET | `/api/jobs/worker` | ✅ | |
-| GET | `/api/agent/runtime` | ✅ | pi 边界「仅代调」；Rust 暂标 pi unavailable |
+| GET | `/api/agent/runtime` | ✅ | pi 边界「仅代调」；Rust 原生 PiRelay（openai 若已配否则 local）；拒 tools |
 | GET | `/api/books` | ✅ | |
 | POST | `/api/books` | ✅ | Idempotency-Key |
 | GET | `/api/books/:id` | ✅ | 调 md sync |
@@ -57,7 +58,7 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | GET | `/api/books/:id/export.zip` | ✅ | md 目录打包 |
 | GET | `/api/books/:id/chapters/:n/export.zip` | ✅ | |
 | GET | `/api/books/:id/chapters/:n/export.md` | ✅ | |
-| POST | `/api/books/import` | ✅ | JSON `zipBase64`；validate-then-commit；覆盖=逻辑 JSON + 按书 `.book.phys.sqlite`；失败回滚 |
+| POST | `/api/books/import` | ✅ | JSON `zipBase64` **或 multipart `file`**；validate-then-commit；覆盖=逻辑 JSON + 按书 `.book.phys.sqlite`；失败回滚 |
 | GET/POST | `/api/books/:id/jobs` | ✅ | |
 | GET/PATCH | `/api/jobs/:id` | ✅ | pause/cancel/running/done |
 | POST | `/api/jobs/:id/tick` | ✅ | SQLite lease + in-process lock |
@@ -76,8 +77,8 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 | POST | `/api/books/:id/scene-runs` (+stream) | ✅ | |
 | POST | `/api/books/:id/selection-rewrite` (+stream) | ✅ | |
 | GET | `/api/books/:id/messages` | ✅ | |
-| POST | `/api/books/auto-setup` | ⬜ | 显式 501（避免被 `:id` 吃掉变 405） |
-| POST | `/api/books/:id/auto-setup` | ⬜ | 显式 501 |
+| POST | `/api/books/auto-setup` | ✅ | brief → book_setup → 建书+章目+档案 |
+| POST | `/api/books/:id/auto-setup` | ✅ | 指定 id；已存在 409 |
 | 其他未列 | catch-all | ⬜ | 501 |
 
 ## 本轮实现要点（阶段 7–8：jobs / 导入导出 / 高流量）
@@ -102,12 +103,19 @@ Rust `rust-server/src/schema.rs` 镜像 Node `sqliteSchema()` + `migrateSqlite()
 MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 ```
 
+## 本轮实现要点（阶段 8b：缺口收口）
+
+- **auto-setup**：`POST /api/books/auto-setup` 与 `POST /api/books/:id/auto-setup`；`book_setup` 场景 + 用户包挂载；解析书名/题材/简介/文风/章目；落档案修订。
+- **multipart 导入**：与前端 `FormData(file, conflict, title)` 对齐；仍支持 JSON `zipBase64`。
+- **记忆抽取**：`schedule_memory_extract` / `wait_memory_extract` 对拍 Node；正文保存后异步抽取；job `memory` 阶段等待（超时继续）；`sourceRevisionId` 绑定正文修订。
+- **pi 边界**：Rust 原生 `PiRelayAdapter`（有 Key 走 openai，否则 local-draft）；`modelUsed` 前缀 `pi-agent/`；拒 `tools` / `enableTools` / `autonomous` / `orchestration`；`/api/agent/runtime` 标 available + model-relay。
+
+冒烟（:8799 临时库）：health → agent/runtime(pi available) → auto-setup → chapter_body 后 chapter_memory 异步落盘 → pi+enableTools 拒绝 / pi 正常代调 → multipart import → 空 brief 400。
+
 ## 刻意保留 / 剩余缺口
 
-- 产品默认仍是 **SQLite**；Rust 不引入 PG。
-- **pi** 不做自主编排（`/api/agent/runtime` 标明 model-relay；Rust 暂未链 npm pi 包）。
-- 导入暂只接 **JSON zipBase64**（multipart 未接）。
-- **auto-setup** 仍 501。
-- **异步记忆抽取 / waitMemoryExtract** 未对拍（job memory 阶段改为现场 `memory_extract`）。
-- 阶段 9：浏览器 E2E / regression 对拍 Node 尚未跑。
-- 未移植接口返回 **501** + 中文说明，避免静默假成功。
+- 产品默认仍是 **SQLite**；Rust **不引入 PG**（Node 侧可选原生 PG 仍在 main）。
+- **pi** 不做自主编排；Rust **不链接** npm `@earendil-works/pi-agent-core`，用等价模型代调路径（边界与文案对拍）。
+- 阶段 9：浏览器 E2E / `npm run test:audit` **对拍 Node** 尚未在 `MOLAN_API_PROXY`→Rust 下跑通。
+- catch-all 未列接口仍 **501** + 中文说明，避免静默假成功。
+- Node 专有：SQLite→PG 迁移工具、PGlite worker 开关等 **不在** Rust 范围。

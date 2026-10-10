@@ -10,7 +10,7 @@ use crate::services::generations::{
     GenerationStatus, begin_generation, complete_generation, demote_cancelled_result_revision,
     get_generation, link_generation_result_revision,
 };
-use crate::services::revisions::{OnConflict, SaveRevisionInput, current_revision_id_for, save_revision};
+use crate::services::revisions::{OnConflict, SaveRevisionInput, current_revision_id_for, field_of, save_revision, titles_from};
 use crate::services::scene_routes::route_for;
 use crate::services::skills::{
     is_user_pack, skill_prompt_meta, skill_prompt_text, skills_for_scene, user_pack_default_max,
@@ -356,6 +356,10 @@ pub struct ExecuteSceneInput {
     pub cancelled: Option<Arc<AtomicBool>>,
     /// When set, cancelled/done job forces candidate write (parity with Node asCandidate).
     pub job_id: Option<String>,
+    /// Bind review/memory to the body revision they were based on.
+    pub source_revision_id: Option<String>,
+    /// Refuse under pi when tools/autonomous requested.
+    pub tools_requested: bool,
 }
 
 pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value> {
@@ -420,6 +424,7 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
         instruction: instruction.clone(),
         thinking_intensity: normalize_thinking(Some(&route.thinking_intensity)),
         cancelled: input.cancelled.clone(),
+            tools_requested: input.tools_requested,
     };
     let result = adapter.run_scene(&run_input).await?;
     throw_if_generation_cancelled(db, input.generation_id.as_deref(), &input.cancelled)?;
@@ -440,6 +445,17 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
     let as_candidate_now =
         generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled)
         || job_forces_candidate;
+
+    let mut source_revision_id = input.source_revision_id.clone();
+    if source_revision_id.is_none()
+        && matches!(input.scene.as_str(), "review" | "memory_extract")
+        && chapter_number.is_some()
+    {
+        source_revision_id = db.with_conn(|conn| {
+            current_revision_id_for(conn, &input.book_id, "chapter_body", chapter_number)
+        })?;
+    }
+
     let saved = if let Some(k) = kind {
         let source = if as_candidate_now
             && generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled)
@@ -467,7 +483,7 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
                 expected_revision_id: Some(baseline),
                 as_candidate: as_candidate_now,
                 on_conflict: input.on_conflict,
-                source_revision_id: None,
+            source_revision_id: source_revision_id.clone(),
                 skip_memory: false,
             },
         )?)
@@ -620,6 +636,7 @@ pub async fn rewrite_selection(
         .join("\n"),
         thinking_intensity: normalize_thinking(Some(&route.thinking_intensity)),
         cancelled: None,
+            tools_requested: false,
     };
     let result = adapter.run_scene(&run).await.map_err(|e| {
         if matches!(e, AppError::BadGateway(_) | AppError::BadRequest(_)) {
@@ -716,7 +733,9 @@ pub async fn chat(
                 generation_id: generation_id.map(|s| s.to_string()),
                 cancelled: cancelled.clone(),
                 job_id: None,
-            },
+            source_revision_id: None,
+            tools_requested: false,
+        },
         )
         .await
         {
@@ -790,6 +809,7 @@ pub async fn chat(
                     instruction: text.into(),
                     thinking_intensity: normalize_thinking(Some(&route.thinking_intensity)),
                     cancelled: cancelled.clone(),
+            tools_requested: false,
                 };
                 match adapter.run_scene(&run).await {
                     Ok(result) => {
@@ -972,6 +992,7 @@ pub async fn stream_scene_run(
         instruction,
         thinking_intensity: normalize_thinking(Some(&route.thinking_intensity)),
         cancelled: input.cancelled.clone(),
+        tools_requested: input.tools_requested,
     };
 
     if adapter.is_openai() {
@@ -1030,6 +1051,16 @@ pub async fn stream_scene_run(
     let as_candidate_now =
         generation_write_should_be_candidate(db, input.generation_id.as_deref(), &input.cancelled)
         || job_forces_candidate;
+    let mut source_revision_id = input.source_revision_id.clone();
+    if source_revision_id.is_none()
+        && matches!(input.scene.as_str(), "review" | "memory_extract")
+        && chapter_number.is_some()
+    {
+        source_revision_id = db.with_conn(|conn| {
+            current_revision_id_for(conn, &input.book_id, "chapter_body", chapter_number)
+        })?;
+    }
+
     let saved = if let Some(k) = kind {
         Some(save_revision(
             db,
@@ -1054,7 +1085,7 @@ pub async fn stream_scene_run(
                 expected_revision_id: Some(baseline),
                 as_candidate: as_candidate_now,
                 on_conflict: input.on_conflict,
-                source_revision_id: None,
+            source_revision_id: source_revision_id.clone(),
                 skip_memory: false,
             },
         )?)
@@ -1130,4 +1161,123 @@ pub async fn stream_scene_run(
     }
     sse_emit(&tx, json!({ "type": "done", "payload": payload })).await?;
     Ok(())
+}
+
+
+pub async fn auto_setup(db: &Db, brief: &str, forced_id: Option<&str>) -> AppResult<Value> {
+    let text = brief.trim();
+    if text.is_empty() {
+        return Err(AppError::BadRequest("要有一句题材".into()));
+    }
+    if let Some(fid) = forced_id {
+        let exists = db.with_conn(|conn| {
+            let row: Option<String> = conn
+                .query_row("SELECT id FROM books WHERE id = ?1", params![fid], |r| r.get(0))
+                .optional()?;
+            Ok(row.is_some())
+        })?;
+        if exists {
+            return Err(AppError::Conflict("这本书已经存在".into()));
+        }
+    }
+
+    let scene = "book_setup";
+    let skills = db.with_conn(|conn| skills_for_scene(conn, scene, None))?;
+    let skill_texts = to_skill_texts(db, &skills, None)?;
+    let route = route_for(db, scene)?;
+    let adapter = get_adapter(db, &route)?;
+    let run_input = RunInput {
+        scene: scene.into(),
+        model: Some(route.model_id.clone()),
+        skill_texts,
+        context: format!("【题材简述】\n{text}\n"),
+        instruction: text.into(),
+        thinking_intensity: normalize_thinking(Some(&route.thinking_intensity)),
+        cancelled: None,
+        tools_requested: false,
+    };
+    let result = adapter.run_scene(&run_input).await?;
+
+    let title = {
+        let t = field_of(&result.text, "书名");
+        if t.is_empty() { "未命名".into() } else { t }
+    };
+    let genre = field_of(&result.text, "题材");
+    let logline = {
+        let t = field_of(&result.text, "简介");
+        if t.is_empty() { text.to_string() } else { t }
+    };
+    let style = field_of(&result.text, "文风");
+    let titles = titles_from(&result.text);
+    let count_from_field = field_of(&result.text, "目标章数")
+        .parse::<i64>()
+        .unwrap_or(0);
+    let count = {
+        let n = if count_from_field > 0 {
+            count_from_field
+        } else if !titles.is_empty() {
+            titles.len() as i64
+        } else {
+            12
+        };
+        n.clamp(1, 48)
+    };
+    let mut chapter_titles = if !titles.is_empty() {
+        titles.into_iter().take(count as usize).collect::<Vec<_>>()
+    } else {
+        (1..=count).map(|i| format!("第{i}章")).collect()
+    };
+    while (chapter_titles.len() as i64) < count {
+        chapter_titles.push(format!("第{}章", chapter_titles.len() + 1));
+    }
+
+    let id = forced_id
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let created = now_iso();
+
+    db.with_conn(|conn| {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            r#"INSERT INTO books (id, title, genre, logline, style, target_chapters, words_per_chapter, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+            params![id, title, genre, logline, style, count, 800i64, created],
+        )?;
+        for (i, ch_title) in chapter_titles.iter().enumerate() {
+            let ch_id = Uuid::new_v4().to_string();
+            let number = (i + 1) as i64;
+            tx.execute(
+                "INSERT INTO chapters (id, book_id, number, title, status) VALUES (?1, ?2, ?3, ?4, 'empty')",
+                params![ch_id, id, number, ch_title],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    })?;
+
+    save_revision(
+        db,
+        SaveRevisionInput {
+            book_id: id.clone(),
+            kind: "book_profile".into(),
+            chapter_number: None,
+            chapter_id: None,
+            body: result.text,
+            source: "agent".into(),
+            model: Some(result.model_used.clone()),
+            skill_ids: skills.iter().map(|s| s.id.clone()).collect(),
+            scene: Some("book_setup".into()),
+            expected_revision_id: None,
+            as_candidate: false,
+            on_conflict: OnConflict::Candidate,
+            source_revision_id: None,
+            skip_memory: true,
+        },
+    )?;
+
+    let mut payload = crate::services::books::get_book_payload(db, &id)?;
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("modelUsed".into(), json!(result.model_used));
+    }
+    Ok(payload)
 }

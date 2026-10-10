@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::services::books::{CreateBookInput, UpdateBookInput, create_book, delete_book, get_book_payload, list_books, update_book};
+use crate::services::engine::auto_setup;
 use crate::services::manuscripts::sync_book;
 
 pub async fn list(State(db): State<Db>) -> AppResult<impl IntoResponse> {
@@ -83,4 +84,23 @@ pub async fn update(
 pub async fn delete(State(db): State<Db>, Path(id): Path<String>) -> AppResult<impl IntoResponse> {
     delete_book(&db, &id)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn auto_setup_new(
+    State(db): State<Db>,
+    Json(body): Json<Value>,
+) -> AppResult<impl IntoResponse> {
+    let brief = body.get("brief").and_then(|v| v.as_str()).unwrap_or("");
+    let payload = auto_setup(&db, brief, None).await?;
+    Ok((StatusCode::CREATED, Json(payload)))
+}
+
+pub async fn auto_setup_existing(
+    State(db): State<Db>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> AppResult<impl IntoResponse> {
+    let brief = body.get("brief").and_then(|v| v.as_str()).unwrap_or("");
+    let payload = auto_setup(&db, brief, Some(&id)).await?;
+    Ok((StatusCode::CREATED, Json(payload)))
 }

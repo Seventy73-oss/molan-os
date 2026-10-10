@@ -7,6 +7,7 @@ pub mod hooks;
 pub mod import_book;
 pub mod jobs;
 pub mod manuscripts;
+pub mod memory;
 pub mod revisions;
 pub mod scene_routes;
 pub mod settings;

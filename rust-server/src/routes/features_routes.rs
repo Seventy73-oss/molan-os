@@ -187,13 +187,7 @@ pub async fn agent_runtime(State(db): State<Db>) -> impl IntoResponse {
                 "available": true,
                 "reason": "在「模型」页配置 Base URL / API Key 后按场景路由调用",
             },
-            {
-                "id": "pi-agent",
-                "label": "pi-agent-core",
-                "available": false,
-                "reason": "Rust 重写暂未接入 pi 包；边界保持「仅模型代调，非自主编排」。详见 docs/PI_RUNTIME.md",
-                "packageName": "@earendil-works/pi-agent-core",
-            }
+            crate::agent::pi::probe_pi_capability(),
         ],
         "envRuntime": env_runtime,
         "db": {
@@ -201,13 +195,8 @@ pub async fn agent_runtime(State(db): State<Db>) -> impl IntoResponse {
             "detail": db.path.display().to_string(),
             "ready": true,
         },
-        "pi": {
-            "mode": "model-relay",
-            "autonomous": false,
-            "toolsSupported": false,
-            "note": "pi-agent 仅代调模型交付文稿，不是自主工具编排 agent",
-        },
-        "note": "Rust API：默认 sqlite；pi 边界与 Node 一致（仅代调）。详见 docs/PI_RUNTIME.md / docs/RUST_REWRITE.md。",
+        "pi": crate::agent::pi::pi_orchestration_boundary(),
+        "note": "Rust API：默认 sqlite；pi 为原生模型代调（非自主编排，拒 tools）。详见 docs/PI_RUNTIME.md / docs/RUST_REWRITE.md。",
         "runtime": "rust",
     }))
 }

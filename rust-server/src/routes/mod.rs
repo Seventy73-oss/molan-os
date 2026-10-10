@@ -25,7 +25,7 @@ pub fn api_router(db: Db) -> Router {
         .route("/api/agent/runtime", get(features_routes::agent_runtime))
         .route("/api/books", get(books::list).post(books::create))
         .route("/api/books/import", post(import_export::import_book))
-        .route("/api/books/auto-setup", post(stubs::not_ported_handler))
+        .route("/api/books/auto-setup", post(books::auto_setup_new))
         .route(
             "/api/books/{id}",
             get(books::get).patch(books::update).delete(books::delete),
@@ -43,7 +43,7 @@ pub fn api_router(db: Db) -> Router {
             "/api/books/{id}/artifacts/file",
             get(import_export::artifact_file),
         )
-        .route("/api/books/{id}/auto-setup", post(stubs::not_ported_handler))
+        .route("/api/books/{id}/auto-setup", post(books::auto_setup_existing))
         .route("/api/books/{id}/chapters", post(chapters::create))
         .route(
             "/api/books/{id}/chapters/{number}",

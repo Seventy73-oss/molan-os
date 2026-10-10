@@ -352,6 +352,55 @@ z.close()
     /* ignore */
   }
 
+
+  // --- Skill attachScenes matrix (user packs primary) ---
+  const { reloadSkills, skillsForScene, isUserPack, userPackIdsForScene } = await import("../src/skills");
+  reloadSkills();
+  const expectPacks: Record<string, string[]> = {
+    outline: ["novel-craft", "structure-skeleton", "volume-arcs"],
+    chapter_body: ["humanize", "style-corpus"],
+    humanize: ["humanize", "style-corpus"],
+    chat: ["novel-craft", "opening-cards"],
+    chapter_outline: ["novel-craft", "opening-cards"],
+    review: ["humanize"],
+  };
+  for (const [scene, exp] of Object.entries(expectPacks)) {
+    const got = skillsForScene(scene)
+      .filter((r) => isUserPack(r.id))
+      .map((r) => r.id)
+      .sort();
+    const want = [...exp].sort();
+    check(
+      `SKILL ${scene} 用户包`,
+      JSON.stringify(got) === JSON.stringify(want) &&
+        skillsForScene(scene).filter((r) => isUserPack(r.id)).every((r) => r.role === "primary"),
+      `got=${got.join(",")}`,
+    );
+    check(
+      `SKILL ${scene} 无串味`,
+      !(scene === "outline" || scene === "chapter_outline" || scene === "chat") ||
+        !got.includes("humanize"),
+    );
+  }
+  // Explicit skillIds must NOT strip stage user packs
+  const bodyWithIds = skillsForScene("chapter_body", ["prose-expand"]).map((r) => r.id);
+  check(
+    "SKILL skillIds 仍强制挂 humanize+style",
+    bodyWithIds.includes("humanize") && bodyWithIds.includes("style-corpus") && bodyWithIds.includes("prose-expand"),
+    bodyWithIds.join(","),
+  );
+  const outlineNoHuman = skillsForScene("outline", ["book-outline"]).map((r) => r.id);
+  check(
+    "SKILL outline 显式 ids 仍无 humanize",
+    !outlineNoHuman.includes("humanize") && outlineNoHuman.includes("volume-arcs"),
+    outlineNoHuman.join(","),
+  );
+  check(
+    "SKILL userPackIdsForScene(outline)",
+    JSON.stringify(userPackIdsForScene("outline").sort()) ===
+      JSON.stringify(["novel-craft", "structure-skeleton", "volume-arcs"].sort()),
+  );
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

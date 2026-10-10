@@ -59,7 +59,7 @@ import {
   redactSecrets,
 } from "./security";
 import { normalizeThinking } from "./thinking";
-import { isUserPack, loadUserPackPrompt, readSkillFile, reloadSkills, skillDescription, skillPromptMeta, toSkillTexts, userPackDefaultMax, userPackSources, type SkillRow } from "./skills";
+import { attachScenesOfPack, isUserPack, loadUserPackPrompt, readSkillFile, reloadSkills, skillDescription, skillPromptMeta, skillsForScene, toSkillTexts, userPackDefaultMax, userPackIdsForScene, userPackSources, type SkillRow } from "./skills";
 
 const SCENES = new Set<SceneId>([
   "topic",
@@ -487,15 +487,19 @@ app.post("/api/jobs/:id/retry", (c) => c.json(retryJob(c.req.param("id"))));
 
 function skillJson(row: SkillRow) {
   const raw = readSkillFile(row.path);
+  const userPack = isUserPack(row.id);
+  const attachScenes = userPack ? attachScenesOfPack(row.id) : [];
   return {
     id: row.id,
     name: row.name,
     scene: row.scene,
-    role: row.role,
+    role: userPack ? "primary" : row.role,
     path: row.path,
     enabled: row.enabled === 1,
     description: skillDescription(raw),
     body: raw,
+    userPack,
+    attachScenes,
   };
 }
 
@@ -641,6 +645,25 @@ app.patch("/api/skills/:id", async (c) => {
 app.post("/api/skills/reload", (c) => {
   const rows = reloadSkills();
   return c.json({ skills: rows.map(skillJson) });
+});
+
+app.get("/api/skills/for-scene", (c) => {
+  const scene = (c.req.query("scene") || "").trim();
+  if (!scene) throw new HttpError(400, "缺少 scene");
+  const rows = skillsForScene(scene);
+  return c.json({
+    scene,
+    autoAttachUserPacks: userPackIdsForScene(scene),
+    skills: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      scene: row.scene,
+      role: row.role,
+      enabled: row.enabled === 1,
+      userPack: isUserPack(row.id),
+      attachScenes: isUserPack(row.id) ? attachScenesOfPack(row.id) : [],
+    })),
+  });
 });
 
 app.get("/api/skills/:id/prompt-preview", (c) => {

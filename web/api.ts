@@ -85,6 +85,10 @@ export type Skill = {
   enabled: boolean;
   description: string;
   body: string;
+  /** User distillation pack (stage-primary). */
+  userPack?: boolean;
+  /** Extra scenes this pack auto-attaches to (in addition to home `scene`). */
+  attachScenes?: string[];
 };
 
 export type ThinkingIntensity = "off" | "low" | "medium" | "high";
@@ -334,6 +338,12 @@ export const api = {
     }),
   messages: (id: string) => request<{ messages: ChatMessage[] }>(`/api/books/${id}/messages`),
   skills: () => request<{ skills: Skill[] }>("/api/skills"),
+  skillsForScene: (scene: string) =>
+    request<{
+      scene: string;
+      autoAttachUserPacks: string[];
+      skills: Array<Pick<Skill, "id" | "name" | "scene" | "role" | "enabled" | "userPack" | "attachScenes">>;
+    }>(`/api/skills/for-scene?scene=${encodeURIComponent(scene)}`),
   patchSkill: (id: string, enabled: boolean) =>
     request<Skill>(`/api/skills/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
   reloadSkills: () => request<{ skills: Skill[] }>("/api/skills/reload", { method: "POST" }),

@@ -140,6 +140,12 @@ function suggestionsFor(doc: Doc, hasText: boolean, total: number): string[] {
   }
 }
 
+function skillAppliesToScene(skill: Skill, scene: string): boolean {
+  if (skill.scene === scene) return true;
+  if (skill.attachScenes?.includes(scene)) return true;
+  return false;
+}
+
 export function Studio() {
   const { id = "" } = useParams();
   const { setTitle, setSaveState } = useBookTitle();
@@ -291,7 +297,7 @@ export function Studio() {
   }, [id, setTitle]);
 
   useEffect(() => {
-    const list = skills.filter((skill) => skill.scene === scene && skill.enabled);
+    const list = skills.filter((skill) => skillAppliesToScene(skill, scene) && skill.enabled);
     setChecked(list.map((skill) => skill.id));
   }, [scene, skills]);
 
@@ -379,8 +385,10 @@ export function Studio() {
     return () => window.clearTimeout(handle);
   }, [leaveBlocker]);
 
-  const sceneSkills = skills.filter((skill) => skill.scene === scene && skill.enabled);
-  const primaries = sceneSkills.filter((skill) => skill.role === "primary");
+  const sceneSkills = skills.filter((skill) => skillAppliesToScene(skill, scene) && skill.enabled);
+  const primaries = sceneSkills.filter((skill) => skill.role === "primary" || skill.userPack);
+  // Stage user packs are always on for this scene; also lock sole builtin primary.
+  const lockedUserPacks = new Set(sceneSkills.filter((skill) => skill.userPack).map((skill) => skill.id));
   const locked = primaries.length === 1 ? primaries[0]!.id : null;
   const route = routes.find((item) => item.scene === scene);
   const effectiveModel =
@@ -1574,7 +1582,7 @@ export function Studio() {
               <ul className="skill-list">
                 {sceneSkills.map((skill) => {
                   const on = checked.includes(skill.id);
-                  const isLocked = locked === skill.id;
+                  const isLocked = locked === skill.id || lockedUserPacks.has(skill.id);
                   return (
                     <li key={skill.id}>
                       <span className="skill-name">{skill.name}</span>

@@ -272,25 +272,38 @@ function attachPack(picked: SkillRow[], _scene: string, packId: string): SkillRo
   return [...picked, asPrimary];
 }
 
+/** Scene → user-pack ids that auto-attach (stage matrix). */
+export function userPackIdsForScene(scene: string): string[] {
+  return USER_PACKS.filter((pack) => pack.attachScenes.has(scene)).map((pack) => pack.id);
+}
+
+/** Home scene + extra attachScenes for a pack id (empty if not a user pack). */
+export function attachScenesOfPack(packId: string): string[] {
+  const spec = PACK_BY_ID.get(packId);
+  if (!spec) return [];
+  return [...spec.attachScenes];
+}
+
 export function skillsForScene(scene: string, ids?: string[]): SkillRow[] {
   const rows = db.prepare("SELECT * FROM skills WHERE scene = ?").all(scene) as SkillRow[];
+  // Optional skillIds filter builtins / extras; stage user packs always merge in below.
   let picked = ids?.length ? rows.filter((row) => ids.includes(row.id)) : rows.filter((row) => row.enabled === 1);
 
-  // When the caller pinpoints skillIds, still honor explicit ids only — except we still
-  // allow auto-attach when ids omitted (normal generation path).
-  if (!ids?.length) {
-    for (const pack of USER_PACKS) {
-      if (pack.attachScenes.has(scene)) {
-        picked = attachPack(picked, scene, pack.id);
-      }
+  // Always auto-attach enabled user distillation packs for this scene (user packs = primary).
+  // Explicit skillIds may omit aux builtins, but cannot strip stage-matrix user packs.
+  for (const pack of USER_PACKS) {
+    if (pack.attachScenes.has(scene)) {
+      picked = attachPack(picked, scene, pack.id);
     }
-  } else {
+  }
+
+  if (ids?.length) {
     // If caller asked for a user pack id that lives on another scene row, still include it.
     for (const id of ids) {
       if (!PACK_BY_ID.has(id)) continue;
       if (picked.some((row) => row.id === id)) continue;
       const pack = db.prepare("SELECT * FROM skills WHERE id = ?").get(id) as SkillRow | undefined;
-      if (pack && pack.enabled === 1) picked = [...picked, pack];
+      if (pack && pack.enabled === 1) picked = [...picked, { ...pack, role: "primary" }];
     }
   }
 

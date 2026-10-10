@@ -11,7 +11,19 @@ const SCENE: Record<string, string> = {
   review: "审核",
   humanize: "去 AI 味",
   memory_extract: "记忆整理",
+  chat: "对话",
 };
+
+function sceneLabel(id: string): string {
+  return SCENE[id] ?? id;
+}
+
+function attachLabel(skill: Skill): string {
+  const home = sceneLabel(skill.scene);
+  const extra = (skill.attachScenes ?? []).filter((s) => s !== skill.scene).map(sceneLabel);
+  if (!skill.userPack || !extra.length) return home;
+  return `${home} · 兼挂 ${extra.join("、")}`;
+}
 
 export function Skills() {
   const { setTitle } = useBookTitle();
@@ -96,7 +108,7 @@ export function Skills() {
               }}
             >
               <span className="db-name">{skill.name}</span>
-              <span className="meta">{SCENE[skill.scene] ?? skill.scene}</span>
+              <span className="meta" title={attachLabel(skill)}>{attachLabel(skill)}</span>
               <span className={skill.role === "primary" ? "role primary" : "role"}>{skill.role === "primary" ? "主技能" : "辅助"}</span>
               <button
                 type="button"
@@ -120,8 +132,10 @@ export function Skills() {
               <div className="reader-head">
                 <h2>{selected.name}</h2>
                 {selected.description ? <p className="reader-desc">{selected.description}</p> : null}
-                {["humanize", "opening-cards", "volume-arcs", "structure-skeleton", "style-corpus", "novel-craft"].includes(selected.id) ? (
-                  <p className="reader-desc pack-note">用户完整包：skills/{selected.id}/pack/。提示词预览：/api/skills/{selected.id}/prompt-preview</p>
+                {selected.userPack || ["humanize", "opening-cards", "volume-arcs", "structure-skeleton", "style-corpus", "novel-craft"].includes(selected.id) ? (
+                  <p className="reader-desc pack-note">
+                    用户完整包：skills/{selected.id}/pack/。按场景自动挂载：{(selected.attachScenes?.length ? selected.attachScenes : [selected.scene]).map(sceneLabel).join("、")}。提示词预览：/api/skills/{selected.id}/prompt-preview
+                  </p>
                 ) : null}
                 <p className="path">{selected.path}</p>
               </div>

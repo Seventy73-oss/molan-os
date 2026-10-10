@@ -36,15 +36,21 @@ process.env.MOLAN_MODEL = model;
 
 const { OpenAICompatibleAdapter } = await import("../src/agent/openai");
 const adapter = new OpenAICompatibleAdapter({ baseUrl, apiKey, model });
-const out = await adapter.runScene({
-  scene: "chat",
-  skillTexts: [],
-  context: "请只回复两个字：通过",
-  instruction: "极短确认",
-  thinkingIntensity: "off",
-});
-const text = (out.text || "").trim();
-const ok = text.length > 0 && text.length < 200;
-console.log(`${ok ? "PASS" : "FAIL"}  live-model 返回非空短文本 — model=${out.modelUsed} text=${JSON.stringify(text).slice(0, 120)}`);
-if (!ok) process.exit(1);
-console.log("live-model: 1/1 passed");
+try {
+  const out = await adapter.runScene({
+    scene: "chat",
+    skillTexts: [],
+    context: "请只回复两个字：通过",
+    instruction: "极短确认",
+    thinkingIntensity: "low",
+  });
+  const text = (out.text || "").trim();
+  const ok = text.length > 0 && text.length < 200;
+  console.log(`${ok ? "PASS" : "FAIL"}  live-model 返回非空短文本 — model=${out.modelUsed} text=${JSON.stringify(text).slice(0, 120)}`);
+  if (!ok) process.exit(1);
+  console.log("live-model: 1/1 passed");
+} catch (error) {
+  const msg = error instanceof Error ? error.message : String(error);
+  console.log(`FAIL  live-model — ${msg.replace(/sk-[a-zA-Z0-9]+/g, "sk-REDACTED")}`);
+  process.exit(1);
+}

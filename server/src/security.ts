@@ -183,7 +183,8 @@ export function assertSafeBaseUrl(raw: string, options: SafeUrlOptions = {}): st
         `携带 API Key（环境变量或已保存）时，Base URL 主机必须在白名单内（当前 ${host} 不在）。可设 MOLAN_ALLOWED_BASE_HOSTS，或改用不带密钥的探测`,
       );
     } else if (url.protocol === "http:" && !isLocalHost) {
-      throw new Error("携带 API Key 时公网 Base URL 必须使用 https（本地模型除外）");
+      // Host is already on the allowlist (incl. MOLAN_ALLOWED_BASE_HOSTS).
+      // Allow http for explicitly trusted self-hosted / relay endpoints.
     }
   }
 

@@ -26,6 +26,20 @@ export function reasoningEffortOf(level: ThinkingIntensity): "low" | "medium" | 
   return level;
 }
 
+/**
+ * Provider-facing effort. DeepSeek V4 (and some relays) reject "medium";
+ * map it to "low" so scene defaults still work.
+ */
+export function reasoningEffortForModel(
+  model: string,
+  level: ThinkingIntensity,
+): "low" | "medium" | "high" | null {
+  const effort = reasoningEffortOf(level);
+  if (!effort) return null;
+  if (/deepseek/i.test(model) && effort === "medium") return "low";
+  return effort;
+}
+
 export function temperatureOf(level: ThinkingIntensity): number {
   switch (level) {
     case "off":

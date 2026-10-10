@@ -5,6 +5,7 @@ import {
   modelLikelySupportsReasoning,
   normalizeThinking,
   reasoningEffortOf,
+  reasoningEffortForModel,
   temperatureOf,
   thinkingSystemHint,
   type ThinkingIntensity,
@@ -70,7 +71,7 @@ export function buildCompletionBody(input: RunInput, model: string, stream: bool
   };
   if (stream) body.stream = true;
 
-  const effort = reasoningEffortOf(level);
+  const effort = reasoningEffortForModel(model, level);
   if (effort && modelLikelySupportsReasoning(model)) {
     body.reasoning_effort = effort;
     body.thinking = { type: "enabled", budget_tokens: level === "high" ? 8000 : level === "medium" ? 4000 : 1024 };
@@ -105,7 +106,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         },
         body: JSON.stringify(buildCompletionBody(input, model, false)),
         withApiKey: Boolean(this.options.apiKey),
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
         signal: input.signal,
       });
       throwIfAborted(input.signal);

@@ -10,7 +10,7 @@ import {
   type ThinkingIntensity,
 } from "../thinking";
 import { redactSecrets } from "../security";
-import { secureFetch } from "../outbound";
+import { MODEL_FETCH_RETRIES, MODEL_FETCH_RETRY_BACKOFF_MS, secureFetch } from "../outbound";
 import { isAbortError, throwIfAborted } from "../abortUtil";
 
 const CONTRACT: Record<SceneId, string> = {
@@ -107,6 +107,8 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         withApiKey: Boolean(this.options.apiKey),
         timeoutMs: 120_000,
         signal: input.signal,
+        retries: MODEL_FETCH_RETRIES,
+        retryBackoffMs: MODEL_FETCH_RETRY_BACKOFF_MS,
       });
       throwIfAborted(input.signal);
       if (!response.ok) {
@@ -160,6 +162,8 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         withApiKey: Boolean(this.options.apiKey),
         timeoutMs: 120_000,
         signal: input.signal,
+        retries: MODEL_FETCH_RETRIES,
+        retryBackoffMs: MODEL_FETCH_RETRY_BACKOFF_MS,
       });
       if (!response.ok) {
         const detail = redactSecrets(await response.text());

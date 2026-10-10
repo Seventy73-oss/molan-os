@@ -572,6 +572,150 @@ z.close()
     `saved=${JSON.stringify(raced.saved)} cur=${outlineCur.slice(0, 40)}`,
   );
 
+
+  // --- outbound model fetch limited retry (network / 5xx only; never 4xx) ---
+  {
+    const http = await import("node:http");
+    const {
+      secureFetch,
+      isRetryableHttpStatus,
+      isRetryableNetworkError,
+    } = await import("../src/outbound");
+    const prevLocal = process.env.MOLAN_ALLOW_LOCAL_LLM;
+    process.env.MOLAN_ALLOW_LOCAL_LLM = "1";
+    const restoreLocal = () => {
+      if (prevLocal === undefined) delete process.env.MOLAN_ALLOW_LOCAL_LLM;
+      else process.env.MOLAN_ALLOW_LOCAL_LLM = prevLocal;
+    };
+
+    check("retryable status 503", isRetryableHttpStatus(503) === true);
+    check("retryable status 500", isRetryableHttpStatus(500) === true);
+    check("not retryable 401", isRetryableHttpStatus(401) === false);
+    check("not retryable 403", isRetryableHttpStatus(403) === false);
+    check("not retryable 429", isRetryableHttpStatus(429) === false);
+    check("not retryable 400", isRetryableHttpStatus(400) === false);
+
+    const abortErr = new Error("已取消");
+    abortErr.name = "AbortError";
+    check("abort not retryable", isRetryableNetworkError(abortErr) === false);
+    const fetchFailed = new TypeError("fetch failed");
+    (fetchFailed as Error & { cause?: { code: string } }).cause = { code: "ECONNREFUSED" };
+    check("ECONNREFUSED retryable", isRetryableNetworkError(fetchFailed) === true);
+    check(
+      "SSRF message not retryable",
+      isRetryableNetworkError(new Error("出站目标 x 解析到内网地址，已拒绝")) === false,
+    );
+
+    // Local mock: fail twice with 503 then 200
+    let hits503 = 0;
+    const server503 = http.createServer((_req, res) => {
+      hits503 += 1;
+      if (hits503 <= 2) {
+        res.writeHead(503, { "Content-Type": "text/plain" });
+        res.end("busy");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, hits: hits503 }));
+    });
+    await new Promise<void>((resolve) => server503.listen(0, "127.0.0.1", resolve));
+    const port503 = (server503.address() as { port: number }).port;
+    const url503 = `http://127.0.0.1:${port503}/v1/ping`;
+    try {
+      const res = await secureFetch(url503, {
+        method: "GET",
+        withApiKey: false,
+        timeoutMs: 5_000,
+        retries: 2,
+        retryBackoffMs: 0,
+      });
+      const body = (await res.json()) as { ok?: boolean; hits?: number };
+      check(
+        "5xx 自动重试后成功",
+        res.status === 200 && body.ok === true && hits503 === 3,
+        `status=${res.status} hits=${hits503} body=${JSON.stringify(body)}`,
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) => server503.close((e) => (e ? reject(e) : resolve())));
+    }
+
+    // 401 must not retry
+    let hits401 = 0;
+    const server401 = http.createServer((_req, res) => {
+      hits401 += 1;
+      res.writeHead(401, { "Content-Type": "text/plain" });
+      res.end("nope");
+    });
+    await new Promise<void>((resolve) => server401.listen(0, "127.0.0.1", resolve));
+    const port401 = (server401.address() as { port: number }).port;
+    try {
+      const res = await secureFetch(`http://127.0.0.1:${port401}/v1/ping`, {
+        method: "GET",
+        withApiKey: false,
+        timeoutMs: 5_000,
+        retries: 2,
+        retryBackoffMs: 0,
+      });
+      check(
+        "401 不重试立刻返回",
+        res.status === 401 && hits401 === 1,
+        `status=${res.status} hits=${hits401}`,
+      );
+      await res.text();
+    } finally {
+      await new Promise<void>((resolve, reject) => server401.close((e) => (e ? reject(e) : resolve())));
+    }
+
+    // Persistent 503 exhausts retries and returns last 503 (no silent downgrade)
+    let hitsFail = 0;
+    const serverFail = http.createServer((_req, res) => {
+      hitsFail += 1;
+      res.writeHead(503, { "Content-Type": "text/plain" });
+      res.end("down");
+    });
+    await new Promise<void>((resolve) => serverFail.listen(0, "127.0.0.1", resolve));
+    const portFail = (serverFail.address() as { port: number }).port;
+    try {
+      const res = await secureFetch(`http://127.0.0.1:${portFail}/v1/ping`, {
+        method: "GET",
+        withApiKey: false,
+        timeoutMs: 5_000,
+        retries: 2,
+        retryBackoffMs: 0,
+      });
+      check(
+        "持续 5xx 耗尽重试仍返回 503",
+        res.status === 503 && hitsFail === 3,
+        `status=${res.status} hits=${hitsFail}`,
+      );
+      await res.text();
+    } finally {
+      await new Promise<void>((resolve, reject) => serverFail.close((e) => (e ? reject(e) : resolve())));
+    }
+
+    // Network refusal retries then throws (no local fallback)
+    let netThrew = false;
+    let netMsg = "";
+    try {
+      await secureFetch("http://127.0.0.1:9/v1/ping", {
+        method: "GET",
+        withApiKey: false,
+        timeoutMs: 2_000,
+        retries: 2,
+        retryBackoffMs: 0,
+      });
+    } catch (e) {
+      netThrew = true;
+      netMsg = e instanceof Error ? e.message : String(e);
+    }
+    check(
+      "网络失败耗尽重试仍抛错",
+      netThrew && !/local-draft|静默|降级/i.test(netMsg),
+      netMsg.slice(0, 120),
+    );
+    restoreLocal();
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

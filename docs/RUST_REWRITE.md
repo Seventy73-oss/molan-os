@@ -146,5 +146,5 @@ MOLAN_API_PROXY=http://127.0.0.1:8788 npm run dev:web
 
 ## 出站自动重试（与 Node 对齐）
 
-`secure_fetch` 支持 `retries` / `retry_backoff_ms`：模型调用与 provider 探测默认 `MODEL_FETCH_RETRIES=2`，仅网络/5xx；4xx/取消不重试，失败不降本地。
+`secure_fetch` 支持 `retries` / `retry_backoff_ms`：模型调用与 provider 探测默认 `MODEL_FETCH_RETRIES=2`，网络与 HTTP 4xx/5xx（含 400/401/403/429）有限重试；取消/Abort 不重试，失败不降本地。
 

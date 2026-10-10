@@ -26,9 +26,9 @@ npm run test:live-model
 
 ## 出站自动重试
 
-模型相关出站（chat/completions、/models、连通探测）在 **网络错误** 或 **HTTP 5xx** 时会有限重试：默认再试 2 次（共 3 次），退避约 300ms → 600ms。
+模型相关出站（chat/completions、/models、连通探测）在 **网络错误** 或 **HTTP 4xx/5xx**（含 400/401/403/429）时会有限重试：默认再试 2 次（共 3 次），退避约 300ms → 600ms。
 
-- **不重试**：HTTP 4xx（含 401/403/429）、用户取消、SSRF/白名单策略错误。
+- **不重试**：用户取消 / Abort、SSRF/白名单策略错误。
 - **不静默降本地**：耗尽仍失败则原样报错，不会改走 `local-draft`。
 - Node：`server/src/outbound.ts`（`MODEL_FETCH_RETRIES`）；Rust：`rust-server/src/outbound.rs` 对齐。
 

@@ -1,7 +1,7 @@
 //! Secure outbound HTTP — parity with Node `server/src/outbound.ts`.
 //! All credentialed provider calls go through `secure_fetch`.
 //!
-//! Optional limited retries: network / HTTP 5xx only. Never 4xx/auth or cancel.
+//! Optional limited retries: network / HTTP 4xx+5xx. Never abort/cancel.
 //! No silent local downgrade.
 
 use crate::error::{AppError, AppResult};
@@ -55,9 +55,9 @@ impl Default for SecureFetchOptions {
     }
 }
 
-/// HTTP 5xx only — never 4xx / auth / 429.
+/// HTTP 4xx and 5xx (incl. 400/401/403/429). Abort/cancel is never retried.
 pub fn is_retryable_http_status(status: u16) -> bool {
-    (500..=599).contains(&status)
+    (400..=599).contains(&status)
 }
 
 /// Network / transport failures are retryable. Policy / SSRF / cancel are not.
@@ -179,11 +179,13 @@ mod tests {
     fn retryable_status_matrix() {
         assert!(is_retryable_http_status(503));
         assert!(is_retryable_http_status(500));
-        assert!(!is_retryable_http_status(401));
-        assert!(!is_retryable_http_status(403));
-        assert!(!is_retryable_http_status(429));
-        assert!(!is_retryable_http_status(400));
+        assert!(is_retryable_http_status(401));
+        assert!(is_retryable_http_status(403));
+        assert!(is_retryable_http_status(429));
+        assert!(is_retryable_http_status(400));
         assert!(!is_retryable_http_status(200));
+        assert!(!is_retryable_http_status(399));
+        assert!(!is_retryable_http_status(600));
     }
 
     #[test]

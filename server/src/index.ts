@@ -376,12 +376,20 @@ app.put("/api/books/:id/artifacts", async (c) => {
 
 app.post("/api/books/:id/scene-runs", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const expectedRevisionId =
+    body.expectedRevisionId === null
+      ? null
+      : typeof body.expectedRevisionId === "string"
+        ? body.expectedRevisionId
+        : undefined;
   const result = await executeScene({
     bookId: c.req.param("id"),
     scene: sceneOf(body.scene),
     chapterNumber: typeof body.chapterNumber === "number" ? body.chapterNumber : null,
     instruction: typeof body.instruction === "string" ? body.instruction : "",
     skillIds: Array.isArray(body.skillIds) ? asStrings(body.skillIds) : undefined,
+    expectedRevisionId,
+    onConflict: body.onConflict === "throw" ? "throw" : "candidate",
   });
   return c.json(result);
 });
@@ -403,6 +411,12 @@ app.post("/api/books/:id/selection-rewrite", async (c) => {
 app.post("/api/books/:id/scene-runs/stream", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const generationId = typeof body.generationId === "string" ? body.generationId : null;
+  const expectedRevisionId =
+    body.expectedRevisionId === null
+      ? null
+      : typeof body.expectedRevisionId === "string"
+        ? body.expectedRevisionId
+        : undefined;
   return sseJson(c, async (emit, signal) => {
     await streamSceneRun(emit, {
       bookId: c.req.param("id"),
@@ -412,6 +426,8 @@ app.post("/api/books/:id/scene-runs/stream", async (c) => {
       skillIds: Array.isArray(body.skillIds) ? asStrings(body.skillIds) : undefined,
       signal,
       generationId,
+      expectedRevisionId,
+      onConflict: body.onConflict === "throw" ? "throw" : "candidate",
     });
   });
 });

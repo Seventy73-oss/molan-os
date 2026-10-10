@@ -169,6 +169,89 @@ async function main() {
   const afterRestart = engine.getGeneration(gid);
   check("E2E 进程重启后 generation 可恢复", afterRestart?.status === "completed");
 
+  // --- streamSceneRun beginGeneration + CAS candidate ---
+  {
+    const { streamSceneRun } = await import("../src/streamSupport");
+    const streamGid = crypto.randomUUID();
+    const events: Record<string, unknown>[] = [];
+    const emit = async (e: Record<string, unknown>) => {
+      events.push(e);
+    };
+    // Seed outline baseline
+    const base = engine.saveRevision({
+      bookId,
+      kind: "book_outline",
+      chapterNumber: null,
+      body: "流式基线大纲。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "outline",
+      skipMemory: true,
+    });
+    // Concurrent human edit before stream finishes — we simulate by advancing after capture via expectedRevisionId
+    const humanMid = engine.saveRevision({
+      bookId,
+      kind: "book_outline",
+      chapterNumber: null,
+      body: "流式中途用户改。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "outline",
+      expectedRevisionId: base.revisionId,
+      skipMemory: true,
+    });
+    await streamSceneRun(emit, {
+      bookId,
+      scene: "outline",
+      chapterNumber: null,
+      instruction: "按档案写全书大纲",
+      generationId: streamGid,
+      expectedRevisionId: base.revisionId, // stale baseline as if captured at start
+      onConflict: "candidate",
+    });
+    const gen = engine.getGeneration(streamGid);
+    const done = events.find((e) => e.type === "done") as
+      | { type: string; payload?: { saved?: { current?: boolean; conflicted?: boolean } } }
+      | undefined;
+    const curBody = (
+      db
+        .prepare(
+          `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+           WHERE a.book_id = ? AND a.kind = 'book_outline' AND a.chapter_id IS NULL`,
+        )
+        .get(bookId) as { body: string }
+    ).body;
+    check(
+      "E2E streamSceneRun beginGeneration completed",
+      gen?.status === "completed" && Boolean(done),
+      `status=${gen?.status} events=${events.map((e) => e.type).join(",")}`,
+    );
+    check(
+      "E2E streamSceneRun 冲突→候选",
+      done?.payload?.saved?.current === false &&
+        done?.payload?.saved?.conflicted === true &&
+        curBody === "流式中途用户改。",
+      `saved=${JSON.stringify(done?.payload?.saved)} cur=${curBody}`,
+    );
+    // Idempotent reuse
+    const events2: Record<string, unknown>[] = [];
+    await streamSceneRun(async (e) => { events2.push(e); }, {
+      bookId,
+      scene: "outline",
+      chapterNumber: null,
+      instruction: "按档案写全书大纲",
+      generationId: streamGid,
+    });
+    check(
+      "E2E streamSceneRun 同 generationId 复用",
+      events2.length === 1 && events2[0]?.type === "done",
+      JSON.stringify(events2.map((e) => e.type)),
+    );
+    void humanMid;
+  }
+
   // --- AbortSignal chain ---
   const ac = new AbortController();
   ac.abort();

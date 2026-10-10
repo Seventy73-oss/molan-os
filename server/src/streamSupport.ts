@@ -4,9 +4,11 @@ import type { SceneId } from "./agent/adapter";
 import { emitChunked, OpenAICompatibleAdapter } from "./agent/openai";
 import { getAdapter } from "./agent/runtime";
 import {
+  beginGeneration,
   buildContext,
   chat,
   completeGeneration,
+  currentRevisionIdFor,
   demoteCancelledResultRevision,
   generationWriteShouldBeCandidate,
   HttpError,
@@ -95,6 +97,8 @@ export async function streamSceneRun(
     skillIds?: string[];
     signal?: AbortSignal;
     generationId?: string | null;
+    expectedRevisionId?: string | null;
+    onConflict?: "throw" | "candidate";
   },
 ) {
   const book = db.prepare("SELECT id FROM books WHERE id = ?").get(input.bookId) as { id: string } | undefined;
@@ -112,6 +116,42 @@ export async function streamSceneRun(
       .prepare("SELECT id FROM chapters WHERE book_id = ? AND number = ?")
       .get(input.bookId, chapterNumber) as { id: string } | undefined;
     if (!chapter) throw new HttpError(400, `没有第 ${chapterNumber} 章`);
+  }
+
+  const kind = sceneKind(input.scene);
+  const writeChapterNumber =
+    kind === "book_profile" || kind === "book_outline" || !kind ? null : chapterNumber;
+  const baselineRevisionId =
+    input.expectedRevisionId !== undefined
+      ? input.expectedRevisionId
+      : kind
+        ? currentRevisionIdFor(input.bookId, kind, writeChapterNumber)
+        : undefined;
+  const writeOnConflict = input.onConflict ?? "candidate";
+
+  if (input.generationId) {
+    const began = beginGeneration({
+      id: input.generationId,
+      bookId: input.bookId,
+      scene: input.scene,
+      chapterNumber,
+      baseRevisionId: baselineRevisionId ?? null,
+    });
+    if (began.reused) {
+      if (began.status === "completed" && began.result) {
+        await emit({ type: "done", payload: began.result });
+        return;
+      }
+      if (began.status === "running") {
+        throw new HttpError(409, "同一 generationId 仍在执行，请查询状态而非重试");
+      }
+      if (began.status === "failed") {
+        throw new HttpError(502, began.error || "上次生成失败");
+      }
+      if (began.status === "cancelled") {
+        throw new HttpError(409, "该生成已取消");
+      }
+    }
   }
 
   try {
@@ -136,7 +176,6 @@ export async function streamSceneRun(
 
     throwIfAborted(input.signal);
 
-    const kind = sceneKind(input.scene);
     const asCandidateNow = generationWriteShouldBeCandidate(input.generationId, input.signal);
     const saved = kind
       ? saveRevision({
@@ -148,7 +187,9 @@ export async function streamSceneRun(
           model: result.modelUsed,
           skillIds: skills.map((skill) => skill.id),
           scene: input.scene,
+          expectedRevisionId: baselineRevisionId,
           asCandidate: asCandidateNow,
+          onConflict: writeOnConflict,
         })
       : null;
 

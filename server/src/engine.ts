@@ -433,6 +433,31 @@ export function deleteChapter(bookId: string, number: number) {
   return getBookPayload(bookId);
 }
 
+/** Current revision id for a book artifact kind (+ optional chapter), or null if none. */
+export function currentRevisionIdFor(
+  bookId: string,
+  kind: string,
+  chapterNumber: number | null,
+): string | null {
+  if (chapterNumber != null) {
+    const row = db
+      .prepare(
+        `SELECT a.current_revision_id AS id FROM artifacts a
+         LEFT JOIN chapters c ON c.id = a.chapter_id
+         WHERE a.book_id = ? AND a.kind = ? AND c.number = ?`,
+      )
+      .get(bookId, kind, chapterNumber) as { id: string | null } | undefined;
+    return row?.id ?? null;
+  }
+  const row = db
+    .prepare(
+      `SELECT current_revision_id AS id FROM artifacts
+       WHERE book_id = ? AND kind = ? AND chapter_id IS NULL`,
+    )
+    .get(bookId, kind) as { id: string | null } | undefined;
+  return row?.id ?? null;
+}
+
 export function saveRevision(input: {
   bookId: string;
   kind: string;
@@ -449,6 +474,11 @@ export function saveRevision(input: {
   expectedRevisionId?: string | null;
   /** When true (or returns true at commit time), insert revision but do not set as current (candidate / late AI). */
   asCandidate?: boolean | (() => boolean);
+  /**
+   * CAS mismatch policy: "throw" (default) → 409;
+   * "candidate" → keep user current, insert AI result as non-current candidate.
+   */
+  onConflict?: "throw" | "candidate";
   /** Bind derived artifacts (review/memory) to a body revision. */
   sourceRevisionId?: string | null;
 }) {
@@ -462,8 +492,10 @@ export function saveRevision(input: {
   }
   input = { ...input, body };
 
-  const asCandidate =
+  let asCandidate =
     typeof input.asCandidate === "function" ? Boolean(input.asCandidate()) : Boolean(input.asCandidate);
+  let casConflict = false;
+  const onConflict = input.onConflict ?? "throw";
 
   mustBook(input.bookId);
   let chapter: ChapterRow | undefined;
@@ -485,9 +517,12 @@ export function saveRevision(input: {
       .prepare("SELECT id, current_revision_id FROM artifacts WHERE book_id = ? AND kind = ? AND ifnull(chapter_id, '') = ifnull(?, '')")
       .get(input.bookId, input.kind, chapterId) as { id: string; current_revision_id: string | null } | undefined;
     if (!artifact) {
-      if (input.expectedRevisionId != null && input.expectedRevisionId !== undefined) {
-        // Client thought there was a revision
-        if (input.expectedRevisionId !== null) {
+      if (input.expectedRevisionId !== undefined && input.expectedRevisionId !== null) {
+        // Client thought there was a revision but server has none
+        if (onConflict === "candidate") {
+          casConflict = true;
+          asCandidate = true;
+        } else {
           throw new HttpError(409, "稿件版本冲突：本地基线已失效（尚无服务端稿）");
         }
       }
@@ -499,7 +534,12 @@ export function saveRevision(input: {
     } else if (input.expectedRevisionId !== undefined) {
       const current = artifact.current_revision_id;
       if (current !== input.expectedRevisionId) {
-        throw new HttpError(409, "稿件版本冲突：已有更新的修订，请刷新后重试");
+        if (onConflict === "candidate") {
+          casConflict = true;
+          asCandidate = true;
+        } else {
+          throw new HttpError(409, "稿件版本冲突：已有更新的修订，请刷新后重试");
+        }
       }
     }
     const prev = db
@@ -564,6 +604,7 @@ export function saveRevision(input: {
     chapterId: saved.chapterId,
     chapterNumber: saved.chapterNumber,
     current: !asCandidate,
+    conflicted: casConflict,
   };
 }
 
@@ -763,6 +804,8 @@ export async function executeScene(input: {
   sourceRevisionId?: string | null;
   expectedRevisionId?: string | null;
   asCandidate?: boolean | (() => boolean);
+  /** CAS mismatch: AI writes default to candidate; sync callers may force throw (409). */
+  onConflict?: "throw" | "candidate";
   generationId?: string | null;
   signal?: AbortSignal;
 }) {
@@ -775,6 +818,19 @@ export async function executeScene(input: {
       .get(input.bookId, chapterNumber) as { id: string } | undefined;
     if (!chapter) throw new HttpError(400, `没有第 ${chapterNumber} 章`);
   }
+  // Capture write baseline BEFORE the model call so a concurrent human save becomes candidate, not overwrite.
+  const kindForBaseline = sceneKind(input.scene);
+  const writeChapterNumber =
+    kindForBaseline === "book_profile" || kindForBaseline === "book_outline" || !kindForBaseline
+      ? null
+      : chapterNumber;
+  const baselineRevisionId =
+    input.expectedRevisionId !== undefined
+      ? input.expectedRevisionId
+      : kindForBaseline
+        ? currentRevisionIdFor(input.bookId, kindForBaseline, writeChapterNumber)
+        : undefined;
+  const writeOnConflict = input.onConflict ?? "candidate";
   const skills = skillsForScene(input.scene, input.skillIds);
   const skillTexts = toSkillTexts(skills);
   let instruction = input.instruction?.trim() ?? "";
@@ -844,8 +900,9 @@ export async function executeScene(input: {
         model: result.modelUsed,
         skillIds: skills.map((skill) => skill.id),
         scene: input.scene,
-        expectedRevisionId: input.expectedRevisionId,
+        expectedRevisionId: baselineRevisionId,
         asCandidate: asCandidateNow,
+        onConflict: writeOnConflict,
         sourceRevisionId,
       })
     : null;

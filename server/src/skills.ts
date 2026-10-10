@@ -298,9 +298,11 @@ export function skillsForScene(scene: string, ids?: string[]): SkillRow[] {
   }
 
   if (ids?.length) {
-    // If caller asked for a user pack id that lives on another scene row, still include it.
+    // Explicit user-pack ids only attach when this scene is in their attachScenes matrix (no cross-stage hard-hang).
     for (const id of ids) {
-      if (!PACK_BY_ID.has(id)) continue;
+      const spec = PACK_BY_ID.get(id);
+      if (!spec) continue;
+      if (!spec.attachScenes.has(scene)) continue;
       if (picked.some((row) => row.id === id)) continue;
       const pack = db.prepare("SELECT * FROM skills WHERE id = ?").get(id) as SkillRow | undefined;
       if (pack && pack.enabled === 1) picked = [...picked, { ...pack, role: "primary" }];

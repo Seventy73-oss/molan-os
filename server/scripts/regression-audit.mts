@@ -22,8 +22,19 @@ function check(name: string, ok: boolean, detail?: string) {
 
 async function main() {
   // Dynamic imports AFTER env is set so db picks up temp path.
-  const { routeMessage, saveRevision, createBook, beginGeneration, getGeneration, completeGeneration, setJobStatus, createJob, getJob } =
-    await import("../src/engine");
+  const {
+    routeMessage,
+    saveRevision,
+    createBook,
+    beginGeneration,
+    getGeneration,
+    completeGeneration,
+    setJobStatus,
+    createJob,
+    getJob,
+    executeScene,
+    currentRevisionIdFor,
+  } = await import("../src/engine");
   const { assertSafeBaseUrl, isPrivateOrReservedHost, assertLanAuthConfigured } = await import("../src/security");
   const { importBookFromZipBuffer } = await import("../src/importBook");
   const { db } = await import("../src/db");
@@ -399,6 +410,166 @@ z.close()
     "SKILL userPackIdsForScene(outline)",
     JSON.stringify(userPackIdsForScene("outline").sort()) ===
       JSON.stringify(["novel-craft", "structure-skeleton", "volume-arcs"].sort()),
+  );
+  // Explicit skillIds must filter by attachScenes (no cross-stage hard-hang)
+  const outlineCross = skillsForScene("outline", ["humanize", "book-outline", "volume-arcs"]).map((r) => r.id);
+  check(
+    "SKILL outline 显式 humanize 被 attachScenes 过滤",
+    !outlineCross.includes("humanize") && outlineCross.includes("volume-arcs") && outlineCross.includes("book-outline"),
+    outlineCross.join(","),
+  );
+  const chatCross = skillsForScene("chat", ["style-corpus", "novel-craft"]).map((r) => r.id);
+  check(
+    "SKILL chat 显式 style-corpus 被过滤",
+    !chatCross.includes("style-corpus") && chatCross.includes("novel-craft"),
+    chatCross.join(","),
+  );
+
+  // --- AI write baseline CAS → candidate ---
+  const bodyBase = saveRevision({
+    bookId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "用户当前稿。",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    expectedRevisionId: currentRevisionIdFor(bookId, "chapter_body", 1),
+    skipMemory: true,
+  });
+  const captured = currentRevisionIdFor(bookId, "chapter_body", 1);
+  check("CAS 捕获写前基线", captured === bodyBase.revisionId);
+
+  // Concurrent human save advances current
+  const humanDuring = saveRevision({
+    bookId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "用户中途保存。",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "chapter_body",
+    expectedRevisionId: captured,
+    skipMemory: true,
+  });
+  check("CAS 中途人类保存成功", humanDuring.current === true);
+
+  // Late AI with stale baseline → candidate (not 409, not overwrite)
+  const lateAi = saveRevision({
+    bookId,
+    kind: "chapter_body",
+    chapterNumber: 1,
+    body: "迟到的 AI 结果。",
+    source: "agent",
+    model: "local-draft",
+    skillIds: [],
+    scene: "chapter_body",
+    expectedRevisionId: captured,
+    onConflict: "candidate",
+    skipMemory: true,
+  });
+  const stillHuman = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         LEFT JOIN chapters c ON c.id = a.chapter_id
+         WHERE a.book_id = ? AND a.kind = 'chapter_body' AND c.number = 1`,
+      )
+      .get(bookId) as { body: string }
+  ).body;
+  check(
+    "CAS AI 冲突落候选不盖当前",
+    lateAi.current === false && lateAi.conflicted === true && stillHuman === "用户中途保存。",
+    `current=${lateAi.current} conflicted=${lateAi.conflicted} body=${stillHuman}`,
+  );
+
+  // onConflict throw still 409
+  let threw409 = false;
+  try {
+    saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "应 409",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      expectedRevisionId: captured,
+      onConflict: "throw",
+      skipMemory: true,
+    });
+  } catch (e: unknown) {
+    threw409 = e instanceof Error && /冲突|409/.test(e.message);
+  }
+  check("CAS onConflict=throw 仍 409", threw409);
+
+  // executeScene captures baseline at start (local-draft) — concurrent save → candidate
+  saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: "旧大纲。",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "outline",
+    expectedRevisionId: null,
+    skipMemory: true,
+  });
+  // Simulate: capture happens inside executeScene; we race by saving after starting would need delay.
+  // Instead call executeScene then verify it used baseline — if we pre-bump current before call,
+  // executeScene captures the bumped id and writes as current (matching). So test via saveRevision path above
+  // plus executeScene happy path writes current when no race:
+  const sceneRun = await executeScene({
+    bookId,
+    scene: "outline",
+    chapterNumber: null,
+    instruction: "按档案写全书大纲",
+  });
+  check(
+    "executeScene 无冲突写当前",
+    Boolean(sceneRun.saved?.current) && Boolean(sceneRun.saved?.revisionId),
+    JSON.stringify(sceneRun.saved),
+  );
+  // Race: capture baseline, human advances, then save with that baseline via executeScene override
+  const beforeRace = currentRevisionIdFor(bookId, "book_outline", null);
+  saveRevision({
+    bookId,
+    kind: "book_outline",
+    chapterNumber: null,
+    body: "用户改大纲。",
+    source: "human",
+    model: null,
+    skillIds: [],
+    scene: "outline",
+    expectedRevisionId: beforeRace,
+    skipMemory: true,
+  });
+  const raced = await executeScene({
+    bookId,
+    scene: "outline",
+    chapterNumber: null,
+    instruction: "按档案写全书大纲",
+    expectedRevisionId: beforeRace, // stale, as if captured at start
+    onConflict: "candidate",
+  });
+  const outlineCur = (
+    db
+      .prepare(
+        `SELECT r.body AS body FROM artifacts a JOIN artifact_revisions r ON r.id = a.current_revision_id
+         WHERE a.book_id = ? AND a.kind = 'book_outline' AND a.chapter_id IS NULL`,
+      )
+      .get(bookId) as { body: string }
+  ).body;
+  check(
+    "executeScene 冲突→候选保用户稿",
+    raced.saved?.current === false &&
+      raced.saved?.conflicted === true &&
+      outlineCur === "用户改大纲。",
+    `saved=${JSON.stringify(raced.saved)} cur=${outlineCur.slice(0, 40)}`,
   );
 
   const failed = results.filter((r) => !r.ok);

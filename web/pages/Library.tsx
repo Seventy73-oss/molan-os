@@ -224,6 +224,22 @@ export function Library() {
                 >
                   导出
                 </button>
+                <button
+                  type="button"
+                  className="book-export"
+                  title="导出自包含故事包（定稿+事实+来源）"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const anchor = document.createElement("a");
+                    anchor.href = api.exportStoryPackUrl(book.id, true);
+                    anchor.download = "";
+                    document.body.appendChild(anchor);
+                    anchor.click();
+                    anchor.remove();
+                  }}
+                >
+                  故事包
+                </button>
               </span>
               {confirmId === book.id ? (
                 <span className="book-confirm" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>

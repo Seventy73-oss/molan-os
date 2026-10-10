@@ -90,7 +90,7 @@ export function buildContextManifest(
       memories: memParts.included.length,
       openHooks: openHookItems.length,
     },
-    note: "G3：作者模式注入人物动态与有来源伏笔；知识门控排除未揭示秘密；计划回收≠已回收",
+    note: "G4：上下文清单+预算估算；作者模式注入人物动态与有来源伏笔；知识门控；计划回收≠已回收",
   };
   const openHooksMerged = [openHooks, foreshadowParts.text].filter(Boolean).join("\n");
   const bibleMerged = [bible, charParts.text ? `【人物动态】\n${charParts.text}` : ""].filter(Boolean).join("\n");
@@ -126,13 +126,35 @@ export function saveContextSnapshot(input: {
   return { id, hash };
 }
 
+
+export function estimateContextBudget(preview: {
+  sections?: { bible?: string; memories?: string; openHooks?: string };
+  manifest?: { included?: unknown[]; excluded?: unknown[] };
+}) {
+  const bible = preview.sections?.bible?.length ?? 0;
+  const memories = preview.sections?.memories?.length ?? 0;
+  const hooks = preview.sections?.openHooks?.length ?? 0;
+  const chars = bible + memories + hooks;
+  const approxTokens = Math.ceil(chars / 1.5);
+  return {
+    charCount: chars,
+    approxTokens,
+    includedCount: preview.manifest?.included?.length ?? 0,
+    excludedCount: preview.manifest?.excluded?.length ?? 0,
+    tokenizer: "unknown" as const,
+    note: "估算仅供参考，非精确 tokenizer；硬约束超限应报错而非静默截断",
+  };
+}
+
 export function previewContext(bookId: string, chapterNumber: number | null) {
   const { bible, memories, openHooks, manifest } = buildContextManifest(bookId, chapterNumber, "preview");
+  const sections = { bible, memories, openHooks };
   return {
     mode: MODE,
     chapterNumber,
     missing: manifest.missing,
     manifest,
-    sections: { bible, memories, openHooks },
+    sections,
+    budgetEstimate: estimateContextBudget({ sections, manifest }),
   };
 }

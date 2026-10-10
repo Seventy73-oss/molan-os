@@ -460,7 +460,7 @@ export function BibleCardsPanel({ bookId }: BibleProps) {
 
 type DrawerProps = {
   open: boolean;
-  tab: "tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow";
+  tab: "tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow" | "context";
   onTab: (tab: DrawerProps["tab"]) => void;
   onClose: () => void;
   children: ReactNode;
@@ -479,6 +479,7 @@ export function ToolsDrawer({ open, tab, onTab, onClose, children }: DrawerProps
               ["hooks", "钩子"],
               ["foreshadow", "伏笔"],
               ["story", "人物态"],
+              ["context", "上下文"],
               ["bible", "设定卡"],
               ["history", "版本"],
               ["review", "审核"],
@@ -830,3 +831,112 @@ export function ForeshadowPanel({ bookId, chapterNumber }: ForeshadowProps) {
     </div>
   );
 }
+
+type ContextPanelProps = { bookId: string; chapterNumber?: number | null };
+
+/** G4: context inventory + budget estimate + publish checks. */
+export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof api.contextPreview>> | null>(null);
+  const [pub, setPub] = useState<Awaited<ReturnType<typeof api.publishCheck>> | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const asOf = chapterNumber && chapterNumber > 0 ? chapterNumber : null;
+
+  async function reload() {
+    setBusy(true);
+    setError("");
+    try {
+      const p = await api.contextPreview(bookId, asOf);
+      setPreview(p);
+      if (asOf) setPub(await api.publishCheck(bookId, asOf));
+      else setPub(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void reload();
+  }, [bookId, chapterNumber]);
+
+  const budget = preview?.budgetEstimate;
+  const included = preview?.manifest?.included ?? [];
+  const excluded = preview?.manifest?.excluded ?? [];
+
+  return (
+    <div className="panel-block context-panel">
+      <div className="panel-row">
+        <span className="panel-label">上下文清单{asOf ? ` · 第${asOf}章` : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
+          刷新
+        </button>
+      </div>
+      <p className="panel-muted">模式 {preview?.mode || "—"} · 入选 {included.length} · 排除 {excluded.length}</p>
+      {budget ? (
+        <p className="panel-muted">
+          预算估算 ≈ {budget.approxTokens} tokens（{budget.charCount} 字，tokenizer={budget.tokenizer}）
+        </p>
+      ) : null}
+      {preview?.missing?.length ? (
+        <ul className="hook-list">
+          {preview.missing.map((m) => (
+            <li key={m} className="hook-open">
+              <p className="hook-text">{m}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="panel-muted">资料齐全</p>
+      )}
+      {included.length ? (
+        <>
+          <p className="panel-label">已入选</p>
+          <ul className="hook-list">
+            {included.slice(0, 24).map((item, i) => (
+              <li key={`${item.sourceId || i}`}>
+                <div className="hook-head">
+                  <strong>{String(item.kind || "item")}</strong>
+                  <span className="panel-muted">{String(item.name || item.sourceId || "")}</span>
+                </div>
+                <p className="hook-text">{String(item.reason || "")}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {excluded.length ? (
+        <>
+          <p className="panel-label">未入选</p>
+          <ul className="hook-list">
+            {excluded.slice(0, 12).map((item, i) => (
+              <li key={`${item.sourceId || i}`}>
+                <p className="hook-text">
+                  {String(item.sourceId || "")} · {String(item.reason || "")}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {pub ? (
+        <>
+          <p className="panel-label">发布检查 {pub.ok ? "✓" : "有阻断"}</p>
+          <ul className="hook-list">
+            {pub.checks.map((c) => (
+              <li key={c.id} className={c.level === "blocker" && !c.pass ? "hook-open" : "hook-ok"}>
+                <p className="hook-text">[{c.level}] {c.message}</p>
+              </li>
+            ))}
+          </ul>
+          <p className="panel-muted">{pub.note}</p>
+        </>
+      ) : (
+        <p className="panel-muted">打开章节后可看发布检查。</p>
+      )}
+      {error ? <p className="panel-error">{error}</p> : null}
+    </div>
+  );
+}
+

@@ -1389,6 +1389,186 @@ z.close()
   }
 
 
+
+  // --- G4 story pack export/import (T21/T22) + publish-check ---
+  {
+    const {
+      finalizeChapter,
+      createMemoryProposal,
+      applyProposal,
+      getBookHead,
+    } = await import("../src/story");
+    const { createBibleCard } = await import("../src/features");
+    const { db: regDb } = await import("../src/db");
+    const {
+      exportStoryPackZip,
+      importStoryPackFromZipBuffer,
+      validateStoryPackDir,
+      publishCheck,
+      STORY_PACK_FORMAT,
+    } = await import("../src/storyPack");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const { execFileSync } = await import("node:child_process");
+
+    const book = createBook({
+      title: "G4故事包书",
+      genre: "测试",
+      logline: "",
+      style: "",
+      targetChapters: 4,
+      wordsPerChapter: 600,
+    });
+    const bookId = book.payload.book.id as string;
+    const card = createBibleCard(bookId, {
+      kind: "character",
+      name: "林舟",
+      summary: "主角",
+      details: "持剑",
+    });
+    const body1 = saveRevision({
+      bookId,
+      kind: "chapter_body",
+      chapterNumber: 1,
+      body: "第一章：林舟入城。",
+      source: "human",
+      model: null,
+      skillIds: [],
+      scene: "chapter_body",
+      skipMemory: true,
+    });
+    const ch1 = regDb.prepare("SELECT id FROM chapters WHERE book_id = ? AND number = 1").get(bookId) as { id: string };
+    const fin = finalizeChapter({
+      bookId,
+      chapterId: ch1.id,
+      bodyRevisionId: body1.revisionId,
+      expectedPublicationId: null,
+      expectedCurrentRevisionId: body1.revisionId,
+      expectedStoryEpoch: 0,
+      idempotencyKey: "g4-fin-1",
+    });
+    const prop = createMemoryProposal({
+      bookId,
+      chapterNumber: 1,
+      sourceRevisionId: body1.revisionId,
+      summary: "林舟入城。",
+      publicationId: fin.publicationId,
+      basisEpoch: fin.storyEpoch,
+      operations: [
+        {
+          operationId: "op-sum",
+          kind: "summary_update",
+          subjectId: "chapter:1",
+          field: "chapter_summary",
+          proposedValue: { text: "林舟入城。" },
+          assertionKind: "explicit",
+          evidence: { quote: "入城" },
+          requiresAuthorApproval: true,
+        },
+        {
+          operationId: "op-loc",
+          kind: "character_state_change",
+          subjectId: card.id,
+          field: "location",
+          proposedValue: { place: "城门" },
+          assertionKind: "explicit",
+          audience: "reader",
+          evidence: { quote: "林舟入城" },
+          requiresAuthorApproval: true,
+        },
+      ],
+    });
+    applyProposal({
+      bookId,
+      proposalId: prop.id,
+      acceptedOperationIds: ["op-sum", "op-loc"],
+      expectedSourceRevisionId: body1.revisionId,
+      expectedStoryEpoch: getBookHead(bookId).storyEpoch,
+      idempotencyKey: "g4-apply-1",
+    });
+
+    const exported = exportStoryPackZip(bookId, { includeSecrets: true });
+    check("G4 导出故事包非空", exported.buffer.length > 100);
+    check("G4 manifest format", exported.manifest.format === STORY_PACK_FORMAT);
+
+    const imported = importStoryPackFromZipBuffer(exported.buffer);
+    check("T22/G4 导入成新书", imported.bookId !== bookId);
+    const pubs = regDb
+      .prepare(`SELECT COUNT(*) AS n FROM chapter_publications WHERE book_id = ? AND status = 'active'`)
+      .get(imported.bookId) as { n: number };
+    check("T22/G4 定稿恢复", pubs.n >= 1, `n=${pubs.n}`);
+    const facts = regDb
+      .prepare(`SELECT COUNT(*) AS n FROM story_facts WHERE book_id = ? AND status = 'active'`)
+      .get(imported.bookId) as { n: number };
+    check("T22/G4 事实恢复", facts.n >= 1, `n=${facts.n}`);
+    const head = getBookHead(imported.bookId);
+    check("T22/G4 故事 epoch 恢复", head.storyEpoch >= 1);
+
+    const origPubs = regDb
+      .prepare(`SELECT COUNT(*) AS n FROM chapter_publications WHERE book_id = ? AND status = 'active'`)
+      .get(bookId) as { n: number };
+    check("T22/G4 原书定稿仍在", origPubs.n >= 1);
+
+    const beforeCount = (regDb.prepare(`SELECT COUNT(*) AS n FROM books`).get() as { n: number }).n;
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "molan-g4-t21-"));
+    const zipPath = path.join(tmp, "pack.zip");
+    fs.writeFileSync(zipPath, exported.buffer);
+    const extractDir = path.join(tmp, "x");
+    fs.mkdirSync(extractDir);
+    execFileSync(
+      "python3",
+      ["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); z.extractall(sys.argv[2])", zipPath, extractDir],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const factsPath = path.join(extractDir, "story/facts.json");
+    const factsJson = JSON.parse(fs.readFileSync(factsPath, "utf8")) as Array<Record<string, unknown>>;
+    if (factsJson[0]) factsJson[0].book_id = "other-book-id-should-fail";
+    fs.writeFileSync(factsPath, JSON.stringify(factsJson, null, 2));
+    let crossRejected = false;
+    try {
+      validateStoryPackDir(extractDir);
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      crossRejected = msg.includes("跨书") || msg.includes("hash") || msg.includes("大小");
+    }
+    check("T21/G4 跨书或篡改在 validate 拒绝", crossRejected);
+
+    const slipZip = path.join(tmp, "slip.zip");
+    execFileSync(
+      "python3",
+      [
+        "-c",
+        "import zipfile,sys; zf=zipfile.ZipFile(sys.argv[1],'w'); zf.writestr('../evil.txt','nope'); zf.writestr('manifest.json','{}'); zf.close()",
+        slipZip,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let slipBlocked = false;
+    try {
+      importStoryPackFromZipBuffer(fs.readFileSync(slipZip));
+    } catch (e: any) {
+      slipBlocked = /非法|穿越|slip|拒绝|失败/i.test(String(e?.message || e));
+    }
+    check("T21/G4 非法 ZIP 被拒", slipBlocked);
+    const afterCount = (regDb.prepare(`SELECT COUNT(*) AS n FROM books`).get() as { n: number }).n;
+    check("T21/G4 拒收后现有书数量不减", afterCount >= beforeCount);
+
+    const pc = publishCheck(bookId, 1);
+    check("G4 publish-check 无阻断或仅警告", pc.blockers.length === 0);
+    check("G4 publish-check 返回预算估算", Boolean(pc.context?.budgetEstimate && pc.context.budgetEstimate.approxTokens >= 0));
+    const pcEmpty = publishCheck(bookId, 3);
+    check(
+      "G4 publish-check 无定稿有阻断",
+      pcEmpty.ok === false && pcEmpty.blockers.some((b) => b.includes("定稿")),
+      JSON.stringify(pcEmpty.blockers),
+    );
+
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

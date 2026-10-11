@@ -212,6 +212,8 @@ export function Studio() {
   const [jobMaxRetries, setJobMaxRetries] = useState(1);
   const [jobTo, setJobTo] = useState(2);
   const [toolsOpen, setToolsOpen] = useState(false);
+  /** Phone/H5 (≤860px) single-column pane: 正文 / 目录 drawer / 助手 sheet. Ignored by desktop CSS. */
+  const [mPane, setMPane] = useState<"doc" | "toc" | "chat">("doc");
   const [toolsTab, setToolsTab] = useState<"tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow" | "context" | "graph">("tools");
   const [seek, setSeek] = useState<{ text: string; token: number } | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -285,6 +287,7 @@ export function Studio() {
     setRevision(artifact?.revision ?? 0);
     setScene(sceneFor(next));
     setWriting(false);
+    setMPane((p) => (p === "toc" ? "doc" : p));
     if (next.chapterNumber) setExpanded(next.chapterNumber);
     centerRef.current?.scrollTo(0, 0);
   }
@@ -1167,7 +1170,7 @@ export function Studio() {
   const activeSkills = sceneSkills.filter((skill) => checked.includes(skill.id));
 
   return (
-    <div className="studio page-enter">
+    <div className={`studio page-enter m-pane-${mPane}`}>
       {notice ? (
         <div className="toast-notice" role="status">
           <span className="toast-text">{notice}</span>
@@ -2091,6 +2094,40 @@ export function Studio() {
           </div>
         </footer>
       </aside>
+      <button
+        type="button"
+        className="m-backdrop"
+        aria-label="关闭面板"
+        tabIndex={-1}
+        onClick={() => setMPane("doc")}
+      />
+      {busy ? (
+        <div className="m-stream" role="status">
+          <span className="m-stream-dot" />
+          <span className="m-stream-text">{streamStatus || (busy === "assist" ? "正在改选区…" : "正在写…")}</span>
+          <button type="button" className="m-stream-stop" onClick={() => cancelStream()}>
+            停止
+          </button>
+        </div>
+      ) : null}
+      <nav className="m-tabbar" aria-label="工作室面板">
+        {([
+          ["toc", "目录"],
+          ["doc", "正文"],
+          ["chat", "助手"],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={mPane === id ? "m-tab on" : "m-tab"}
+            aria-pressed={mPane === id}
+            onClick={() => setMPane((p) => (p === id && id !== "doc" ? "doc" : id))}
+          >
+            {label}
+            {id === "chat" && busy ? <i className="m-tab-dot" aria-hidden="true" /> : null}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

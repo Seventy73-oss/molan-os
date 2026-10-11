@@ -1,0 +1,297 @@
+{
+  "iphone13": {
+    "library": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 40,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "skills": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 15,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "models": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 11,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "studio": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 69,
+      "smallSample": [
+        "a.brand:长墨兰写作(28x28)",
+        "button.model-line:正文·step-(162x26)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.saved-chip:打开 第 1 章(166x28)",
+        "button.m-toggle:展开(60x28)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "bubble": {
+      "x": 8,
+      "y": 672,
+      "width": 374,
+      "height": 108
+    },
+    "tools": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 69,
+      "smallSample": [
+        "a.brand:长墨兰写作(28x28)",
+        "button.model-line:正文·step-(162x26)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.saved-chip:打开 第 1 章(166x28)",
+        "button.m-toggle:展开(60x28)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    }
+  },
+  "android360": {
+    "library": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 40,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "skills": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 15,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "models": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 11,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "studio": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 71,
+      "smallSample": [
+        "a.brand:长墨兰写作(28x28)",
+        "button.model-line:正文·step-(162x26)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(166x28)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    }
+  },
+  "ipad768": {
+    "library": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 40,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)",
+        "button.book-trash:(30x40)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "skills": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 15,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "models": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 11,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)",
+        "button.picker-caret:(24x24)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "studio": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 69,
+      "smallSample": [
+        "a.brand:长墨兰写作(28x28)",
+        "button.model-line:正文·step-(162x26)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 2 章(143x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.m-toggle:展开(60x28)",
+        "button.saved-chip:打开 第 1 章(140x28)",
+        "button.saved-chip:打开 第 1 章(166x28)",
+        "button.m-toggle:展开(60x28)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    }
+  }
+}

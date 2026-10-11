@@ -1,5 +1,5 @@
 /* 墨兰写作 (molan os) — calm high-end editorial
-   Warm paper manuscript · quiet charcoal rails · terracotta accent
+   Warm paper manuscript · quiet charcoal rails · indigo ink accent (v0.3.2)
    Noto Serif/Sans + Inter · literary magazine rhythm
 */
 
@@ -4205,3 +4205,106 @@ label {
   .btn kbd { display: none; }
   .editor-hint { display: none; }
 }
+
+/* ==========================================================================
+   v0.3.2 polish — design-token pass
+   Brand: 墨浪 indigo ink on warm paper; chrome recedes, manuscript reads like
+   typeset paper (书卷感). Appended last so it wins the cascade.
+   ========================================================================== */
+:root {
+  /* spacing scale (4px base) */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+  /* radii: 3 tiers only */
+  --radius-sm: 6px; --radius: 10px; --radius-lg: 14px; --radius-xl: 14px;
+  /* elevation: flatter, paper-like */
+  --shadow-xs: 0 1px 0 rgba(var(--ink-rgb), 0.04);
+  --shadow-sm: 0 1px 2px rgba(var(--ink-rgb), 0.05), 0 0 0 1px rgba(var(--ink-rgb), 0.02);
+  --shadow-md: 0 8px 24px rgba(var(--ink-rgb), 0.07), 0 1px 3px rgba(var(--ink-rgb), 0.04);
+  /* type */
+  --lh-prose: 1.9;
+  --measure-chars: 38;
+}
+/* default light theme: brand indigo replaces terracotta as the single accent */
+:root:not([data-theme]), :root[data-theme="light"] {
+  --accent: #3a4778; --accent-hover: #2d3862; --accent-rgb: 58, 71, 120;
+  --accent-soft: #e7e9f2; --accent-line: #c9cee2; --accent-2: #5d6ba0; --accent-3: #9aa4c8;
+  --selection: #dde1ef;
+}
+:root[data-theme="dark"] {
+  --accent: #a9b6e8; --accent-hover: #c0caf0; --accent-rgb: 169, 182, 232;
+  --accent-soft: #262a3a; --accent-line: #3b4260; --accent-2: #8c9ad0; --accent-3: #6f7cb0;
+  --selection: #343b58;
+}
+
+/* --- chrome recedes ------------------------------------------------------ */
+.topbar { box-shadow: none; border-bottom: 1px solid var(--line); }
+.eyebrow { color: var(--muted); letter-spacing: var(--track-label); font-weight: 500; }
+
+/* --- library: one accent, quieter cards --------------------------------- */
+.book-grid { gap: var(--sp-4); }
+.book-card {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+}
+.book-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--line-strong); }
+.book-spine { width: 3px; background: var(--accent); opacity: 0.35; }
+.book-card:hover .book-spine { opacity: 0.8; }
+.book-genre {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line-2);
+  font-weight: 500;
+}
+
+/* --- manuscript: typeset paper ------------------------------------------ */
+.page-doc.sheet {
+  max-width: calc(var(--editor-fs, 18px) * var(--measure-chars) + 2 * var(--sp-10));
+}
+.manuscript.prose {
+  line-height: var(--lh-prose);
+  letter-spacing: 0.02em;
+  text-align: justify;
+  text-justify: inter-character;
+  color: var(--text);
+}
+.manuscript.prose p + p { margin-top: 0.6em; }
+.doc-title { font-weight: 600; letter-spacing: 0.04em; margin-bottom: var(--sp-8); }
+.doc-meta { color: var(--faint); }
+
+/* --- brand marks inside chat (replace old「长」tile) ---------------------- */
+.chat-empty-mark, .bot-mark {
+  background: url("/logo-mark.png") center / contain no-repeat;
+  box-shadow: none;
+  border-radius: 0;
+}
+.chat-empty-mark { width: 48px; height: 48px; margin-bottom: var(--sp-2); }
+.bot-mark { width: 18px; height: 18px; }
+:root[data-theme="dark"] :is(.chat-empty-mark, .bot-mark),
+:root[data-theme="night"] :is(.chat-empty-mark, .bot-mark),
+:root[data-theme="contrast"] :is(.chat-empty-mark, .bot-mark),
+:root[data-theme="ancient"] :is(.chat-empty-mark, .bot-mark) {
+  background-image: url("/logo-mark-light.png");
+}
+.chat-empty-title { font-size: var(--fs-xl); letter-spacing: 0.02em; }
+
+/* --- controls: consistent radii/heights ---------------------------------- */
+.btn, button.btn, .seg, select, input[type="text"], input[type="url"], input[type="password"], input[type="search"], textarea {
+  border-radius: var(--radius-sm);
+}
+.btn { min-height: 32px; }
+.btn.primary { background: var(--ink); color: var(--on-ink); }
+.btn:disabled, .btn[disabled] { opacity: 0.55; }
+
+@media (max-width: 720px) {
+  .page-doc.sheet { max-width: none; }
+  .manuscript.prose { text-align: start; letter-spacing: 0.01em; }
+  .book-card { padding: var(--sp-4); }
+}
+/* settings hierarchy: section titles get room */
+.settings-page .card > h2 + .sub { margin-bottom: var(--sp-6); }
+.settings-page .appearance-block + .appearance-block { margin-top: var(--sp-8); padding-top: var(--sp-6); }
+.settings-page .appearance-block > h3 { margin-bottom: var(--sp-3); }

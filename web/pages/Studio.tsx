@@ -1801,7 +1801,7 @@ export function Studio() {
         <div className="transcript" ref={transcriptRef}>
           {messages.length === 0 && !pendingUser && !busy ? (
             <div className="chat-empty">
-              <div className="chat-empty-mark">长</div>
+              <div className="chat-empty-mark" aria-hidden="true" />
               <p className="chat-empty-title">想让墨兰写作做什么？</p>
               <p className="chat-empty-sub">写作、审核、去 AI 味都在这里说；点一条开头，或自己输入。</p>
               <div className="suggestions">
@@ -1829,7 +1829,7 @@ export function Studio() {
             ) : (
               <div key={message.id} className="msg bot">
                 <div className="who">
-                  <span className="bot-mark">长</span>
+                  <span className="bot-mark" aria-hidden="true" />
                   墨兰
                 </div>
                 <AssistantMessage
@@ -1863,7 +1863,7 @@ export function Studio() {
           {busy ? (
             <div className="msg bot pending" aria-live="polite">
               <div className="who">
-                <span className="bot-mark">长</span>
+                <span className="bot-mark" aria-hidden="true" />
                 墨兰
               </div>
               <div className="pending-line">

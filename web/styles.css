@@ -3219,11 +3219,27 @@ select {
   padding: 0 20px 0 18px;
 }
 .logo-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  font-size: 14px;
-  letter-spacing: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 0;
+  background: url("/logo-mark.png") center / contain no-repeat;
+  box-shadow: none;
+  flex: none;
+}
+@media (max-width: 720px) {
+  .logo-mark { background-image: url("/logo-mark-small.png"); width: 28px; height: 28px; }
+}
+:root[data-theme="dark"] .logo-mark,
+:root[data-theme="night"] .logo-mark,
+:root[data-theme="contrast"] .logo-mark,
+:root[data-theme="ancient"] .logo-mark {
+  background-image: url("/logo-mark-light.png");
+}
+@media (max-width: 720px) {
+  :root[data-theme="dark"] .logo-mark,
+  :root[data-theme="night"] .logo-mark,
+  :root[data-theme="contrast"] .logo-mark,
+  :root[data-theme="ancient"] .logo-mark { background-image: url("/logo-mark-small-light.png"); }
 }
 .wordmark {
   font-size: 18px;

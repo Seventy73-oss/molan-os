@@ -35,9 +35,7 @@ export function useBookTitle() {
 
 function LogoMark() {
   return (
-    <span className="logo-mark" aria-hidden="true">
-      长
-    </span>
+    <span className="logo-mark" aria-hidden="true" />
   );
 }
 

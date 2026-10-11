@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1 — 2026-10-11
+
+### 品牌
+- **新 Logo「墨浪」**：水墨一笔卷成浪头，深靛墨色。透明底母版、宣纸底版、浅墨版（深色主题）与小尺寸加粗版放在 `docs/brand/`。
+- 网站图标：`favicon.ico`（16/32/48）、`favicon-32.png`、`apple-touch-icon.png`（180）、PWA `icon-192/512` 与 `icon-512-maskable`，新增 `manifest.webmanifest`。
+- 顶栏 Logo 换成新标；深色系主题（深色/暗夜蓝/墨黑高对比/古籍）自动换浅墨版，手机端用小尺寸加粗版。
+
 ## v0.3.0 — 2026-10-11
 
 ### 新增

@@ -1859,6 +1859,7 @@ z.close()
     try { oa.assertNotTruncated("length"); } catch (e) { err = (e as Error).message; }
     check("ACC60 C2 finish_reason=length 报错不存半截稿", /截断/.test(err), err);
     const body = oa.buildCompletionBody({ scene: "chapter_body", thinkingIntensity: "low", skillTexts: [], context: "", instruction: "x" } as never, "m", true);
+    check("ACC60 C6 长文场景超时 300s / 其他 120s", oa.modelTimeoutMs({ scene: "chapter_body" }) === 300000 && oa.modelTimeoutMs({ scene: "probe" }) === 120000);
     let zw = "";
     try { eng.createBook({ title: "\u200b\u200b" }); } catch (e) { zw = (e as Error).message; }
     check("ACC60 G7 零宽字符书名视为空", /要有书名/.test(zw), zw);

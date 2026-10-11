@@ -63,6 +63,13 @@ function buildMessages(input: RunInput) {
 export const LONG_FORM_MAX_TOKENS = 16384;
 const LONG_FORM_SCENES = new Set(["chapter_body", "humanize", "outline", "chapter_outline", "book_setup", "topic", "memory_extract", "review", "chat"]);
 
+export const MODEL_TIMEOUT_MS = 120_000;
+export const LONG_FORM_TIMEOUT_MS = 300_000;
+/** 长文场景（推理模型首字常 >60s）给 300s，其余 120s。 */
+export function modelTimeoutMs(input: { scene?: unknown }): number {
+  return LONG_FORM_SCENES.has(String(input.scene)) ? LONG_FORM_TIMEOUT_MS : MODEL_TIMEOUT_MS;
+}
+
 export function assertNotTruncated(finishReason: string | null | undefined) {
   if (finishReason === "length") {
     throw new Error("输出被截断（finish_reason=length，超出 max_tokens）；未保存半截稿，请重试或调低思考强度");
@@ -119,7 +126,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         },
         body: JSON.stringify(buildCompletionBody(input, model, false)),
         withApiKey: Boolean(this.options.apiKey),
-        timeoutMs: 120_000,
+        timeoutMs: modelTimeoutMs(input),
         signal: input.signal,
         retries: MODEL_FETCH_RETRIES,
         retryBackoffMs: MODEL_FETCH_RETRY_BACKOFF_MS,
@@ -149,6 +156,10 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
       };
     } catch (error) {
       if (isAbortError(error)) {
+        if (!input.signal?.aborted) {
+          // 超时触发的 abort 不是用户取消：报可重试的超时错误
+          throw new Error(`模型调用失败：响应超时（>${Math.round(modelTimeoutMs(input) / 1000)}s），可重试`);
+        }
         const err = new Error("已取消");
         err.name = "AbortError";
         throw err;
@@ -175,7 +186,7 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         },
         body: JSON.stringify(buildCompletionBody(input, model, true)),
         withApiKey: Boolean(this.options.apiKey),
-        timeoutMs: 120_000,
+        timeoutMs: modelTimeoutMs(input),
         signal: input.signal,
         retries: MODEL_FETCH_RETRIES,
         retryBackoffMs: MODEL_FETCH_RETRY_BACKOFF_MS,
@@ -252,6 +263,10 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
       }
     } catch (error) {
       if (isAbortError(error)) {
+        if (!input.signal?.aborted) {
+          // 超时触发的 abort 不是用户取消：报可重试的超时错误
+          throw new Error(`模型调用失败：响应超时（>${Math.round(modelTimeoutMs(input) / 1000)}s），可重试`);
+        }
         const err = new Error("已取消");
         err.name = "AbortError";
         throw err;

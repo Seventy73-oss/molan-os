@@ -1,3 +1,4 @@
+import path from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -190,7 +191,8 @@ app.get("/api/health", (c) => {
   const info = getDbInfo();
   return c.json({
     ok: true,
-    db: info,
+    // I4：健康检查（免令牌）不暴露绝对路径 / 连接串
+    db: { ...info, detail: info.driver === "sqlite" ? path.basename(String(info.detail)) : "(hidden)" },
     jobsWorker: getWorkerStatus(),
   });
 });

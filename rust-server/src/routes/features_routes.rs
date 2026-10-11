@@ -229,7 +229,7 @@ pub async fn agent_runtime(State(db): State<Db>) -> impl IntoResponse {
         "envRuntime": env_runtime,
         "db": {
             "driver": "sqlite",
-            "detail": db.path.display().to_string(),
+            "detail": db.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
             "ready": true,
         },
         "pi": crate::agent::pi::pi_orchestration_boundary(),

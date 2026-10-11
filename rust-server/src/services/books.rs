@@ -296,9 +296,12 @@ pub fn create_book(db: &Db, input: CreateBookInput) -> AppResult<(Value, bool)> 
         }
     }
 
-    let title = input.title.trim().to_string();
+    let title = strip_zero_width(&input.title).trim().to_string();
     if title.is_empty() {
         return Err(AppError::BadRequest("要有书名".into()));
+    }
+    if title.chars().count() > 200 {
+        return Err(AppError::BadRequest("书名最多 200 字".into()));
     }
     let count = input
         .target_chapters
@@ -366,10 +369,13 @@ pub fn update_book(db: &Db, book_id: &str, input: UpdateBookInput) -> AppResult<
         let title = input
             .title
             .as_ref()
-            .map(|s| s.trim().to_string())
+            .map(|s| strip_zero_width(s).trim().to_string())
             .unwrap_or(book.title.clone());
         if title.is_empty() {
             return Err(AppError::BadRequest("要有书名".into()));
+        }
+        if title.chars().count() > 200 {
+            return Err(AppError::BadRequest("书名最多 200 字".into()));
         }
         let genre = input
             .genre
@@ -513,6 +519,14 @@ pub fn delete_book(db: &Db, id: &str) -> AppResult<()> {
         tx.execute("DELETE FROM context_snapshots WHERE book_id = ?1", params![id])?;
         tx.execute("DELETE FROM api_usage WHERE book_id = ?1", params![id])?;
         tx.execute("DELETE FROM idempotency_keys WHERE book_id = ?1", params![id])?;
+        // ACC60 B6：generations / story_* 也清理，不留孤儿（表不存在则忽略）
+        for t in [
+            "generations", "story_book_heads", "chapter_publications", "memory_proposals", "story_fact_sets",
+            "story_facts", "story_operation_results", "story_outbox", "hook_events", "story_knowledge_events",
+            "bible_card_revisions", "story_batches",
+        ] {
+            let _ = tx.execute(&format!("DELETE FROM {t} WHERE book_id = ?1"), params![id]);
+        }
         tx.execute("DELETE FROM books WHERE id = ?1", params![id])?;
         tx.commit()?;
         Ok(())
@@ -521,4 +535,18 @@ pub fn delete_book(db: &Db, id: &str) -> AppResult<()> {
     let books_dir = db.root.join("data").join("books").join(id);
     let _ = std::fs::remove_dir_all(&books_dir);
     Ok(())
+}
+
+/// ACC60：书名去掉零宽字符（U+200B..U+200D、U+2060、U+FEFF）
+pub fn strip_zero_width(s: &str) -> String {
+    s.chars().filter(|c| !matches!(*c, '\u{200b}'..='\u{200d}' | '\u{2060}' | '\u{feff}')).collect()
+}
+
+#[cfg(test)]
+mod acc60_tests {
+    use super::strip_zero_width;
+    #[test]
+    fn strips_zero_width() {
+        assert_eq!(strip_zero_width("\u{200b}慢\u{feff}针\u{2060}"), "慢针");
+    }
 }

@@ -248,6 +248,34 @@ pub fn save_revision(db: &Db, mut input: SaveRevisionInput) -> AppResult<Value> 
             )?;
             (id, None)
         };
+        // ACC60 E4：人工保存内容与当前修订完全相同时不产生垃圾版本
+        if input.source == "human" && !as_candidate {
+            if let Some(ref cur_id) = current_rev {
+                let cur: Option<(i64, String)> = tx
+                    .query_row(
+                        "SELECT revision, body FROM artifact_revisions WHERE id = ?1",
+                        params![cur_id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .optional()?;
+                if let Some((rev, body)) = cur {
+                    if body == input.body {
+                        tx.commit()?;
+                        return Ok(json!({
+                            "kind": input.kind,
+                            "revision": rev,
+                            "revisionId": cur_id,
+                            "artifactId": artifact_id,
+                            "chapterId": chapter_id,
+                            "chapterNumber": chapter_number,
+                            "current": true,
+                            "conflicted": false,
+                            "unchanged": true,
+                        }));
+                    }
+                }
+            }
+        }
         let _ = (current_rev, chapter_key);
 
         let prev: i64 = tx.query_row(
@@ -335,6 +363,10 @@ pub fn save_revision(db: &Db, mut input: SaveRevisionInput) -> AppResult<Value> 
     // After chapter body is saved/generated, quietly refresh chapter memory ledger.
     // G2: if chapter already has an active publication, formal memory is owned by
     // finalize → proposal → accept; draft saves must not rewrite formal memory.
+    let unchanged = saved.get("unchanged").and_then(|v| v.as_bool()).unwrap_or(false);
+    if unchanged {
+        return Ok(saved);
+    }
     if !input.skip_memory
         && !input.as_candidate
         && input.kind == "chapter_body"

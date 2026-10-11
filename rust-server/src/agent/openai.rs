@@ -102,10 +102,44 @@ pub fn build_completion_body(input: &RunInput, model: &str, stream: bool) -> Val
             body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
         }
     }
-    if let Some(max) = max_tokens_hint(level) {
+    // ACC60：长文场景至少 LONG_FORM_MAX_TOKENS，防止推理模型把预算吃在思考上导致正文半截
+    let floor = if LONG_FORM_SCENES.contains(&input.scene.as_str()) { LONG_FORM_MAX_TOKENS } else { 0 };
+    let max = max_tokens_hint(level).unwrap_or(0).max(floor);
+    if max > 0 {
         body["max_tokens"] = json!(max);
     }
+    if stream {
+        body["stream_options"] = json!({"include_usage": true});
+    }
     body
+}
+
+pub const LONG_FORM_MAX_TOKENS: u32 = 16384;
+pub const MODEL_TIMEOUT_MS: u64 = 120_000;
+pub const LONG_FORM_TIMEOUT_MS: u64 = 300_000;
+/// 长文场景（推理模型首字常 >60s）给 300s，其余 120s。
+pub fn model_timeout_ms(input: &RunInput) -> u64 {
+    if LONG_FORM_SCENES.contains(&input.scene.as_str()) { LONG_FORM_TIMEOUT_MS } else { MODEL_TIMEOUT_MS }
+}
+/// 超时不是用户取消：报可重试的超时错误
+fn map_fetch_err(prefix: &str, input: &RunInput, e: &AppError) -> AppError {
+    let msg = e.to_string();
+    if msg.contains("timed out") || msg.contains("timeout") || msg.contains("超时") {
+        return AppError::BadGateway(format!("{prefix}：响应超时（>{}s），可重试", model_timeout_ms(input) / 1000));
+    }
+    AppError::BadGateway(format!("{prefix}：{}", redact_secrets(&msg)))
+}
+const LONG_FORM_SCENES: &[&str] = &[
+    "chapter_body", "humanize", "outline", "chapter_outline", "book_setup", "topic", "memory_extract", "review", "chat",
+];
+
+pub fn assert_not_truncated(finish_reason: Option<&str>) -> AppResult<()> {
+    if finish_reason == Some("length") {
+        return Err(AppError::BadGateway(
+            "输出被截断（finish_reason=length，超出 max_tokens）；未保存半截稿，请重试或调低思考强度".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub struct OpenAiCompatibleAdapter {
@@ -143,13 +177,13 @@ impl OpenAiCompatibleAdapter {
                 ],
                 body: Some(body.to_string()),
                 with_api_key: Some(true),
-                timeout_ms: 120_000,
+                timeout_ms: model_timeout_ms(input),
                 retries: MODEL_FETCH_RETRIES,
                 retry_backoff_ms: MODEL_FETCH_RETRY_BACKOFF_MS,
             },
         )
         .await
-        .map_err(|e| AppError::BadGateway(format!("模型调用失败：{}", redact_secrets(&e.to_string()))))?;
+        .map_err(|e| map_fetch_err("模型调用失败", input, &e))?;
         throw_if_cancelled(&input.cancelled)?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
@@ -162,6 +196,7 @@ impl OpenAiCompatibleAdapter {
             .json()
             .await
             .map_err(|e| AppError::BadGateway(format!("模型调用失败：{}", redact_secrets(&e.to_string()))))?;
+        assert_not_truncated(data.pointer("/choices/0/finish_reason").and_then(|v| v.as_str()))?;
         let content = data
             .pointer("/choices/0/message/content")
             .and_then(|v| v.as_str())
@@ -206,13 +241,13 @@ impl OpenAiCompatibleAdapter {
                 ],
                 body: Some(body.to_string()),
                 with_api_key: Some(true),
-                timeout_ms: 120_000,
+                timeout_ms: model_timeout_ms(input),
                 retries: MODEL_FETCH_RETRIES,
                 retry_backoff_ms: MODEL_FETCH_RETRY_BACKOFF_MS,
             },
         )
         .await
-        .map_err(|e| AppError::BadGateway(format!("模型流式调用失败：{}", redact_secrets(&e.to_string()))))?;
+        .map_err(|e| map_fetch_err("模型流式调用失败", input, &e))?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let detail = redact_secrets(&response.text().await.unwrap_or_default());
@@ -223,6 +258,8 @@ impl OpenAiCompatibleAdapter {
         let mut stream = response.bytes_stream();
         let mut buffer = String::new();
         let mut assembled = String::new();
+        let mut finish_reason: Option<String> = None;
+        let mut stream_usage: Option<Usage> = None;
         while let Some(chunk) = stream.next().await {
             throw_if_cancelled(&input.cancelled)?;
             let chunk = chunk.map_err(|e| {
@@ -240,6 +277,17 @@ impl OpenAiCompatibleAdapter {
                     continue;
                 }
                 if let Ok(json) = serde_json::from_str::<Value>(payload) {
+                    if let Some(u) = json.get("usage").filter(|u| u.is_object()) {
+                        let g = |k: &str| u.get(k).and_then(|v| v.as_u64()).map(|n| n as u32);
+                        stream_usage = Some(Usage {
+                            prompt_tokens: g("prompt_tokens"),
+                            completion_tokens: g("completion_tokens"),
+                            total_tokens: g("total_tokens"),
+                        });
+                    }
+                    if let Some(fr) = json.pointer("/choices/0/finish_reason").and_then(|v| v.as_str()) {
+                        finish_reason = Some(fr.to_string());
+                    }
                     if let Some(delta) = json
                         .pointer("/choices/0/delta/content")
                         .and_then(|v| v.as_str())
@@ -252,6 +300,7 @@ impl OpenAiCompatibleAdapter {
                 }
             }
         }
+        assert_not_truncated(finish_reason.as_deref())?;
         let text = finalize_model_text(&input.scene, &assembled);
         if text.is_empty() {
             return Err(AppError::BadGateway("模型流式调用失败：空流式响应".into()));
@@ -259,7 +308,7 @@ impl OpenAiCompatibleAdapter {
         Ok(RunOutput {
             text,
             model_used: model,
-            usage: None,
+            usage: stream_usage,
         })
     }
 }
@@ -283,4 +332,14 @@ where
         i = end;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod acc60_tests {
+    use super::*;
+    #[test]
+    fn truncation_is_error() {
+        assert!(assert_not_truncated(Some("length")).is_err());
+        assert!(assert_not_truncated(Some("stop")).is_ok());
+    }
 }

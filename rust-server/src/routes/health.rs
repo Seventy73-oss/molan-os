@@ -9,7 +9,7 @@ pub async fn health(State(db): State<Db>) -> AppResult<Json<Value>> {
         "ok": true,
         "db": {
             "driver": "sqlite",
-            "detail": db.path.display().to_string(),
+            "detail": db.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
             "ready": true,
         },
         "jobsWorker": worker_status(),

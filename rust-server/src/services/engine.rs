@@ -690,6 +690,8 @@ pub async fn rewrite_selection(
     }))
 }
 
+pub const EMPTY_STREAM_RETRIES: usize = 2;
+
 pub async fn chat(
     db: &Db,
     book_id: &str,
@@ -702,6 +704,9 @@ pub async fn chat(
     let text = message.trim();
     if text.is_empty() {
         return Err(AppError::BadRequest("要说一句".into()));
+    }
+    if text.chars().count() > 20000 {
+        return Err(AppError::BadRequest("单条指令最多 20000 字，请缩短或分段发送".into()));
     }
 
     if let Some(gid) = generation_id {
@@ -1069,7 +1074,32 @@ pub async fn stream_scene_run(
                 .send(json!({ "type": "token", "text": delta }))
                 .map_err(|_| AppError::Cancelled("已取消".into()))
         };
-        adapter.run_scene_stream(&run_input, token_emit).await
+        // ACC60：中转偶发空流（无任何 token）时自动重试，最多再试 EMPTY_STREAM_RETRIES 次
+        let emitted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut attempt = 0usize;
+        loop {
+            let em = emitted.clone();
+            let te = token_emit.clone();
+            let r = adapter
+                .run_scene_stream(&run_input, move |d: String| {
+                    em.fetch_add(d.len(), std::sync::atomic::Ordering::SeqCst);
+                    te(d)
+                })
+                .await;
+            match r {
+                Err(ref e)
+                    if emitted.load(std::sync::atomic::Ordering::SeqCst) == 0
+                        && attempt < EMPTY_STREAM_RETRIES
+                        && e.to_string().contains("空流式响应")
+                        && !e.is_abort() =>
+                {
+                    attempt += 1;
+                    let _ = sse_emit(&tx, json!({ "type": "status", "message": format!("模型返回空流，自动重试（{attempt}/{EMPTY_STREAM_RETRIES}）…") })).await;
+                    continue;
+                }
+                other => break other,
+            }
+        }
     };
 
     let result = match result {
@@ -1096,6 +1126,21 @@ pub async fn stream_scene_run(
     };
 
     throw_if_cancelled(&input.cancelled)?;
+    {
+        // ACC60 C8：流式路径也记用量（优先 provider usage，否则按字数估算）
+        let est = |t: &str| ((t.chars().count() as f64) / 1.5).ceil() as i64;
+        let u = result.usage.as_ref();
+        let prompt = u.and_then(|u| u.prompt_tokens).map(|n| n as i64)
+            .unwrap_or_else(|| est(&run_input.context) + est(&run_input.instruction));
+        let completion = u.and_then(|u| u.completion_tokens).map(|n| n as i64).unwrap_or_else(|| est(&result.text));
+        let local = result.model_used.to_lowercase().contains("local");
+        if let Err(e) = crate::services::usage::record_usage(
+            db, Some(&input.book_id), &input.scene, &result.model_used,
+            &route.provider, prompt, completion, local,
+        ) {
+            tracing::error!("[usage] stream record failed: {e}");
+        }
+    }
     let job_forces_candidate = input.job_id.as_ref().map(|jid| {
         db.with_conn(|conn| {
             let st: Option<String> = conn

@@ -45,6 +45,9 @@ pub async fn put_artifact(
     if kind.is_empty() {
         return Err(AppError::BadRequest("缺少稿件类型".into()));
     }
+    if !valid_artifact_kind(&kind) {
+        return Err(AppError::BadRequest("稿件类型无效".into()));
+    }
     let chapter_number = body.get("chapterNumber").and_then(|v| v.as_i64());
     let chapter_id = body
         .get("chapterId")
@@ -146,4 +149,19 @@ pub async fn restore_rev(
     Path((id, rev_id)): Path<(String, String)>,
 ) -> AppResult<impl IntoResponse> {
     Ok(Json(restore_revision(&db, &id, &rev_id)?))
+}
+
+/// ACC60：稿件类型只允许 [a-z_]{1,40}
+pub fn valid_artifact_kind(kind: &str) -> bool {
+    !kind.is_empty() && kind.len() <= 40 && kind.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+}
+
+#[cfg(test)]
+mod acc60_tests {
+    #[test]
+    fn artifact_kind_validation() {
+        assert!(super::valid_artifact_kind("chapter_body"));
+        assert!(!super::valid_artifact_kind("../../etc"));
+        assert!(!super::valid_artifact_kind(""));
+    }
 }

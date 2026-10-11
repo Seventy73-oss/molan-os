@@ -4,8 +4,8 @@ export type ThemeId =
 export const THEME_KEY = "molan.theme";
 export const THEMES: { id: ThemeId; name: string; desc: string; swatch: string[] }[] = [
   { id: "system", name: "跟随系统", desc: "按系统浅色/深色自动切换", swatch: [] },
-  { id: "light", name: "浅色", desc: "默认暖白 · 靛墨", swatch: ["#faf6ef", "#efe9df", "#1a1714", "#3a4778"] },
-  { id: "dark", name: "深色", desc: "夜间低亮度", swatch: ["#1b1916", "#2a2622", "#ece5da", "#a9b6e8"] },
+  { id: "light", name: "浅色", desc: "浅色 · 钴蓝墨迹", swatch: ["#f3f2ec", "#e8e7df", "#20201e", "#294bdd"] },
+  { id: "dark", name: "深色", desc: "深色 · 午夜石墨", swatch: ["#171b20", "#20262e", "#e8e9e4", "#a5baff"] },
   { id: "paper", name: "纸张", desc: "米黄书页", swatch: ["#f4ead2", "#ebdfc3", "#2a2116", "#9b4324"] },
   { id: "green", name: "护眼绿", desc: "柔和豆沙绿", swatch: ["#e6f0e1", "#dbe7d4", "#1d2a20", "#2f6b4a"] },
   { id: "molan", name: "墨兰", desc: "品牌靛蓝", swatch: ["#f5f5fa", "#ececf4", "#1c1f33", "#4b4fa8"] },

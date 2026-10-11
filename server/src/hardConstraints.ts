@@ -138,7 +138,7 @@ export function checkHardConstraints(bookId: string, text: string): HardConstrai
 export function formatViolationsNote(check: HardConstraintCheck): string {
   if (!check.violations.length) return "";
   return [
-    `⚠ 硬约束预检命中 ${check.violations.length} 处：`,
+    `硬约束预检命中 ${check.violations.length} 处：`,
     ...check.violations.slice(0, 10).map((v) => `- ${v.constraintId}「${v.constraint}」← 原文：“${v.quote}”`),
   ].join("\n");
 }

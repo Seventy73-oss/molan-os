@@ -1,0 +1,6 @@
+/* Molan workspace redesign: responsive composition over the preserved theme system. */
+@import "./styles/workspace-shell.css";
+@import "./styles/workspace-library.css";
+@import "./styles/workspace-studio.css";
+@import "./styles/workspace-pages.css";
+@import "./styles/workspace-mobile.css";

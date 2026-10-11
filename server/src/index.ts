@@ -1,3 +1,6 @@
+import { requireAuth } from "@eazo/sdk/server";
+import { referenceRoutes } from "./references/routes";
+import { recoverReferenceJobs } from "./references/jobs";
 import path from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
@@ -112,7 +115,7 @@ app.use(
       return isCorsOriginAllowed(origin) ? origin : null;
     },
     allowMethods: ["GET", "HEAD", "PUT", "POST", "DELETE", "PATCH", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "x-eazo-session", "x-eazo-locale"],
     maxAge: 600,
   }),
 );
@@ -156,6 +159,14 @@ app.use("/api/*", async (c, next) => {
     }
   }
 });
+
+app.get("/api/user/profile", (c) => {
+  const auth = requireAuth(c.req.raw);
+  if (!auth.ok) return auth.response;
+  c.header("Cache-Control", "private, no-store");
+  return c.json({ ok: true, user: auth.user });
+});
+app.route("/api/references", referenceRoutes);
 
 app.onError((error, c) => {
   if (error instanceof HttpError) {
@@ -1090,6 +1101,8 @@ app.put("/api/scene-routes", async (c) => {
 
 async function main() {
   await initDb();
+  recoverReferenceJobs();
+  await db.flush();
   reloadSkills();
   const recovery = recoverInterruptedImports();
   if (recovery.restored.length) {

@@ -7,7 +7,11 @@ import { createNativePostgresClient } from "./db/pgNativeClient";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const root = path.resolve(here, "../..");
-export const dataDir = path.join(root, "data");
+// Keep manuscript mirrors and import-recovery files isolated along with test databases.
+// Unset in the app: its established data/ location remains unchanged.
+export const dataDir = process.env.MOLAN_DATA_DIR?.trim()
+  ? path.resolve(process.env.MOLAN_DATA_DIR.trim())
+  : path.join(root, "data");
 export const skillsDir = path.join(root, "skills");
 
 fs.mkdirSync(dataDir, { recursive: true });
@@ -85,6 +89,11 @@ const TABLES = [
   "hook_marks",
   "context_snapshots",
   "generations",
+  "novel_sources",
+  "novel_chapters",
+  "novel_jobs",
+  "novel_cards",
+  "novel_book_links",
 ] as const;
 
 function resolveDriverChoice(): {

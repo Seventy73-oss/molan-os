@@ -1,3 +1,6 @@
+import { Link } from "react-router-dom";
+import { Icon, type IconName } from "./Icon";
+import { t as tr, useLocale, getLocale } from "../lib/i18n";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   api,
@@ -22,6 +25,7 @@ type SearchProps = {
 };
 
 export function BookSearch({ bookId, onJump }: SearchProps) {
+  useLocale();
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [busy, setBusy] = useState(false);
@@ -47,17 +51,17 @@ export function BookSearch({ bookId, onJump }: SearchProps) {
   return (
     <div className="panel-block search-panel">
       <label className="panel-field">
-        <span className="panel-label">全书搜索</span>
+        <span className="panel-label">{tr("全书搜索")}</span>
         <input
           value={q}
-          placeholder="搜章名、正文、细纲…"
+          placeholder={tr("搜章名、正文、细纲…")}
           onChange={(e) => setQ(e.target.value)}
-          aria-label="全书搜索"
+          aria-label={tr("全书搜索")}
         />
       </label>
-      {busy ? <p className="panel-muted">搜索中…</p> : null}
-      {error ? <p className="panel-error">{error}</p> : null}
-      {!busy && q.trim() && hits.length === 0 ? <p className="panel-muted">没有结果</p> : null}
+      {busy ? <p className="panel-muted">{tr("搜索中…")}</p> : null}
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
+      {!busy && q.trim() && hits.length === 0 ? <p className="panel-muted">{tr("没有结果")}</p> : null}
       <ul className="hit-list">
         {hits.map((hit, index) => (
           <li key={`${hit.kind}-${hit.chapterNumber}-${hit.index}-${index}`}>
@@ -80,6 +84,7 @@ type HistoryProps = {
 };
 
 export function VersionHistory({ bookId, kind, chapterNumber, onRestored }: HistoryProps) {
+  useLocale();
   const [revisions, setRevisions] = useState<RevisionMeta[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [diff, setDiff] = useState<{
@@ -127,7 +132,7 @@ export function VersionHistory({ bookId, kind, chapterNumber, onRestored }: Hist
   }, [bookId, selected]);
 
   async function restore(id: string) {
-    if (!window.confirm("还原为这一版？会生成新修订，不会删掉现有历史。")) return;
+    if (!window.confirm(tr("还原为这一版？会生成新修订，不会删掉现有历史。"))) return;
     setBusy(true);
     try {
       const res = await api.restoreRevision(bookId, id);
@@ -149,53 +154,46 @@ export function VersionHistory({ bookId, kind, chapterNumber, onRestored }: Hist
   return (
     <div className="panel-block history-panel">
       <div className="panel-row">
-        <span className="panel-label">版本历史</span>
-        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
-          刷新
-        </button>
+        <span className="panel-label">{tr("版本历史")}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>{tr("刷新")}</button>
       </div>
       {previousOfCurrent ? (
         <div className="panel-row history-restore-prev">
-          <span className="panel-muted">当前稿可退回上一版（生成新修订，不删历史）</span>
+          <span className="panel-muted">{tr("当前稿可退回上一版（生成新修订，不删历史）")}</span>
           <button
             type="button"
             className="text-link"
             disabled={busy}
             data-testid="restore-previous"
             onClick={() => void restore(previousOfCurrent.id)}
-          >
-            还原上一版
-          </button>
+          >{tr("还原上一版")}</button>
         </div>
       ) : null}
-      {error ? <p className="panel-error">{error}</p> : null}
-      {!revisions.length ? <p className="panel-muted">还没有修订记录</p> : null}
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
+      {!revisions.length ? <p className="panel-muted">{tr("还没有修订记录")}</p> : null}
       <ul className="rev-list">
         {revisions.map((rev) => (
           <li key={rev.id} className={selected === rev.id ? "on" : ""}>
             <button type="button" className="rev-item" onClick={() => setSelected(rev.id)}>
-              <span className="rev-num">
-                修订 {rev.revision}
-                {rev.isCurrent ? <em>当前</em> : null}
+              <span className="rev-num">{tr("修订")}{rev.revision}
+                {rev.isCurrent ? <em>{tr("当前")}</em> : null}
               </span>
               <span className="rev-meta">
-                {rev.source === "agent_cancelled" ? "已取消写入" : rev.source}
-                {rev.source === "agent_cancelled" ? " · 可还原" : ""} · {rev.chars} 字 ·{" "}
-                {new Date(rev.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                {rev.source === "agent_cancelled" ? tr("已取消写入") : rev.source}
+                {rev.source === "agent_cancelled" ? tr(" · 可还原") : ""} · {rev.chars}{tr(" 字 ·")}{" "}
+                {new Date(rev.createdAt).toLocaleString(getLocale(), { hour12: false })}
               </span>
             </button>
             {!rev.isCurrent ? (
-              <button type="button" className="text-link" disabled={busy} onClick={() => void restore(rev.id)}>
-                还原
-              </button>
+              <button type="button" className="text-link" disabled={busy} onClick={() => void restore(rev.id)}>{tr("还原")}</button>
             ) : null}
           </li>
         ))}
       </ul>
       {diff ? (
-        <div className="diff-box" aria-label="相邻修订对比">
+        <div className="diff-box" aria-label={tr("相邻修订对比")}>
           <div className="diff-head">
-            {diff.leftRevision != null ? `r${diff.leftRevision}` : "（无上一版）"} → r{diff.rightRevision}
+            {diff.leftRevision != null ? `r${diff.leftRevision}` : tr("（无上一版）")} → r{diff.rightRevision}
           </div>
           <pre className="diff-body">
             {diff.hunks.map((hunk, i) => (
@@ -218,24 +216,22 @@ type ProgressProps = {
 };
 
 export function ProgressPanel({ progress, chapterNumber }: ProgressProps) {
+  useLocale();
   if (!progress) return null;
   const pct = progress.targetWords ? Math.min(100, Math.round((progress.words / progress.targetWords) * 100)) : 0;
   const current = chapterNumber ? progress.chapters.find((c) => c.number === chapterNumber) : null;
   return (
     <div className="panel-block progress-panel">
       <div className="panel-row">
-        <span className="panel-label">进度</span>
+        <span className="panel-label">{tr("进度")}</span>
         <span className="panel-muted">
-          {progress.words} / {progress.targetWords} 字 · {progress.draftedCount}/{progress.targetChapters} 章
-        </span>
+          {progress.words} / {progress.targetWords}{tr(" 字 · ")}{progress.draftedCount}/{progress.targetChapters}{tr("章")}</span>
       </div>
       <div className="progress fat" aria-hidden="true">
         <span style={{ width: `${pct}%` }} />
       </div>
       {current ? (
-        <p className="panel-muted">
-          本章 {current.words} / {current.target} 字
-          {current.target ? `（${Math.min(100, Math.round((current.words / current.target) * 100))}%）` : ""}
+        <p className="panel-muted">{tr("本章")}{current.words} / {current.target}{tr("字")}{current.target ? `（${Math.min(100, Math.round((current.words / current.target) * 100))}%）` : ""}
         </p>
       ) : null}
       <ul className="chapter-progress-list">
@@ -266,6 +262,7 @@ type ReviewProps = {
 };
 
 export function ReviewFixPanel({ bookId, chapterNumber, body, onLocate, onFix, busy }: ReviewProps) {
+  useLocale();
   const [issues, setIssues] = useState<ReviewIssue[]>([]);
 
   useEffect(() => {
@@ -282,15 +279,15 @@ export function ReviewFixPanel({ bookId, chapterNumber, body, onLocate, onFix, b
   if (!issues.length) {
     return (
       <div className="panel-block review-fix-panel">
-        <span className="panel-label">审核改稿</span>
-        <p className="panel-muted">生成审核后，这里会列出可定位、可一键改的问题。</p>
+        <span className="panel-label">{tr("审核改稿")}</span>
+        <p className="panel-muted">{tr("生成审核后，这里会列出可定位、可一键改的问题。")}</p>
       </div>
     );
   }
 
   return (
     <div className="panel-block review-fix-panel">
-      <span className="panel-label">审核改稿 · {issues.length} 条</span>
+      <span className="panel-label">{tr("审核改稿 · ")}{issues.length}{tr(" 条")}</span>
       <ul className="issue-list">
         {issues.map((issue) => (
           <li key={issue.index}>
@@ -302,12 +299,8 @@ export function ReviewFixPanel({ bookId, chapterNumber, body, onLocate, onFix, b
             </div>
             <p className="issue-text">{issue.text}</p>
             <div className="issue-actions">
-              <button type="button" className="btn small ghost" disabled={busy || !issue.cite} onClick={() => onLocate(issue)}>
-                定位正文
-              </button>
-              <button type="button" className="btn small primary" disabled={busy || !issue.cite} onClick={() => onFix(issue)}>
-                一键改
-              </button>
+              <button type="button" className="btn small ghost" disabled={busy || !issue.cite} onClick={() => onLocate(issue)}>{tr("定位正文")}</button>
+              <button type="button" className="btn small primary" disabled={busy || !issue.cite} onClick={() => onFix(issue)}>{tr("一键改")}</button>
             </div>
           </li>
         ))}
@@ -321,6 +314,7 @@ type BibleProps = {
 };
 
 export function BibleCardsPanel({ bookId }: BibleProps) {
+  useLocale();
   const [cards, setCards] = useState<BibleCard[]>([]);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | "new" | null>(null);
@@ -365,7 +359,7 @@ export function BibleCardsPanel({ bookId }: BibleProps) {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("删除这张设定卡？")) return;
+    if (!window.confirm(tr("删除这张设定卡？"))) return;
     await api.deleteBible(bookId, id);
     await reload();
   }
@@ -373,7 +367,7 @@ export function BibleCardsPanel({ bookId }: BibleProps) {
   return (
     <div className="panel-block bible-panel">
       <div className="panel-row">
-        <span className="panel-label">设定卡</span>
+        <span className="panel-label">{tr("设定卡")}</span>
         <button
           type="button"
           className="text-link"
@@ -381,45 +375,39 @@ export function BibleCardsPanel({ bookId }: BibleProps) {
             setEditing("new");
             setForm({ kind: "character", name: "", summary: "", details: "" });
           }}
-        >
-          新建
-        </button>
+        >{tr("新建")}</button>
       </div>
-      {error ? <p className="panel-error">{error}</p> : null}
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
       {editing ? (
         <div className="bible-form">
           <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-            <option value="character">人物</option>
-            <option value="prop">物件</option>
-            <option value="place">地点</option>
+            <option value="character">{tr("人物")}</option>
+            <option value="prop">{tr("物件")}</option>
+            <option value="place">{tr("地点")}</option>
           </select>
           <input
-            placeholder="名称"
+            placeholder={tr("名称")}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
           <input
-            placeholder="一句话摘要"
+            placeholder={tr("一句话摘要")}
             value={form.summary}
             onChange={(e) => setForm({ ...form, summary: e.target.value })}
           />
           <textarea
             rows={3}
-            placeholder="细节（外貌、动机、状态…）"
+            placeholder={tr("细节（外貌、动机、状态…）")}
             value={form.details}
             onChange={(e) => setForm({ ...form, details: e.target.value })}
           />
           <div className="actions end">
-            <button type="button" className="btn small ghost" onClick={() => setEditing(null)}>
-              取消
-            </button>
-            <button type="button" className="btn small primary" disabled={busy || !form.name.trim()} onClick={() => void save()}>
-              保存
-            </button>
+            <button type="button" className="btn small ghost" onClick={() => setEditing(null)}>{tr("取消")}</button>
+            <button type="button" className="btn small primary" disabled={busy || !form.name.trim()} onClick={() => void save()}>{tr("保存")}</button>
           </div>
         </div>
       ) : null}
-      {!cards.length && !editing ? <p className="panel-muted">还没有设定卡。人物、物件写在这里，生成时会带进上下文。</p> : null}
+      {!cards.length && !editing ? <p className="panel-muted">{tr("还没有设定卡。人物、物件写在这里，生成时会带进上下文。")}</p> : null}
       {Object.entries(grouped).map(([kind, list]) => (
         <div key={kind} className="bible-group">
           <div className="bible-kind">{KIND_LABEL[kind] ?? kind}</div>
@@ -440,12 +428,8 @@ export function BibleCardsPanel({ bookId }: BibleProps) {
                         details: card.details,
                       });
                     }}
-                  >
-                    编辑
-                  </button>
-                  <button type="button" className="text-link danger" onClick={() => void remove(card.id)}>
-                    删
-                  </button>
+                  >{tr("编辑")}</button>
+                  <button type="button" className="text-link danger" onClick={() => void remove(card.id)}>{tr("删")}</button>
                 </span>
               </header>
               {card.summary ? <p className="bible-summary">{card.summary}</p> : null}
@@ -467,37 +451,31 @@ type DrawerProps = {
 };
 
 export function ToolsDrawer({ open, tab, onTab, onClose, children }: DrawerProps) {
+  useLocale();
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open, onClose]);
   if (!open) return null;
-  return (
-    <div className="tools-drawer" role="dialog" aria-label="写作工具">
-      <div className="tools-drawer-head">
-        <div className="tools-tabs">
-          {(
-            [
-              ["tools", "进度"],
-              ["meta", "信息"],
-              ["hooks", "钩子"],
-              ["foreshadow", "伏笔"],
-              ["story", "人物态"],
-              ["context", "上下文"],
-              ["graph", "图谱"],
-              ["bible", "设定卡"],
-              ["history", "版本"],
-              ["review", "审核"],
-            ] as const
-          ).map(([id, label]) => (
-            <button key={id} type="button" className={tab === id ? "on" : ""} onClick={() => onTab(id)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <button type="button" className="drawer-close" onClick={onClose} aria-label="关闭工具面板">
-          关闭
-        </button>
-      </div>
-      <div className="tools-drawer-body">{children}</div>
-    </div>
-  );
+  const tabs: { id: DrawerProps["tab"]; label: string; icon: IconName }[] = [
+    { id: "tools", label: "进度", icon: "sliders" },
+    { id: "meta", label: "信息", icon: "file" },
+    { id: "hooks", label: "钩子", icon: "link" },
+    { id: "foreshadow", label: "伏笔", icon: "flag" },
+    { id: "story", label: "人物态", icon: "user" },
+    { id: "context", label: "上下文", icon: "stack" },
+    { id: "graph", label: "图谱", icon: "graph" },
+    { id: "bible", label: "设定卡", icon: "book" },
+    { id: "history", label: "版本", icon: "history" },
+    { id: "review", label: "审核", icon: "check" },
+  ];
+  return <div className="tools-drawer" role="dialog" aria-label={tr("写作工具")}>
+    <div className="tools-drawer-title"><div><Icon name="tools" size={19} /><h2>{tr("写作工具")}</h2></div><button type="button" className="drawer-close icon-button" onClick={onClose} aria-label={tr("关闭工具面板")}><Icon name="close" size={20} /></button></div>
+    <div className="tools-drawer-head"><div className="tools-tabs">{tabs.map((item) => <button key={item.id} type="button" className={tab === item.id ? "on" : ""} aria-pressed={tab === item.id} onClick={() => onTab(item.id)}><Icon name={item.icon} size={16} /><span>{tr(item.label)}</span></button>)}</div></div>
+    <div className="tools-drawer-body">{children}</div>
+  </div>;
 }
 
 type MetaProps = {
@@ -506,6 +484,7 @@ type MetaProps = {
 };
 
 export function BookMetaPanel({ book, onSaved }: MetaProps) {
+  useLocale();
   const [form, setForm] = useState({
     title: book.title,
     genre: book.genre,
@@ -538,12 +517,12 @@ export function BookMetaPanel({ book, onSaved }: MetaProps) {
     let confirmTrim = false;
     if (shrinking) {
       const ok = window.confirm(
-        `目标章数从 ${book.chapterCount} 改为 ${form.targetChapters}，将删除后面的章节（有内容时需确认）。继续？`,
+        tr("目标章数从 {p0} 改为 {p1}，将删除后面的章节（有内容时需确认）。继续？", { p0: book.chapterCount, p1: form.targetChapters }),
       );
       if (!ok) return;
       confirmTrim = true;
     } else if (form.targetChapters > book.chapterCount) {
-      const ok = window.confirm(`将新增第 ${book.chapterCount + 1}–${form.targetChapters} 章空章，确定？`);
+      const ok = window.confirm(tr("将新增第 {p0}–{p1} 章空章，确定？", { p0: book.chapterCount + 1, p1: form.targetChapters }));
       if (!ok) return;
     }
     setBusy(true);
@@ -562,26 +541,26 @@ export function BookMetaPanel({ book, onSaved }: MetaProps) {
 
   return (
     <div className="panel-block meta-panel">
-      <span className="panel-label">书信息</span>
+      <span className="panel-label">{tr("书信息")}</span>
       <label className="panel-field">
-        <span className="panel-muted">书名</span>
+        <span className="panel-muted">{tr("书名")}</span>
         <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
       </label>
       <label className="panel-field">
-        <span className="panel-muted">题材</span>
+        <span className="panel-muted">{tr("题材")}</span>
         <input value={form.genre} onChange={(e) => setForm({ ...form, genre: e.target.value })} />
       </label>
       <label className="panel-field">
-        <span className="panel-muted">简介</span>
+        <span className="panel-muted">{tr("简介")}</span>
         <textarea rows={3} value={form.logline} onChange={(e) => setForm({ ...form, logline: e.target.value })} />
       </label>
       <label className="panel-field">
-        <span className="panel-muted">文风</span>
+        <span className="panel-muted">{tr("文风")}</span>
         <textarea rows={2} value={form.style} onChange={(e) => setForm({ ...form, style: e.target.value })} />
       </label>
       <div className="meta-nums">
         <label className="panel-field">
-          <span className="panel-muted">目标章数</span>
+          <span className="panel-muted">{tr("目标章数")}</span>
           <input
             type="number"
             min={1}
@@ -591,7 +570,7 @@ export function BookMetaPanel({ book, onSaved }: MetaProps) {
           />
         </label>
         <label className="panel-field">
-          <span className="panel-muted">每章字数</span>
+          <span className="panel-muted">{tr("每章字数")}</span>
           <input
             type="number"
             min={200}
@@ -602,11 +581,11 @@ export function BookMetaPanel({ book, onSaved }: MetaProps) {
           />
         </label>
       </div>
-      {error ? <p className="panel-error">{error}</p> : null}
-      {notice ? <p className="panel-muted">{notice}</p> : null}
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
+      {notice ? <p className="panel-muted">{tr(notice)}</p> : null}
       <div className="actions end">
         <button type="button" className="btn small primary" disabled={busy} onClick={() => void save()}>
-          {busy ? "保存中…" : "保存书信息"}
+          {busy ? tr("保存中…") : tr("保存书信息")}
         </button>
       </div>
     </div>
@@ -619,6 +598,7 @@ type HooksProps = {
 };
 
 export function HooksPanel({ bookId, onJumpChapter }: HooksProps) {
+  useLocale();
   const [hooks, setHooks] = useState<HookItem[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -657,17 +637,15 @@ export function HooksPanel({ bookId, onJumpChapter }: HooksProps) {
   return (
     <div className="panel-block hooks-panel">
       <div className="panel-row">
-        <span className="panel-label">跨章钩子</span>
-        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
-          刷新
-        </button>
+        <span className="panel-label">{tr("跨章钩子")}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>{tr("刷新")}</button>
       </div>
       <p className="panel-muted">
-        {openCount ? <span className="hook-warn-badge">{openCount} 条未回收</span> : "暂无未回收钩子"}
-        {" · 来自记忆/细纲，写入审核与后章上下文"}
+        {openCount ? <span className="hook-warn-badge">{openCount}{tr(" 条未回收")}</span> : tr("暂无未回收钩子")}
+        {tr(" · 来自记忆/细纲，写入审核与后章上下文")}
       </p>
-      {error ? <p className="panel-error">{error}</p> : null}
-      {!hooks.length ? <p className="panel-muted">写完正文并抽出记忆后，这里会出现章末钩子。</p> : null}
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
+      {!hooks.length ? <p className="panel-muted">{tr("写完正文并抽出记忆后，这里会出现章末钩子。")}</p> : null}
       <ul className="hook-list">
         {hooks.map((hook) => (
           <li key={hook.key} className={hook.warning ? "hook-open" : "hook-ok"}>
@@ -676,22 +654,16 @@ export function HooksPanel({ bookId, onJumpChapter }: HooksProps) {
                 type="button"
                 className="text-link"
                 onClick={() => onJumpChapter?.(hook.fromChapter)}
-              >
-                第 {hook.fromChapter} 章
-              </button>
-              <span className="hook-src">{hook.source === "memory" ? "记忆" : "细纲"}</span>
-              {hook.warning ? <span className="hook-flag">未回收</span> : <span className="hook-flag ok">已回收{hook.recycledIn ? ` · 第${hook.recycledIn}章` : ""}</span>}
+              >{tr("第")}{hook.fromChapter}{tr("章")}</button>
+              <span className="hook-src">{hook.source === "memory" ? tr("记忆") : tr("细纲")}</span>
+              {hook.warning ? <span className="hook-flag">{tr("未回收")}</span> : <span className="hook-flag ok">{tr("已回收")}{hook.recycledIn ? tr(" · 第{p0}章", { p0: hook.recycledIn }) : ""}</span>}
             </div>
             <p className="hook-text">{hook.text}</p>
             <div className="issue-actions">
               {hook.warning ? (
-                <button type="button" className="btn small ghost" disabled={busy} onClick={() => void mark(hook.key, "marked")}>
-                  标为已处理
-                </button>
+                <button type="button" className="btn small ghost" disabled={busy} onClick={() => void mark(hook.key, "marked")}>{tr("标为已处理")}</button>
               ) : (
-                <button type="button" className="btn small ghost" disabled={busy} onClick={() => void mark(hook.key, "open")}>
-                  重开
-                </button>
+                <button type="button" className="btn small ghost" disabled={busy} onClick={() => void mark(hook.key, "open")}>{tr("重开")}</button>
               )}
             </div>
           </li>
@@ -706,6 +678,7 @@ type StoryStateProps = { bookId: string; chapterNumber?: number | null };
 
 /** G3 minimal: character dynamic state as-of chapter. */
 export function StoryStatePanel({ bookId, chapterNumber }: StoryStateProps) {
+  useLocale();
   const [chars, setChars] = useState<Array<{ id: string; name: string; summary: string; dynamic: Record<string, unknown> }>>([]);
   const [impact, setImpact] = useState<string>("");
   const [error, setError] = useState("");
@@ -738,15 +711,13 @@ export function StoryStatePanel({ bookId, chapterNumber }: StoryStateProps) {
   return (
     <div className="panel-block story-state-panel">
       <div className="panel-row">
-        <span className="panel-label">人物动态{asOf ? ` · 截至第${asOf}章前` : ""}</span>
-        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
-          刷新
-        </button>
+        <span className="panel-label">{tr("人物动态")}{asOf ? tr(" · 截至第{p0}章前", { p0: asOf }) : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>{tr("刷新")}</button>
       </div>
-      <p className="panel-muted">地点/伤势/目标等按章合并；作者秘密默认不进读者视角。</p>
+      <p className="panel-muted">{tr("地点/伤势/目标等按章合并；作者秘密默认不进读者视角。")}</p>
       {impact ? <p className="panel-muted">{impact}</p> : null}
-      {error ? <p className="panel-error">{error}</p> : null}
-      {!chars.length ? <p className="panel-muted">暂无人物动态。定稿并批准含 character_state 的提案后出现。</p> : null}
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
+      {!chars.length ? <p className="panel-muted">{tr("暂无人物动态。定稿并批准含 character_state 的提案后出现。")}</p> : null}
       <ul className="hook-list">
         {chars.map((c) => (
           <li key={c.id}>
@@ -759,7 +730,7 @@ export function StoryStatePanel({ bookId, chapterNumber }: StoryStateProps) {
                 ? Object.entries(c.dynamic)
                     .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
                     .join("；")
-                : "尚无动态字段"}
+                : tr("尚无动态字段")}
             </p>
           </li>
         ))}
@@ -772,6 +743,7 @@ type ForeshadowProps = { bookId: string; chapterNumber?: number | null };
 
 /** G3 minimal: foreshadow ledger with provenance. */
 export function ForeshadowPanel({ bookId, chapterNumber }: ForeshadowProps) {
+  useLocale();
   const [hooks, setHooks] = useState<
     Array<{
       hookStableId: string;
@@ -807,25 +779,23 @@ export function ForeshadowPanel({ bookId, chapterNumber }: ForeshadowProps) {
   return (
     <div className="panel-block foreshadow-panel">
       <div className="panel-row">
-        <span className="panel-label">有来源伏笔{asOf ? ` · 截至第${asOf}章前` : ""}</span>
-        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
-          刷新
-        </button>
+        <span className="panel-label">{tr("有来源伏笔")}{asOf ? tr(" · 截至第{p0}章前", { p0: asOf }) : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>{tr("刷新")}</button>
       </div>
-      <p className="panel-muted">计划回收章不等于已回收；仅 paid_off 事件才算收回。</p>
-      {error ? <p className="panel-error">{error}</p> : null}
-      {!hooks.length ? <p className="panel-muted">暂无伏笔账本事件。</p> : null}
+      <p className="panel-muted">{tr("计划回收章不等于已回收；仅 paid_off 事件才算收回。")}</p>
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
+      {!hooks.length ? <p className="panel-muted">{tr("暂无伏笔账本事件。")}</p> : null}
       <ul className="hook-list">
         {hooks.map((h) => (
           <li key={h.hookStableId} className={h.status === "paid_off" || h.status === "abandoned" ? "hook-ok" : "hook-open"}>
             <div className="hook-head">
               <span className="hook-flag">{h.status}</span>
-              {h.plantedChapter ? <span className="hook-src">埋于第{h.plantedChapter}章</span> : null}
-              {h.plannedPayoffChapter ? <span className="hook-src">计划第{h.plannedPayoffChapter}章</span> : null}
-              {h.paidOffChapter ? <span className="hook-src">回收第{h.paidOffChapter}章</span> : null}
+              {h.plantedChapter ? <span className="hook-src">{tr("埋于第")}{h.plantedChapter}{tr("章")}</span> : null}
+              {h.plannedPayoffChapter ? <span className="hook-src">{tr("计划第")}{h.plannedPayoffChapter}{tr("章")}</span> : null}
+              {h.paidOffChapter ? <span className="hook-src">{tr("回收第")}{h.paidOffChapter}{tr("章")}</span> : null}
             </div>
             <p className="hook-text">{h.description}</p>
-            <p className="panel-muted">{h.events.length} 条事件 · 有出处</p>
+            <p className="panel-muted">{h.events.length}{tr(" 条事件 · 有出处")}</p>
           </li>
         ))}
       </ul>
@@ -837,6 +807,7 @@ type ContextPanelProps = { bookId: string; chapterNumber?: number | null };
 
 /** G4: context inventory + budget estimate + publish checks. */
 export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
+  useLocale();
   const [preview, setPreview] = useState<Awaited<ReturnType<typeof api.contextPreview>> | null>(null);
   const [pub, setPub] = useState<Awaited<ReturnType<typeof api.publishCheck>> | null>(null);
   const [error, setError] = useState("");
@@ -868,16 +839,15 @@ export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
 
   return (
     <div className="panel-block context-panel">
+      <Link className="btn" to={`/references?book=${encodeURIComponent(bookId)}`}><Icon name="stack" size={16} />{tr("管理本书参考资料")}</Link>
+      <p className="panel-muted">{tr("参考卡仅提供写作方法，不是设定或正式记忆。")}</p>
       <div className="panel-row">
-        <span className="panel-label">上下文清单{asOf ? ` · 第${asOf}章` : ""}</span>
-        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
-          刷新
-        </button>
+        <span className="panel-label">{tr("上下文清单")}{asOf ? tr(" · 第{p0}章", { p0: asOf }) : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>{tr("刷新")}</button>
       </div>
-      <p className="panel-muted">模式 {preview?.mode || "—"} · 入选 {included.length} · 排除 {excluded.length}</p>
+      <p className="panel-muted">{tr("模式 ")}{preview?.mode || "—"}{tr(" · 入选 ")}{included.length}{tr(" · 排除 ")}{excluded.length}</p>
       {budget ? (
-        <p className="panel-muted">
-          预算估算 ≈ {budget.approxTokens} tokens（{budget.charCount} 字，tokenizer={budget.tokenizer}）
+        <p className="panel-muted">{tr("预算估算 ≈")}{budget.approxTokens} tokens（{budget.charCount}{tr(" 字，tokenizer=")}{budget.tokenizer}）
         </p>
       ) : null}
       {preview?.missing?.length ? (
@@ -889,11 +859,11 @@ export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
           ))}
         </ul>
       ) : (
-        <p className="panel-muted">资料齐全</p>
+        <p className="panel-muted">{tr("资料齐全")}</p>
       )}
       {included.length ? (
         <>
-          <p className="panel-label">已入选</p>
+          <p className="panel-label">{tr("已入选")}</p>
           <ul className="hook-list">
             {included.slice(0, 24).map((item, i) => (
               <li key={`${item.sourceId || i}`}>
@@ -909,7 +879,7 @@ export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
       ) : null}
       {excluded.length ? (
         <>
-          <p className="panel-label">未入选</p>
+          <p className="panel-label">{tr("未入选")}</p>
           <ul className="hook-list">
             {excluded.slice(0, 12).map((item, i) => (
               <li key={`${item.sourceId || i}`}>
@@ -923,7 +893,7 @@ export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
       ) : null}
       {pub ? (
         <>
-          <p className="panel-label">发布检查 {pub.ok ? "✓" : "有阻断"}</p>
+          <p className="panel-label">{tr("发布检查 ")}{pub.ok ? <Icon name="check" size={16} /> : tr("有阻断")}</p>
           <ul className="hook-list">
             {pub.checks.map((c) => (
               <li key={c.id} className={c.level === "blocker" && !c.pass ? "hook-open" : "hook-ok"}>
@@ -934,9 +904,9 @@ export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
           <p className="panel-muted">{pub.note}</p>
         </>
       ) : (
-        <p className="panel-muted">打开章节后可看发布检查。</p>
+        <p className="panel-muted">{tr("打开章节后可看发布检查。")}</p>
       )}
-      {error ? <p className="panel-error">{error}</p> : null}
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
     </div>
   );
 }
@@ -946,6 +916,7 @@ type GraphProps = { bookId: string; chapterNumber?: number | null };
 
 /** G5: relation / timeline / hooks views from same authority data + batch gates. */
 export function StoryGraphPanel({ bookId, chapterNumber }: GraphProps) {
+  useLocale();
   const [sub, setSub] = useState<"relations" | "timeline" | "hooks" | "batch">("relations");
   const [rel, setRel] = useState<Awaited<ReturnType<typeof api.storyRelationView>> | null>(null);
   const [timeline, setTimeline] = useState<Awaited<ReturnType<typeof api.storyTimelineView>> | null>(null);
@@ -1009,32 +980,29 @@ export function StoryGraphPanel({ bookId, chapterNumber }: GraphProps) {
   return (
     <div className="panel-block story-graph-panel">
       <div className="panel-row">
-        <span className="panel-label">同源派生视图{asOf ? ` · 截至第${asOf}章` : ""}</span>
-        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>
-          刷新
-        </button>
+        <span className="panel-label">{tr("同源派生视图")}{asOf ? tr(" · 截至第{p0}章", { p0: asOf }) : ""}</span>
+        <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>{tr("刷新")}</button>
       </div>
       <div className="tools-tabs" style={{ marginBottom: 8 }}>
         {(
           [
-            ["relations", "关系"],
-            ["timeline", "时间线"],
-            ["hooks", "伏笔视图"],
-            ["batch", "批量记忆"],
+            ["relations", tr("关系")],
+            ["timeline", tr("时间线")],
+            ["hooks", tr("伏笔视图")],
+            ["batch", tr("批量记忆")],
           ] as const
         ).map(([id, label]) => (
           <button key={id} type="button" className={sub === id ? "on" : ""} onClick={() => setSub(id)}>
-            {label}
+            {tr(label)}
           </button>
         ))}
       </div>
-      <p className="panel-muted">视图只读派生；权威在定稿 / 事实 / hook_events。批量不绕过作者审批，无多 Agent 编排。</p>
-      {error ? <p className="panel-error">{error}</p> : null}
+      <p className="panel-muted">{tr("视图只读派生；权威在定稿 / 事实 / hook_events。批量不绕过作者审批，无多 Agent 编排。")}</p>
+      {error ? <p className="panel-error">{tr(error)}</p> : null}
       {sub === "relations" ? (
         <>
           <p className="panel-muted">{rel?.note}</p>
-          <p className="panel-muted">
-            节点 {rel?.nodes?.length ?? 0} · 边 {rel?.edges?.length ?? 0}
+          <p className="panel-muted">{tr("节点")}{rel?.nodes?.length ?? 0}{tr(" · 边 ")}{rel?.edges?.length ?? 0}
           </p>
           <ul className="hook-list">
             {(rel?.edges ?? []).slice(0, 40).map((e) => (
@@ -1045,7 +1013,7 @@ export function StoryGraphPanel({ bookId, chapterNumber }: GraphProps) {
               </li>
             ))}
           </ul>
-          {!rel?.edges?.length ? <p className="panel-muted">暂无关系边。批准含 relation 的提案后出现。</p> : null}
+          {!rel?.edges?.length ? <p className="panel-muted">{tr("暂无关系边。批准含 relation 的提案后出现。")}</p> : null}
         </>
       ) : null}
       {sub === "timeline" ? (
@@ -1055,7 +1023,7 @@ export function StoryGraphPanel({ bookId, chapterNumber }: GraphProps) {
             {(timeline?.events ?? []).slice(0, 60).map((ev) => (
               <li key={ev.id}>
                 <div className="hook-head">
-                  <strong>第{ev.chapter}章</strong>
+                  <strong>{tr("第")}{ev.chapter}{tr("章")}</strong>
                   <span className="hook-flag">{ev.kind}</span>
                   <span className="panel-muted">{ev.authorityTable}</span>
                 </div>
@@ -1064,7 +1032,7 @@ export function StoryGraphPanel({ bookId, chapterNumber }: GraphProps) {
               </li>
             ))}
           </ul>
-          {!timeline?.events?.length ? <p className="panel-muted">暂无时间线事件。</p> : null}
+          {!timeline?.events?.length ? <p className="panel-muted">{tr("暂无时间线事件。")}</p> : null}
         </>
       ) : null}
       {sub === "hooks" ? (
@@ -1084,12 +1052,9 @@ export function StoryGraphPanel({ bookId, chapterNumber }: GraphProps) {
       ) : null}
       {sub === "batch" ? (
         <>
-          <button type="button" className="primary" disabled={busy || !asOf} onClick={() => void runBatch()}>
-            对本开批记忆（extract→提案，不停写正式事实）
-          </button>
+          <button type="button" className="primary" disabled={busy || !asOf} onClick={() => void runBatch()}>{tr("对本开批记忆（extract→提案，不停写正式事实）")}</button>
           {batch ? (
-            <p className="panel-muted">
-              批次 {batch.id.slice(0, 8)}… · {batch.status} · gate={String(batch.progress?.gate)} · items=
+            <p className="panel-muted">{tr("批次")}{batch.id.slice(0, 8)}… · {batch.status} · gate={String(batch.progress?.gate)} · items=
               {batch.progress?.items?.length ?? 0}
             </p>
           ) : null}

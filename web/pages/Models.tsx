@@ -1,3 +1,4 @@
+import { t as tr, useLocale, getLocale } from "../lib/i18n";
 import { useEffect, useState } from "react";
 import { api, THINKING_OPTIONS, type AgentRuntimeInfo, type ModelsList, type ProviderSettings, type Route, type ThinkingIntensity, type UsageSummary } from "../api";
 import { useBookTitle } from "../App";
@@ -50,13 +51,14 @@ function normalize(routes: Route[]): Route[] {
 function formatFetched(iso: string | null) {
   if (!iso) return "尚未拉取";
   try {
-    return new Date(iso).toLocaleString("zh-CN", { hour12: false });
+    return new Date(iso).toLocaleString(getLocale(), { hour12: false });
   } catch {
     return iso;
   }
 }
 
 export function Models() {
+  useLocale();
   const { setTitle } = useBookTitle();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [savedRoutes, setSavedRoutes] = useState("");
@@ -249,7 +251,7 @@ export function Models() {
     }));
     setRoutes(next);
     await saveRoutes(next);
-    setNotice(provider.configured ? "全部场景已改用 OpenAI 兼容接口" : "已改用 OpenAI 兼容，但还没填密钥——生成会退回本地草稿");
+    setNotice(provider.configured ? "全部场景已改用 OpenAI 兼容接口" : "已改用 OpenAI 兼容，但还没填密钥——配置后才能生成");
   }
 
   async function useLocal() {
@@ -269,61 +271,32 @@ export function Models() {
     <div className="page page-enter models-page settings-page">
       <header className="page-head">
         <div>
-          <p className="eyebrow">墨兰写作 · 设置</p>
-          <h1>模型</h1>
-          <p className="sub">密钥加密存本机数据库，接口只回尾号提示；也可用环境变量 MOLAN_API_KEY（优先）。勿把 Base URL 指到陌生域名，已保存的密钥不会发往白名单外的地址。</p>
+          <p className="eyebrow"><span className="eyebrow-line" />{tr("为灵感接上引擎")}</p>
+          <h1>{tr("模型")}<span className="heading-dot" aria-hidden="true">.</span></h1><span className="page-english-title" aria-hidden="true">THE ENGINE</span>
+          <p className="sub">{tr("连接你信赖的模型，为不同的写作场景选择不同的搭档。")}</p>
         </div>
       </header>
-      {error ? <p className="alert">{error}</p> : null}
-      {notice ? <p className="form-notice">{notice}</p> : null}
+      {error ? <p className="alert">{tr(error)}</p> : null}
+      {notice ? <p className="form-notice">{tr(notice)}</p> : null}
       {!provider.configured && routes.some((route) => route.provider === "openai") ? (
-        <p className="callout warn">
-          有场景已切到 OpenAI 兼容，但还没填 API Key。现在会退回本地草稿。在下面的「接口」里保存 Base URL 和密钥即可。
-        </p>
+        <p className="callout warn">{tr("有场景已切到 OpenAI 兼容，但还没填 API Key，暂时无法生成。请在下面的「接口」里保存 Base URL 和密钥。")}</p>
       ) : null}
       {!provider.configured && routes.every((route) => route.provider !== "openai") ? (
-        <p className="callout">
-          当前全部场景走本地草稿引擎，适合起稿。接上兼容接口后，选区改写和正文生成会明显更稳。
-        </p>
+        <p className="callout">{tr("当前全部场景走本地草稿引擎，适合起稿。接上兼容接口后，选区改写和正文生成会明显更稳。")}</p>
       ) : null}
 
 
-      {runtime ? (
-        <section className="panel runtime-card">
-          <div className="provider-head">
-            <div>
-              <h2>写作运行时</h2>
-              <p>当前可用的适配器。pi-agent 仅为模型代调（不是自主工具编排）。已安装时可在路由或 MOLAN_AGENT_RUNTIME=pi 启用。</p>
-            </div>
-            {runtime.envRuntime ? <span className="pill">env: {runtime.envRuntime}</span> : <span className="pill">按场景路由</span>}
-          </div>
-          <ul className="runtime-list">
-            {runtime.capabilities.map((cap) => (
-              <li key={cap.id} className={cap.available ? "on" : "off"}>
-                <strong>{cap.label}</strong>
-                <span>{cap.available ? "可用" : "不可用"}</span>
-                <p>{cap.reason}</p>
-              </li>
-            ))}
-          </ul>
-          <p className="muted runtime-note">{runtime.note}</p>
-          {runtime.pi ? (
-            <p className="muted runtime-note" data-testid="pi-boundary">
-              pi 边界：{runtime.pi.note}（autonomous={String(runtime.pi.autonomous)} / tools={String(runtime.pi.toolsSupported)}）
-            </p>
-          ) : null}
-        </section>
-      ) : null}
+
 
       <section className="panel provider-card">
         <div className="provider-head">
           <div>
-            <h2>接口</h2>
-            <p>OpenAI 以及 DeepSeek、SiliconFlow、Moonshot 这类兼容接口。</p>
+            <h2>{tr("接口")}</h2>
+            <p>{tr("OpenAI 以及 DeepSeek、SiliconFlow、Moonshot 这类兼容接口。")}</p>
           </div>
-          <span className={provider.configured ? "pill on" : "pill"}>{provider.configured ? "已配置" : "未配置"}</span>
+          <span className={provider.configured ? "pill on" : "pill"}>{provider.configured ? tr("已配置") : tr("未配置")}</span>
         </div>
-        <div className="presets" role="group" aria-label="接口预设">
+        <div className="presets" role="group" aria-label={tr("接口预设")}>
           {PRESETS.map((item) => (
             <button
               key={item.id}
@@ -331,7 +304,7 @@ export function Models() {
               className={preset === item.id ? "chip on" : "chip"}
               onClick={() => pickPreset(item.id)}
             >
-              {item.name}
+              {tr(item.name)}
             </button>
           ))}
         </div>
@@ -360,13 +333,11 @@ export function Models() {
                 onChange={(e) => setApiKey(e.target.value)}
               />
               <button type="button" className="ghost-mini" onClick={() => setShowKey((v) => !v)}>
-                {showKey ? "隐藏" : "显示"}
+                {showKey ? tr("隐藏") : tr("显示")}
               </button>
             </span>
           </label>
-          <label>
-            默认模型
-            <ModelPicker
+          <label>{tr("默认模型")}<ModelPicker
               value={defaultModel}
               models={models.models}
               placeholder="gpt-4o-mini / deepseek-chat"
@@ -374,23 +345,22 @@ export function Models() {
             />
           </label>
         </div>
+        <p className="provider-security">{tr("密钥加密保存在服务器，仅返回尾号提示。请使用可信的接口地址。")}</p>
         <div className="model-meta">
-          <span>{models.error ? `列表：${models.error}` : `已缓存 ${models.models.length} 个模型`}</span>
+          <span>{models.error ? tr("列表：{p0}", { p0: tr(models.error) }) : tr("已缓存 {p0} 个模型", { p0: models.models.length })}</span>
           <span>·</span>
-          <span>{formatFetched(models.fetchedAt)}</span>
+          <span>{tr(formatFetched(models.fetchedAt))}</span>
           <button type="button" className="text-link" disabled={busy !== ""} onClick={() => void refresh()}>
-            {busy === "models" ? "刷新中…" : "刷新模型"}
+            {busy === "models" ? tr("刷新中…") : tr("刷新模型")}
           </button>
         </div>
         <div className="actions">
           <button type="button" className="btn primary" disabled={busy !== ""} onClick={() => void saveProvider()}>
-            {busy === "save" ? "保存中…" : "保存接口"}
+            {busy === "save" ? tr("保存中…") : tr("保存接口")}
           </button>
-          <button type="button" className="btn" disabled={busy !== "" || !provider.hasApiKey} onClick={() => void clearKey()}>
-            清除密钥
-          </button>
+          <button type="button" className="btn" disabled={busy !== "" || !provider.hasApiKey} onClick={() => void clearKey()}>{tr("清除密钥")}</button>
           <button type="button" className="btn" disabled={busy !== ""} onClick={() => void test()}>
-            {busy === "test" ? "测试中…" : "测试连接"}
+            {busy === "test" ? tr("测试中…") : tr("测试连接")}
           </button>
         </div>
       </section>
@@ -398,28 +368,24 @@ export function Models() {
       <section className="route-section">
         <div className="route-head">
           <div>
-            <h2>场景路由</h2>
-            <p>正文、审核、全书大纲、细纲等可各自选不同模型和思考强度。留空接口地址用上面的 Base URL；模型选「使用默认模型」则跟默认模型走。思考强度会映射到推理力度 / 温度；不支持的接口会降级为提示词约束。</p>
+            <h2>{tr("场景路由")}</h2>
+            <p>{tr("正文、审核、全书大纲、细纲等可各自选不同模型和思考强度。留空接口地址用上面的 Base URL；模型选「使用默认模型」则跟默认模型走。思考强度会映射到推理力度 / 温度；不支持的接口会降级为提示词约束。")}</p>
           </div>
           <div className="actions">
-            <button type="button" className="btn" disabled={busy !== ""} onClick={() => void useOpenAI()}>
-              全部场景改用 OpenAI 兼容
-            </button>
-            <button type="button" className="btn" disabled={busy !== ""} onClick={() => void useLocal()}>
-              全部改回本地
-            </button>
+            <button type="button" className="btn" disabled={busy !== ""} onClick={() => void useOpenAI()}>{tr("全部场景改用 OpenAI 兼容")}</button>
+            <button type="button" className="btn" disabled={busy !== ""} onClick={() => void useLocal()}>{tr("全部改回本地")}</button>
             <button type="button" className={routesDirty ? "btn primary" : "btn"} disabled={!routesDirty || busy !== ""} onClick={() => void saveRoutes()}>
-              {busy === "routes" ? "保存中…" : routesDirty ? "保存路由" : "路由已保存"}
+              {busy === "routes" ? tr("保存中…") : routesDirty ? tr("保存路由") : tr("路由已保存")}
             </button>
           </div>
         </div>
         <div className="panel route-list">
           <div className="route-row head">
-            <span>场景</span>
-            <span>来源</span>
-            <span>模型</span>
-            <span>思考强度</span>
-            <span>接口地址</span>
+            <span>{tr("场景")}</span>
+            <span>{tr("来源")}</span>
+            <span>{tr("模型")}</span>
+            <span>{tr("思考强度")}</span>
+            <span>{tr("接口地址")}</span>
           </div>
           {ORDER.map(([scene, label, hint]) => {
             const route = routes.find((item) => item.scene === scene);
@@ -428,41 +394,41 @@ export function Models() {
             return (
               <div className="route-row" key={scene}>
                 <div className="route-name">
-                  <strong>{label}</strong>
-                  <span className="route-hint">{hint}</span>
+                  <strong>{tr(label)}</strong>
+                  <span className="route-hint">{tr(hint)}</span>
                 </div>
-                <select value={route.provider} aria-label={`${label}来源`} onChange={(e) => update(scene, { provider: e.target.value })}>
-                  <option value="local">本地草稿</option>
-                  <option value="openai">OpenAI 兼容</option>
+                <select value={route.provider} aria-label={tr("{p0}来源", { p0: tr(label) })} onChange={(e) => update(scene, { provider: e.target.value })}>
+                  <option value="local">{tr("本地草稿")}</option>
+                  <option value="openai">{tr("OpenAI 兼容")}</option>
                 </select>
                 {remote ? (
                   <ModelPicker
                     value={route.modelId === "local-draft" ? "" : route.modelId}
                     models={models.models}
-                    placeholder="默认模型 / 自定义"
+                    placeholder={tr("默认模型 / 自定义")}
                     allowEmpty
-                    emptyLabel="使用默认模型"
+                    emptyLabel={tr("使用默认模型")}
                     onChange={(value) => update(scene, { modelId: value || "local-draft" })}
                   />
                 ) : (
-                  <input value="local-draft" disabled aria-label={`${label}模型`} />
+                  <input value="local-draft" disabled aria-label={tr("{p0}模型", { p0: tr(label) })} />
                 )}
                 <select
                   value={route.thinkingIntensity ?? "medium"}
-                  aria-label={`${label}思考强度`}
-                  title="思考强度：关闭 / 低 / 中 / 高"
+                  aria-label={tr("{p0}思考强度", { p0: tr(label) })}
+                  title={tr("思考强度：关闭 / 低 / 中 / 高")}
                   onChange={(e) => update(scene, { thinkingIntensity: e.target.value as ThinkingIntensity })}
                 >
                   {THINKING_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
-                      {opt.label}
+                      {tr(opt.label)}
                     </option>
                   ))}
                 </select>
                 <input
                   value={route.baseUrl ?? ""}
-                  aria-label={`${label}接口地址`}
-                  placeholder={remote ? "留空则用共用地址" : "本地不需要"}
+                  aria-label={tr("{p0}接口地址", { p0: tr(label) })}
+                  placeholder={remote ? tr("留空则用共用地址") : tr("本地不需要")}
                   disabled={!remote}
                   spellCheck={false}
                   onChange={(e) => update(scene, { baseUrl: e.target.value.trim() ? e.target.value : null })}
@@ -472,46 +438,70 @@ export function Models() {
           })}
         </div>
       </section>
-      <section className="card usage-card" aria-label="API 用量">
+      {runtime ? (
+        <section className="panel runtime-card">
+          <div className="provider-head">
+            <div>
+              <h2>{tr("写作运行时")}</h2>
+              <p>{tr("当前可用的适配器。pi-agent 仅为模型代调（不是自主工具编排）。已安装时可在路由或 MOLAN_AGENT_RUNTIME=pi 启用。")}</p>
+            </div>
+            {runtime.envRuntime ? <span className="pill">env: {runtime.envRuntime}</span> : <span className="pill">{tr("按场景路由")}</span>}
+          </div>
+          <ul className="runtime-list">
+            {runtime.capabilities.map((cap) => (
+              <li key={cap.id} className={cap.available ? "on" : "off"}>
+                <strong>{tr(cap.label)}</strong>
+                <span>{cap.available ? tr("可用") : tr("不可用")}</span>
+                <p>{tr(cap.reason)}</p>
+              </li>
+            ))}
+          </ul>
+          <p className="muted runtime-note">{tr(runtime.note)}</p>
+          {runtime.pi ? (
+            <p className="muted runtime-note" data-testid="pi-boundary">{tr("pi 边界：")}{tr(runtime.pi.note)}（autonomous={String(runtime.pi.autonomous)} / tools={String(runtime.pi.toolsSupported)}）
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="card usage-card" aria-label={tr("API 用量")}>
         <header className="card-head">
-          <h2>用量与费用</h2>
+          <h2>{tr("用量与费用")}</h2>
           <button
             type="button"
             className="btn small ghost"
             onClick={() => {
               void api.usageSummary().then(setUsage).catch(() => setUsage(null));
             }}
-          >
-            刷新
-          </button>
+          >{tr("刷新")}</button>
         </header>
         {!usage ? (
-          <p className="muted">还没有调用记录。接上模型后会按次估算 token 与费用。</p>
+          <p className="muted">{tr("还没有调用记录。接上模型后会按次估算 token 与费用。")}</p>
         ) : (
           <>
             <div className="usage-stats">
-              <div><strong>{usage.calls}</strong><span>次调用</span></div>
-              <div><strong>{usage.totalTokens.toLocaleString("zh-CN")}</strong><span>tokens</span></div>
-              <div><strong>${usage.estimatedCost.toFixed(4)}</strong><span>估算费用</span></div>
-              <div><strong>{usage.localCalls}</strong><span>本地草稿</span></div>
+              <div><strong>{usage.calls}</strong><span>{tr("次调用")}</span></div>
+              <div><strong>{usage.totalTokens.toLocaleString(getLocale())}</strong><span>tokens</span></div>
+              <div><strong>${usage.estimatedCost.toFixed(4)}</strong><span>{tr("估算费用")}</span></div>
+              <div><strong>{usage.localCalls}</strong><span>{tr("本地草稿")}</span></div>
             </div>
             {usage.byModel.length ? (
               <div className="usage-tables">
-                <h3>按模型</h3>
+                <h3>{tr("按模型")}</h3>
                 <ul>
                   {usage.byModel.slice(0, 8).map((row) => (
                     <li key={row.model}>
                       <span>{row.model}</span>
-                      <span>{row.calls} 次 · {row.totalTokens} tok · ${row.estimatedCost.toFixed(4)}</span>
+                      <span>{row.calls}{tr(" 次 · ")}{row.totalTokens} tok · ${row.estimatedCost.toFixed(4)}</span>
                     </li>
                   ))}
                 </ul>
-                <h3>按书</h3>
+                <h3>{tr("按书")}</h3>
                 <ul>
                   {usage.byBook.slice(0, 8).map((row) => (
                     <li key={row.bookId ?? "none"}>
                       <span>{row.title}</span>
-                      <span>{row.calls} 次 · ${row.estimatedCost.toFixed(4)}</span>
+                      <span>{row.calls}{tr(" 次 · $")}{row.estimatedCost.toFixed(4)}</span>
                     </li>
                   ))}
                 </ul>

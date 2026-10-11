@@ -1,7 +1,10 @@
+import { Icon } from "../components/Icon";
+import { t as tr, useLocale, getLocale } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { Link, useBlocker, useParams } from "react-router-dom";
 import { api, streamApi, type Artifact, type BookPayload, type ChatMessage, type ModelInfo, type ProviderSettings, type Route, type Skill, type WritingJob, THINKING_OPTIONS, thinkingLabel, type ThinkingIntensity } from "../api";
 import { prefersReducedMotion } from "../lib/reveal";
+import { rememberOpenedBook } from "../lib/lastOpenedBook";
 import { ModelPicker } from "../components/ModelPicker";
 import { useBookTitle } from "../App";
 import { Manuscript, mirror, type AssistAction } from "../components/Manuscript";
@@ -72,16 +75,9 @@ function countChars(text: string) {
   return text.replace(/\s/g, "").length;
 }
 
-function TreeIcon({ d }: { d: string }) {
-  return (
-    <svg className="tree-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d={d} stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function Spinner() {
-  return <span className="spinner" aria-hidden="true" />;
+  useLocale();
+  return <Icon name="loader" size={16} className="lucide-spin" />;
 }
 
 function findArtifact(data: BookPayload, doc: Doc): Artifact | undefined {
@@ -151,6 +147,7 @@ function skillAppliesToScene(skill: Skill, scene: string): boolean {
 }
 
 export function Studio() {
+  useLocale();
   const { id = "" } = useParams();
   const { setTitle, setSaveState } = useBookTitle();
   const [data, setData] = useState<BookPayload | null>(null);
@@ -167,7 +164,7 @@ export function Studio() {
   const [pickingModel, setPickingModel] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
-  const [contextHint, setContextHint] = useState<{ missing: string[]; counts: { bibleCards: number; memories: number; openHooks: number } } | null>(null);
+  const [contextHint, setContextHint] = useState<{ missing: string[]; counts: { bibleCards: number; memories: number; openHooks: number; references?: number } } | null>(null);
   const [storyStatus, setStoryStatus] = useState<{
     chapterId: string;
     storyEpoch: number;
@@ -226,8 +223,15 @@ export function Studio() {
   const [jobMaxRetries, setJobMaxRetries] = useState(1);
   const [jobTo, setJobTo] = useState(2);
   const [toolsOpen, setToolsOpen] = useState(false);
-  /** Phone/H5 (≤860px) single-column pane: 正文 / 目录 drawer / 助手 sheet. Ignored by desktop CSS. */
+  /** Phone/H5 single-column panes; all editors stay mounted during pane changes. */
   const [mPane, setMPane] = useState<"doc" | "toc" | "chat">("doc");
+  const [focusMode, setFocusMode] = useState(false);
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setFocusMode(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [focusMode]);
   const [toolsTab, setToolsTab] = useState<"tools" | "bible" | "history" | "review" | "meta" | "hooks" | "story" | "foreshadow" | "context" | "graph">("tools");
   const [seek, setSeek] = useState<{ text: string; token: number } | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -321,6 +325,7 @@ export function Studio() {
         setModelCatalog(modelRes.models);
         setJobs(jobRes.jobs);
         show(payload, defaultDoc(payload));
+        rememberOpenedBook(payload.book.id);
       })
       .catch((err: Error) => setError(err.message));
     return () => {
@@ -341,7 +346,7 @@ export function Studio() {
 
   useEffect(() => {
     const el = transcriptRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el) el.scrollTop = messages.length || busy || pendingUser ? el.scrollHeight : 0;
   }, [messages, busy, pendingUser]);
 
   useEffect(() => {
@@ -446,7 +451,7 @@ export function Studio() {
   useEffect(() => {
     if (leaveBlocker.state !== "blocked") return;
     const handle = window.setTimeout(() => {
-      const ok = window.confirm("当前稿件还未保存，确定离开？未保存的改动会丢掉。");
+      const ok = window.confirm(tr("当前稿件还未保存，确定离开？未保存的改动会丢掉。"));
       if (ok) leaveBlocker.proceed();
       else leaveBlocker.reset();
     }, 0);
@@ -654,7 +659,7 @@ export function Studio() {
   }
 
   async function reloadFromFile() {
-    if (dirty && !window.confirm("当前有未保存改动。用磁盘 md 覆盖编辑区？")) return;
+    if (dirty && !window.confirm(tr("当前有未保存改动。用磁盘 md 覆盖编辑区？"))) return;
     try {
       const file = await api.readArtifactFile(id, doc.kind, doc.chapterNumber);
       setDraft(file.body);
@@ -753,7 +758,7 @@ export function Studio() {
         const hc = (result as { hardConstraintCheck?: { violations: { constraintId: string; quote: string }[] } | null }).hardConstraintCheck;
         setNotice(
           hc && hc.violations.length
-            ? `已写入${savedLabel(result.saved.kind, result.saved.chapterNumber)}；⚠ 硬约束预检命中 ${hc.violations.length} 处（${hc.violations[0].constraintId}：“${hc.violations[0].quote.slice(0, 40)}”），请核对`
+            ? `已写入${savedLabel(result.saved.kind, result.saved.chapterNumber)}；硬约束预检命中 ${hc.violations.length} 处（${hc.violations[0].constraintId}：“${hc.violations[0].quote.slice(0, 40)}”），请核对`
             : `已写入${savedLabel(result.saved.kind, result.saved.chapterNumber)}，并打开该稿`,
         );
       }
@@ -1083,7 +1088,7 @@ export function Studio() {
   async function renameCurrentChapter(number: number) {
     const current = data?.chapters.find((chapter) => chapter.number === number);
     if (!current) return;
-    const nextTitle = window.prompt("章节标题", current.title);
+    const nextTitle = window.prompt(tr("章节标题"), current.title);
     if (nextTitle == null) return;
     try {
       await persist();
@@ -1126,10 +1131,10 @@ export function Studio() {
   if (!data) {
     return (
       <div className="studio empty-studio">
-        <p>{error || "正在打开书稿…"}</p>
+        <p>{tr(error) || tr("正在打开书稿…")}</p>
         {error ? (
           <p className="empty-actions">
-            <Link className="btn" to="/">回书库</Link>
+            <Link className="btn" to="/">{tr("回书库")}</Link>
           </p>
         ) : null}
       </div>
@@ -1188,54 +1193,56 @@ export function Studio() {
   const activeSkills = sceneSkills.filter((skill) => checked.includes(skill.id));
 
   return (
-    <div className={`studio page-enter m-pane-${mPane}`}>
+    <div className={`studio page-enter m-pane-${mPane}${focusMode ? " is-focused" : ""}`}>
       {notice ? (
         <div className="toast-notice" role="status">
-          <span className="toast-text">{notice}</span>
+          <span className="toast-text">{tr(notice)}</span>
           {restoreOfferId ? (
             <button
               type="button"
               className="toast-action"
               onClick={() => void applyRestoreOffer(restoreOfferId)}
-            >
-              还原上一版
-            </button>
+            >{tr("还原上一版")}</button>
           ) : null}
           <button
             type="button"
             className="toast-dismiss"
-            aria-label="关闭"
+            aria-label={tr("关闭")}
             onClick={() => {
               setNotice("");
               setRestoreOfferId(null);
             }}
           >
-            ×
+            <Icon name="close" size={17} />
           </button>
         </div>
       ) : null}
       <aside className="sidebar rail">
-        <div className="side-label">书籍</div>
+        <div className="studio-book-heading">
+          <span className="studio-book-mark"><Icon name="book" size={23} /></span>
+          <div><span className="studio-book-overline">{tr("正在创作")}</span><h2>{data.book.title}</h2><p>{data.book.genre || tr("未定题材")}</p></div>
+        </div>
+        <div className="side-label">{tr("书籍")}</div>
         <button
           type="button"
           className={isOn("book_profile", null) ? "tree-item on" : "tree-item"}
           onClick={() => void open({ kind: "book_profile", chapterNumber: null, label: "档案" })}
         >
-          <TreeIcon d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12M6 8h4M6 10.5h4" />
-          <span className="tree-text">档案</span>
+          <Icon name="file" size={16} className="tree-icon" />
+          <span className="tree-text">{tr("档案")}</span>
         </button>
         <button
           type="button"
           className={isOn("book_outline", null) ? "tree-item on" : "tree-item"}
           onClick={() => void open({ kind: "book_outline", chapterNumber: null, label: "全书大纲" })}
         >
-          <TreeIcon d="M3 4h1M3 8h1M3 12h1M6.5 4H13M6.5 8H13M6.5 12H13" />
-          <span className="tree-text">全书大纲</span>
+          <Icon name="list" size={16} className="tree-icon" />
+          <span className="tree-text">{tr("全书大纲")}</span>
         </button>
 
         <div className="side-label with-count">
-          <span>章节</span>
-          <span className="side-count" title={`已写正文 ${data.book.draftedCount} 章，共 ${data.chapters.length} 章`}>
+          <span>{tr("章节")}</span>
+          <span className="side-count" title={tr("已写正文 {p0} 章，共 {p1} 章", { p0: data.book.draftedCount, p1: data.chapters.length })}>
             {data.book.draftedCount} / {data.chapters.length}
           </span>
         </div>
@@ -1250,7 +1257,7 @@ export function Studio() {
                 type="button"
                 className={containsDoc ? "tree-item chapter-row current" : "tree-item chapter-row"}
                 aria-expanded={openChapter}
-                title={`第 ${chapter.number} 章 · ${chapter.title} · ${status}`}
+                title={tr("第 {p0} 章 · {p1} · {p2}", { p0: chapter.number, p1: chapter.title, p2: status })}
                 onClick={() => {
                   setConfirmDeleteChapter(null);
                   setExpanded(openChapter ? null : chapter.number);
@@ -1269,41 +1276,33 @@ export function Studio() {
                       <button
                         key={child.kind}
                         type="button"
-                        title={filled ? `第 ${chapter.number} 章${child.label}` : `第 ${chapter.number} 章${child.label} · 未写`}
+                        title={filled ? tr("第 {p0} 章{p1}", { p0: chapter.number, p1: child.label }) : tr("第 {p0} 章{p1} · 未写", { p0: chapter.number, p1: child.label })}
                         className={["tree-item", "child", isOn(child.kind, chapter.number) ? "on" : "", filled ? "" : "blank"].join(" ").trim()}
                         onClick={() => void open({ kind: child.kind, chapterNumber: chapter.number, label: child.label })}
                       >
-                        <span className="tree-text">{child.label}</span>
-                        {filled ? null : <span className="child-hint">未写</span>}
+                        <span className="tree-text">{tr(child.label)}</span>
+                        {filled ? null : <span className="child-hint">{tr("未写")}</span>}
                       </button>
                     );
                   })}
                   {confirming ? (
                     <div className="chapter-confirm">
-                      <p>删除第 {chapter.number} 章「{chapter.title}」？细纲、正文和审核都会去掉，后面章节会往前排。</p>
+                      <p>{tr("删除第 ")}{chapter.number}{tr(" 章「")}{chapter.title}{tr("」？细纲、正文和审核都会去掉，后面章节会往前排。")}</p>
                       <div className="actions">
-                        <button type="button" className="btn small ghost" onClick={() => setConfirmDeleteChapter(null)}>
-                          取消
-                        </button>
-                        <button type="button" className="btn small danger" onClick={() => void removeChapter(chapter.number)}>
-                          删除
-                        </button>
+                        <button type="button" className="btn small ghost" onClick={() => setConfirmDeleteChapter(null)}>{tr("取消")}</button>
+                        <button type="button" className="btn small danger" onClick={() => void removeChapter(chapter.number)}>{tr("删除")}</button>
                       </div>
                     </div>
                   ) : (
                     <div className="chapter-tools">
-                      <button type="button" className="text-link" onClick={() => void renameCurrentChapter(chapter.number)}>
-                        改名
-                      </button>
+                      <button type="button" className="text-link" onClick={() => void renameCurrentChapter(chapter.number)}>{tr("改名")}</button>
                       <button
                         type="button"
                         className="text-link danger"
                         disabled={data.chapters.length <= 1}
-                        title={data.chapters.length <= 1 ? "至少保留一章" : "删除本章"}
+                        title={data.chapters.length <= 1 ? tr("至少保留一章") : tr("删除本章")}
                         onClick={() => setConfirmDeleteChapter(chapter.number)}
-                      >
-                        删除
-                      </button>
+                      >{tr("删除")}</button>
                     </div>
                   )}
                 </div>
@@ -1312,8 +1311,8 @@ export function Studio() {
           );
         })}
         <button type="button" className="tree-item add" onClick={() => void addChapter()}>
-          <span className="num plus">+</span>
-          <span className="tree-text">新章</span>
+          <Icon name="plus" className="num plus" size={15} />
+          <span className="tree-text">{tr("新章")}</span>
         </button>
       </aside>
 
@@ -1323,36 +1322,30 @@ export function Studio() {
             {crumb.map((part, index) => (
               <span key={index} className={index === crumb.length - 1 ? "last" : ""}>
                 {index > 0 ? <span className="sep">/</span> : null}
-                {part}
+                {metaParts.includes(part) && (part === data.book.title || part === data.book.genre) ? part : tr(part)}
               </span>
             ))}
           </div>
           <span className="doc-count" aria-live="polite">
-            {words.toLocaleString("zh-CN")} 字
-          </span>
+            {words.toLocaleString(getLocale())}{tr("字")}</span>
           <span className="spacer" />
           <div className="doc-tools">
             <button
               type="button"
               className={toolsOpen ? "btn small primary" : "btn small ghost"}
               onClick={() => setToolsOpen((v) => !v)}
-              title="搜索、书信息、钩子、设定卡、版本、审核改稿"
-            >
-              工具
-            </button>
+              title={tr("搜索、书信息、钩子、设定卡、版本、审核改稿")}
+            ><Icon name="tools" size={15} />{tr("工具")}</button>
+            <button type="button" className={focusMode ? "btn small ghost focus-toggle on" : "btn small ghost focus-toggle"} aria-pressed={focusMode} title={tr(focusMode ? "退出专注（Esc）" : "专注写作")} onClick={() => setFocusMode((value) => !value)}><Icon name={focusMode ? "expand" : "focus"} size={15} /><span>{tr(focusMode ? "退出专注" : "专注")}</span></button>
             <div className={fileMenuOpen ? "file-menu open" : "file-menu"} ref={fileMenuRef}>
               <button
                 type="button"
                 className="btn small ghost file-trigger"
                 aria-haspopup="menu"
                 aria-expanded={fileMenuOpen}
-                title="文件与导出"
+                title={tr("文件与导出")}
                 onClick={() => setFileMenuOpen((open) => !open)}
-              >
-                文件
-                <svg className="chev" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+              >{tr("文件")}<Icon name="down" size={14} className="chev" />
               </button>
               {fileMenuOpen ? (
                 <div className="file-pop" role="menu">
@@ -1360,42 +1353,42 @@ export function Studio() {
                     type="button"
                     role="menuitem"
                     className="file-item"
-                    title="用磁盘上的 md 覆盖当前编辑区（不自动保存）"
+                    title={tr("用磁盘上的 md 覆盖当前编辑区（不自动保存）")}
                     onClick={() => {
                       setFileMenuOpen(false);
                       void reloadFromFile();
                     }}
                   >
-                    <span>从 md 载入</span>
-                    <span className="file-hint">覆盖编辑区</span>
+                    <span>{tr("从 md 载入")}</span>
+                    <span className="file-hint">{tr("覆盖编辑区")}</span>
                   </button>
                   {doc.chapterNumber ? (
                     <button
                       type="button"
                       role="menuitem"
                       className="file-item"
-                      title="下载本章文件夹的 zip"
+                      title={tr("下载本章文件夹的 zip")}
                       onClick={() => {
                         setFileMenuOpen(false);
                         download(api.exportChapterUrl(id, doc.chapterNumber!));
                       }}
                     >
-                      <span>导出本章</span>
-                      <span className="file-hint">本章 zip</span>
+                      <span>{tr("导出本章")}</span>
+                      <span className="file-hint">{tr("本章 zip")}</span>
                     </button>
                   ) : null}
                   <button
                     type="button"
                     role="menuitem"
                     className="file-item"
-                    title="下载全书 markdown zip"
+                    title={tr("下载全书 markdown zip")}
                     onClick={() => {
                       setFileMenuOpen(false);
                       download(api.exportBookUrl(id));
                     }}
                   >
-                    <span>导出全书</span>
-                    <span className="file-hint">全书 zip</span>
+                    <span>{tr("导出全书")}</span>
+                    <span className="file-hint">{tr("全书 zip")}</span>
                   </button>
                 </div>
               ) : null}
@@ -1405,10 +1398,10 @@ export function Studio() {
               className={dirty || saving ? "btn small primary" : "btn small"}
               onClick={() => save()}
               disabled={!dirty || saving}
-              title="保存（⌘S / Ctrl+S）"
+              title={tr("保存（⌘S / Ctrl+S）")}
             >
               {saving ? <Spinner /> : null}
-              {saving ? "保存中" : "保存"}
+              {saving ? tr("保存中") : tr("保存")}
               {!saving ? <kbd>⌘S</kbd> : null}
             </button>
             {doc.kind === "chapter_body" && doc.chapterNumber ? (
@@ -1416,23 +1409,19 @@ export function Studio() {
                 type="button"
                 className="btn small"
                 disabled={storyBusy || dirty || saving}
-                title="将当前正文修订定为正式剧情（不自动改记忆，需再批准提案）"
+                title={tr("将当前正文修订定为正式剧情（不自动改记忆，需再批准提案）")}
                 onClick={() => void finalizeCurrentChapter()}
               >
-                {storyBusy ? <Spinner /> : null}
-                定稿
-              </button>
+                {storyBusy ? <Spinner /> : null}{tr("定稿")}</button>
             ) : null}
             {storyStatus?.openProposal ? (
               <button
                 type="button"
                 className="btn small primary"
                 disabled={storyBusy}
-                title="接受记忆提案，写入正式前文记忆"
+                title={tr("接受记忆提案，写入正式前文记忆")}
                 onClick={() => void acceptOpenProposal()}
-              >
-                接受记忆提案
-              </button>
+              >{tr("接受记忆提案")}</button>
             ) : null}
           </div>
         </div>
@@ -1441,40 +1430,34 @@ export function Studio() {
             {metaParts.map((part, index) => (
               <span key={index}>
                 {index > 0 ? <span className="sep">·</span> : null}
-                {part}
+                {metaParts.includes(part) && (part === data.book.title || part === data.book.genre) ? part : tr(part)}
               </span>
             ))}
             <span>
               <span className="sep">·</span>
-              {words.toLocaleString("zh-CN")} 字
-            </span>
-            {dirty ? <span className="unsaved">未保存</span> : null}
+              {words.toLocaleString(getLocale())}{tr("字")}</span>
+            {dirty ? <span className="unsaved">{tr("未保存")}</span> : null}
             {storyStatus?.draftDivergesFromPublication ? (
-              <span className="unsaved" title="草稿与正式定稿不同；正式记忆仍依据定稿，直到你再次定稿并批准记忆">
-                草稿≠定稿
-              </span>
+              <span className="unsaved" title={tr("草稿与正式定稿不同；正式记忆仍依据定稿，直到你再次定稿并批准记忆")}>{tr("草稿≠定稿")}</span>
             ) : null}
             {storyStatus?.publication ? (
-              <span className="sep-meta" title={`记忆状态 ${storyStatus.publication.memoryState}`}>
-                · 定稿 v{storyStatus.publication.publicationVersion} · {storyStatus.publication.memoryState}
+              <span className="sep-meta" title={tr("记忆状态 {p0}", { p0: storyStatus.publication.memoryState })}>{tr("· 定稿 v")}{storyStatus.publication.publicationVersion} · {tr(storyStatus.publication.memoryState)}
               </span>
             ) : null}
           </p>
-          <h1 className="doc-title">{docTitle}</h1>
+          <h1 className="doc-title">{doc.kind === "chapter_body" && chapterTitle ? docTitle : tr(docTitle)}</h1>
           {showEmpty ? (
             <div className="doc-empty">
               <div className="doc-empty-mark" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M5 3.5h7l3 3v10H5z M12 3.5v3h3 M8 10h4 M8 13h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <Icon name="file" size={22} />
               </div>
-              <h2>{doc.kind === "chapter_body" ? "这一章还空着" : `${KIND_NAME[doc.kind]}还空着`}</h2>
+              <h2>{doc.kind === "chapter_body" ? tr("这一章还空着") : tr("{p0}还空着", { p0: tr(KIND_NAME[doc.kind]) })}</h2>
               <p>
                 {needsOutline
-                  ? "建议先在右侧对话说「写细纲」，定下场景和冲突，再写正文。"
+                  ? tr("先让助手写一份细纲，定下场景和冲突，再开始正文。")
                   : doc.kind === "review_report"
-                    ? "正文写好后，在右侧对话说「审核这一章」，墨兰会按设定逐条核对。"
-                    : "在右侧对话框里说要写什么，例如「写这一章正文」或「写全书大纲」。"}
+                    ? tr("正文写好后，让助手审核这一章，按设定逐条核对。")
+                    : tr("直接落笔，或告诉助手你的想法。从第一句话开始。")}
               </p>
               <div className="doc-empty-actions">
                 {needsOutline && outlineDoc ? (
@@ -1485,17 +1468,13 @@ export function Studio() {
                       disabled={Boolean(busy)}
                       onClick={() => void send(`写第 ${doc.chapterNumber ?? 1} 章细纲`)}
                     >
-                      {busy === "chat" ? <Spinner /> : null}
-                      写细纲
-                    </button>
+                      {busy === "chat" ? <Spinner /> : null}{tr("写细纲")}</button>
                     <button
                       type="button"
                       className="btn"
                       disabled={Boolean(busy)}
                       onClick={() => void send(`写第 ${doc.chapterNumber ?? 1} 章正文`)}
-                    >
-                      写正文
-                    </button>
+                    >{tr("写正文")}</button>
                   </>
                 ) : (
                   <button
@@ -1520,12 +1499,10 @@ export function Studio() {
                     }}
                   >
                     {busy === "chat" ? <Spinner /> : null}
-                    {busy === "chat" ? "正在写…" : `用对话写${KIND_NAME[doc.kind] ?? "此稿"}`}
+                    {busy === "chat" ? tr("正在写…") : tr("用对话写{p0}", { p0: tr(KIND_NAME[doc.kind] ?? "此稿") })}
                   </button>
                 )}
-                <button type="button" className="btn ghost" disabled={Boolean(busy)} onClick={() => setWriting(true)}>
-                  自己写
-                </button>
+                <button type="button" className="btn ghost" disabled={Boolean(busy)} onClick={() => setWriting(true)}>{tr("自己写")}</button>
               </div>
             </div>
           ) : (
@@ -1535,7 +1512,7 @@ export function Studio() {
                 mode={doc.kind === "chapter_body" ? "prose" : "plain"}
                 value={draft}
                 autoFocus={writing && isEmptyDoc}
-                placeholder={doc.kind === "chapter_body" ? "从第一句开始写…" : "在这里写…"}
+                placeholder={doc.kind === "chapter_body" ? tr("从第一句开始写…") : tr("在这里写…")}
                 onChange={(text) => { editEpochRef.current += 1; setDraft(text); }}
                 onCommit={save}
                 assistBusy={busy === "assist"}
@@ -1543,7 +1520,7 @@ export function Studio() {
                 onAskAssistant={askAssistantAboutSelection}
                 seek={seek}
               />
-              <p className="editor-hint">TipTap 稿纸 · 选中文字可改写 · ⌘Z 撤销 · ⌘⇧Z 重做 · ⌘S 保存</p>
+              <p className="editor-hint">{tr("TipTap 稿纸 · 选中文字可改写 · ⌘Z 撤销 · ⌘⇧Z 重做 · ⌘S 保存")}</p>
             </div>
           )}
         </article>
@@ -1617,7 +1594,7 @@ export function Studio() {
             />
           ) : (
             <div className="panel-block">
-              <p className="panel-muted">打开某一章的「审核」稿后，可在这里定位正文并一键改。</p>
+              <p className="panel-muted">{tr("打开某一章的「审核」稿后，可在这里定位正文并一键改。")}</p>
             </div>
           )
         ) : null}
@@ -1625,64 +1602,56 @@ export function Studio() {
 
       <aside className="assistant rail companion">
         <header className="assistant-head">
-          <h2>助手</h2>
+          <div className="assistant-heading"><span className="assistant-spark"><Icon name="sparkles" size={18} /></span><div><h2>{tr("助手")}</h2><span className="assistant-subtitle">{tr("与你一起，把故事写下去")}</span></div><span className="assistant-online" title={tr("写作助手")} /></div>
           <span className="model-cluster">
             {canPickModel ? (
               <span className="studio-model">
                 <button
                   type="button"
                   className={pickingModel ? "model-line open" : "model-line"}
-                  title={`切换「${SCENE_NAME[scene]}」场景的模型（只改当前场景）`}
+                  title={tr("切换「{p0}」场景的模型（只改当前场景）", { p0: tr(SCENE_NAME[scene]) })}
                   onClick={() => setPickingModel((v) => !v)}
                 >
-                  <span className="model-name">{modelLine}</span>
+                  <span className="model-name">{tr(modelLine)}</span>
                   <span className="model-scene-sep">·</span>
-                  <span className="model-think">思考 {thinkingLabel(route?.thinkingIntensity)}</span>
-                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                    <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  <span className="model-think">{tr("思考 ")}{tr(thinkingLabel(route?.thinkingIntensity))}</span>
+                  <Icon name="down" size={14} className="chev" />
                 </button>
                 {pickingModel ? (
                   <div className="studio-model-menu">
-                    <p className="studio-model-caption">
-                      仅改「{SCENE_NAME[scene]}」场景路由
-                      {needsKey ? "（还没填 API Key，会退回本地草稿）" : ""}
+                    <p className="studio-model-caption">{tr("仅改「")}{tr(SCENE_NAME[scene])}{tr("」场景路由")}{needsKey ? tr("（还没填 API Key，远程生成暂不可用）") : ""}
                     </p>
-                    <div className="studio-model-source" role="group" aria-label="来源">
+                    <div className="studio-model-source" role="group" aria-label={tr("来源")}>
                       <button
                         type="button"
                         className={route?.provider === "local" ? "chip on" : "chip"}
                         onClick={() => {
                           void applySceneProvider("local").then(() => setPickingModel(false));
                         }}
-                      >
-                        本地草稿
-                      </button>
+                      >{tr("本地草稿")}</button>
                       <button
                         type="button"
                         className={route?.provider === "openai" ? "chip on" : "chip"}
                         onClick={() => {
                           void applySceneProvider("openai");
                         }}
-                      >
-                        OpenAI 兼容
-                      </button>
+                      >{tr("OpenAI 兼容")}</button>
                     </div>
                     {route?.provider === "openai" || needsKey ? (
                       <ModelPicker
                         compact
                         value={route?.provider === "openai" && route.modelId !== "local-draft" ? route.modelId : provider?.defaultModel || ""}
                         models={modelCatalog}
-                        placeholder="搜索或输入模型"
+                        placeholder={tr("搜索或输入模型")}
                         allowEmpty
-                        emptyLabel="使用默认模型"
+                        emptyLabel={tr("使用默认模型")}
                         onChange={(value) => {
                           void applySceneModel(value).then(() => setPickingModel(false));
                         }}
                       />
                     ) : null}
-                    <div className="studio-thinking" role="group" aria-label="思考强度">
-                      <span className="studio-thinking-label">思考强度</span>
+                    <div className="studio-thinking" role="group" aria-label={tr("思考强度")}>
+                      <span className="studio-thinking-label">{tr("思考强度")}</span>
                       {THINKING_OPTIONS.map((opt) => (
                         <button
                           key={opt.value}
@@ -1692,43 +1661,35 @@ export function Studio() {
                             void applySceneThinking(opt.value);
                           }}
                         >
-                          {opt.label}
+                          {tr(opt.label)}
                         </button>
                       ))}
                     </div>
                     <div className="studio-model-actions">
-                      <Link className="text-link" to="/models" onClick={() => setPickingModel(false)}>
-                        全部场景…
-                      </Link>
-                      <button type="button" className="text-link" onClick={() => setPickingModel(false)}>
-                        关闭
-                      </button>
+                      <Link className="text-link" to="/models" onClick={() => setPickingModel(false)}>{tr("全部场景…")}</Link>
+                      <button type="button" className="text-link" onClick={() => setPickingModel(false)}>{tr("关闭")}</button>
                     </div>
                   </div>
                 ) : null}
               </span>
             ) : (
-              <span className={needsKey ? "model-line warn" : "model-line"} title={`「${SCENE_NAME[scene]}」场景模型`}>
-                <span className="model-name">{modelLine}</span>
+              <span className={needsKey ? "model-line warn" : "model-line"} title={tr("「{p0}」场景模型", { p0: tr(SCENE_NAME[scene]) })}>
+                <span className="model-name">{tr(modelLine)}</span>
                 <span className="model-scene-sep">·</span>
-                <span className="model-think">思考 {thinkingLabel(route?.thinkingIntensity)}</span>
+                <span className="model-think">{tr("思考 ")}{tr(thinkingLabel(route?.thinkingIntensity))}</span>
               </span>
             )}
             {needsKey ? (
-              <Link className="key-hint" to="/models">
-                去填写 API
-              </Link>
+              <Link className="key-hint" to="/models">{tr("去填写 API")}</Link>
             ) : null}
             {!needsKey && (route?.provider !== "openai" || assistLocal) ? (
-              <Link className="key-hint soft" to="/models" title="本地草稿只适合起稿，正式改写请接模型">
-                本地草稿
-              </Link>
+              <Link className="key-hint soft" to="/models" title={tr("本地草稿只适合起稿，正式改写请接模型")}>{tr("本地草稿")}</Link>
             ) : null}
           </span>
         </header>
         <div className="assistant-context">
           <div className="context-top">
-              <div className="segment" role="tablist" aria-label="场景">
+              <div className="segment" role="tablist" aria-label={tr("场景")}>
                 {segments(doc).map((item) => (
                   <button
                     key={item.id}
@@ -1738,7 +1699,7 @@ export function Studio() {
                     className={scene === item.id ? "on" : ""}
                     onClick={() => setScene(item.id)}
                   >
-                    {item.label}
+                    {tr(item.label)}
                   </button>
                 ))}
               </div>
@@ -1748,24 +1709,21 @@ export function Studio() {
             className={detailsOpen ? "assist-summary open" : "assist-summary"}
             aria-expanded={detailsOpen}
             aria-controls="assist-details"
-            title={activeSkills.length ? activeSkills.map((skill) => skill.name).join("、") : "无技能"}
+            title={activeSkills.length ? activeSkills.map((skill) => skill.name).join("、") : tr("无技能")}
             onClick={() => setDetailsOpen(!detailsOpen)}
           >
-            <span>技能 <b>{activeSkills.length}</b></span>
+            <span>{tr("技能 ")}<b>{activeSkills.length}</b></span>
             <span className="summary-sep">·</span>
-            <span>
-              上下文 <b>{contextHint ? contextHint.counts.bibleCards + contextHint.counts.memories + contextHint.counts.openHooks : "—"}</b>
+            <span>{tr("上下文")}<b>{contextHint ? contextHint.counts.bibleCards + contextHint.counts.memories + contextHint.counts.openHooks + (contextHint.counts.references || 0) : "—"}</b>
             </span>
             {contextHint?.missing.length ? (
               <span className="summary-warn" title={contextHint.missing[0]}>
                 <i aria-hidden="true" />
-                {contextHint.counts.openHooks ? `${contextHint.counts.openHooks} 钩子` : "待补"}
+                {contextHint.counts.openHooks ? tr("{p0} 钩子", { p0: contextHint.counts.openHooks }) : tr("待补")}
               </span>
             ) : null}
             <span className="spacer" />
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d={detailsOpen ? "M3 7.5 6 4.5 9 7.5" : "M3 4.5 6 7.5 9 4.5"} stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon name={detailsOpen ? "chevronUp" : "down"} size={14} />
           </button>
           {detailsOpen ? (
             <div className="assist-details" id="assist-details">
@@ -1778,22 +1736,17 @@ export function Studio() {
                       <li key={skill.id}>
                         <span className="skill-name">{skill.name}</span>
                         <span className={skill.role === "primary" ? "role primary" : "role"}>
-                          {skill.role === "primary" ? "主技能" : "辅助"}
+                          {skill.role === "primary" ? tr("主技能") : tr("辅助")}
                         </span>
                         {isLocked ? (
-                          <span className="locked" title="这个场景唯一的主技能，生成时必选" aria-label={`${skill.name}：必选`}>
-                            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                              <rect x="2.5" y="5.25" width="7" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.2" />
-                              <path d="M4.25 5.25V4a1.75 1.75 0 0 1 3.5 0v1.25" stroke="currentColor" strokeWidth="1.2" />
-                            </svg>
-                            必选
-                          </span>
+                          <span className="locked" title={tr("这个场景唯一的主技能，生成时必选")} aria-label={tr("{p0}：必选", { p0: skill.name })}>
+                            <Icon name="lock" size={12} />{tr("必选")}</span>
                         ) : (
                           <button
                             type="button"
                             role="switch"
                             aria-checked={on}
-                            aria-label={`${skill.name}${on ? "已启用" : "未启用"}`}
+                            aria-label={`${skill.name}${on ? tr("已启用") : tr("未启用")}`}
                             className={on ? "toggle on" : "toggle"}
                             onClick={() =>
                               setChecked((list) => (list.includes(skill.id) ? list.filter((item) => item !== skill.id) : [...list, skill.id]))
@@ -1807,15 +1760,14 @@ export function Studio() {
                   })}
                 </ul>
               ) : (
-                <p className="skill-empty">这个场景还没有启用的技能。</p>
+                <p className="skill-empty">{tr("这个场景还没有启用的技能。")}</p>
               )}
               {contextHint ? (
-                <p className="context-ready" title="生成时会注入设定卡、前文记忆、未回收钩子">
-                  上下文 · 设定卡 {contextHint.counts.bibleCards} · 前文记忆 {contextHint.counts.memories} · 钩子 {contextHint.counts.openHooks}
+                <p className="context-ready" title={tr("生成时会注入设定卡、前文记忆、未回收钩子")}>{tr("上下文 · 设定卡")}{contextHint.counts.bibleCards}{tr(" · 前文记忆 ")}{contextHint.counts.memories}{tr(" · 钩子 ")}{contextHint.counts.openHooks}{contextHint.counts.references ? <span>{tr(" · 方法参考 {p0}", { p0: contextHint.counts.references })}</span> : null}
                   {contextHint.missing.length ? (
-                    <span className="context-missing"> · {contextHint.missing[0]}</span>
+                    <span className="context-missing"> · {tr(contextHint.missing[0])}</span>
                   ) : (
-                    <span className="context-ok"> · 资料齐全</span>
+                    <span className="context-ok">{tr(" · 资料齐全")}</span>
                   )}
                 </p>
               ) : null}
@@ -1825,9 +1777,9 @@ export function Studio() {
         <div className="transcript" ref={transcriptRef}>
           {messages.length === 0 && !pendingUser && !busy ? (
             <div className="chat-empty">
-              <div className="chat-empty-mark" aria-hidden="true" />
-              <p className="chat-empty-title">想让墨兰写作做什么？</p>
-              <p className="chat-empty-sub">写作、审核、去 AI 味都在这里说；点一条开头，或自己输入。</p>
+              <div className="chat-empty-mark" aria-hidden="true"><Icon name="sparkles" size={34} /></div>
+              <p className="chat-empty-title">{tr("想让墨兰写作做什么？")}</p>
+              <p className="chat-empty-sub">{tr("写作、审核、去 AI 味都在这里说；点一条开头，或自己输入。")}</p>
               <div className="suggestions">
                 {suggestions.map((item) => (
                   <button
@@ -1839,7 +1791,7 @@ export function Studio() {
                       void send(item);
                     }}
                   >
-                    {item}
+                    <span>{tr(item)}</span><Icon name="northeast" size={14} />
                   </button>
                 ))}
               </div>
@@ -1853,9 +1805,7 @@ export function Studio() {
             ) : (
               <div key={message.id} className="msg bot">
                 <div className="who">
-                  <span className="bot-mark" aria-hidden="true" />
-                  墨兰
-                </div>
+                  <span className="bot-mark" aria-hidden="true"><Icon name="sparkles" size={14} /></span>{tr("墨兰")}</div>
                 <AssistantMessage
                   content={message.content}
                   hasSummary={Boolean(message.meta?.saved)}
@@ -1870,8 +1820,7 @@ export function Studio() {
                           const label = CHILDREN.find((child) => child.kind === saved.kind)?.label ?? (saved.kind === "book_outline" ? "大纲" : "档案");
                           void open({ kind: saved.kind as Kind, chapterNumber: saved.chapterNumber ?? null, label });
                         }}
-                      >
-                        打开{savedLabel(message.meta.saved.kind, message.meta.saved.chapterNumber)}
+                      ><Icon name="northeast" size={13} />{tr("打开")}{tr(savedLabel(message.meta.saved.kind, message.meta.saved.chapterNumber))}
                       </button>
                     ) : undefined
                   }
@@ -1887,25 +1836,21 @@ export function Studio() {
           {busy ? (
             <div className="msg bot pending" aria-live="polite">
               <div className="who">
-                <span className="bot-mark" aria-hidden="true" />
-                墨兰
-              </div>
+                <span className="bot-mark" aria-hidden="true"><Icon name="sparkles" size={14} /></span>{tr("墨兰")}</div>
               <div className="pending-line">
                 <span className="typing">
                   <i />
                   <i />
                   <i />
                 </span>
-                {streamStatus
+                {tr(streamStatus)
                   || (busy === "assist"
-                    ? "正在改选区…"
+                    ? tr("正在改选区…")
                     : busy === "chat"
-                      ? "正在写…"
-                      : "正在想…")}
+                      ? tr("正在写…")
+                      : tr("正在想…"))}
                 {(busy === "chat" || busy === "assist") ? (
-                  <button type="button" className="text-link stream-stop-inline" onClick={() => cancelStream()}>
-                    停止
-                  </button>
+                  <button type="button" className="text-link stream-stop-inline" onClick={() => cancelStream()}>{tr("停止")}</button>
                 ) : null}
               {busy === "chat" && streamPreview ? (
                 <pre className="stream-chat-preview">{streamPreview.slice(0, 480)}{streamPreview.length > 480 ? "…" : ""}</pre>
@@ -1916,36 +1861,26 @@ export function Studio() {
         </div>
         <div className={jobOpen ? "jobs-panel open" : "jobs-panel"}>
           <button type="button" className="jobs-toggle" onClick={() => setJobOpen((v) => !v)} aria-expanded={jobOpen} hidden={!jobOpen}>
-            <span>批量写</span>
+            <span>{tr("批量写")}</span>
             <span className="jobs-meta">
-              {jobs[0] ? `${jobs[0].status === "running" ? "进行中" : jobs[0].status === "done" ? "已完成" : jobs[0].status === "paused" ? "已暂停" : jobs[0].status} · 第 ${jobs[0].currentChapter} 章` : "大纲→细纲→正文"}
+              {jobs[0] ? tr("{p0} · 第 {p1} 章", { p0: jobs[0].status === "running" ? "进行中" : jobs[0].status === "done" ? "已完成" : jobs[0].status === "paused" ? "已暂停" : jobs[0].status, p1: jobs[0].currentChapter }) : tr("大纲→细纲→正文")}
             </span>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d={jobOpen ? "M3 7.5 6 4.5 9 7.5" : "M3 4.5 6 7.5 9 4.5"} stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon name={jobOpen ? "chevronUp" : "down"} size={14} />
           </button>
           {jobOpen ? (
             <div className="jobs-body">
-              <p className="jobs-help">质量闸门：大纲 → 细纲 → 正文 → 等待记忆抽取 →（可选）自动审核 → 下一章。失败可重试。</p>
+              <p className="jobs-help">{tr("质量闸门：大纲 → 细纲 → 正文 → 等待记忆抽取 →（可选）自动审核 → 下一章。失败可重试。")}</p>
               <label className="jobs-check">
-                <input type="checkbox" checked={jobAutoReview} onChange={(e) => setJobAutoReview(e.target.checked)} />
-                写完后自动审核
-              </label>
-              <label className="jobs-check">
-                失败重试
-                <input
+                <input type="checkbox" checked={jobAutoReview} onChange={(e) => setJobAutoReview(e.target.checked)} />{tr("写完后自动审核")}</label>
+              <label className="jobs-check">{tr("失败重试")}<input
                   type="number"
                   min={0}
                   max={5}
                   value={jobMaxRetries}
                   onChange={(e) => setJobMaxRetries(Math.max(0, Number(e.target.value) || 0))}
-                />
-                次
-              </label>
+                />{tr("次")}</label>
               <div className="jobs-range">
-                <label>
-                  从
-                  <input
+                <label>{tr("从")}<input
                     type="number"
                     min={1}
                     max={data.book.targetChapters || data.chapters.length}
@@ -1954,9 +1889,7 @@ export function Studio() {
                     onChange={(e) => setJobFrom(Number(e.target.value) || 1)}
                   />
                 </label>
-                <label>
-                  到
-                  <input
+                <label>{tr("到")}<input
                     type="number"
                     min={1}
                     max={data.book.targetChapters || data.chapters.length}
@@ -1965,11 +1898,11 @@ export function Studio() {
                     onChange={(e) => setJobTo(Number(e.target.value) || 1)}
                   />
                 </label>
-                <span className="jobs-range-hint">共 {data.chapters.length} 章</span>
+                <span className="jobs-range-hint">{tr("共 ")}{data.chapters.length}{tr(" 章")}</span>
               </div>
               <div className="jobs-actions">
                 <button type="button" className="btn small" disabled={jobBusy || Boolean(busy)} onClick={() => void startJob()}>
-                  {jobBusy ? "…" : "开新任务"}
+                  {jobBusy ? "…" : tr("开新任务")}
                 </button>
                 {jobs[0] && jobs[0].status !== "done" ? (
                   <>
@@ -1978,16 +1911,14 @@ export function Studio() {
                       className="btn small primary"
                       disabled={jobBusy || Boolean(busy) || jobs[0].status === "paused"}
                       onClick={() => void tickActiveJob(jobs[0]!.id)}
-                    >
-                      推进一步
-                    </button>
+                    >{tr("推进一步")}</button>
                     <button
                       type="button"
                       className={jobAuto ? "btn small working" : "btn small"}
                       disabled={jobBusy && !jobAuto}
                       onClick={() => void runJobAuto(jobs[0]!.id)}
                     >
-                      {jobAuto ? "停止自动" : "自动连跑"}
+                      {jobAuto ? tr("停止自动") : tr("自动连跑")}
                     </button>
                     <button
                       type="button"
@@ -1995,7 +1926,7 @@ export function Studio() {
                       disabled={jobBusy}
                       onClick={() => void toggleJob(jobs[0]!.id, jobs[0]!.status === "paused" ? "running" : "paused")}
                     >
-                      {jobs[0].status === "paused" ? "继续" : "暂停"}
+                      {jobs[0].status === "paused" ? tr("继续") : tr("暂停")}
                     </button>
                   </>
                 ) : null}
@@ -2004,14 +1935,13 @@ export function Studio() {
                 <ul className="jobs-list">
                   {jobs.slice(0, 4).map((job) => (
                     <li key={job.id} className={`job-row is-${job.status}`}>
-                      <span className="job-stage">{STAGE_LABEL[job.currentStage] ?? job.currentStage}</span>
-                      <span className="job-range">
-                        第 {job.fromChapter}–{job.toChapter} 章 · 当前 {job.currentChapter}
-                        {job.autoReview ? " · 审核开" : ""}
-                        {job.retryCount ? ` · 已重试 ${job.retryCount}` : ""}
+                      <span className="job-stage">{tr(STAGE_LABEL[job.currentStage] ?? job.currentStage)}</span>
+                      <span className="job-range">{tr("第")}{job.fromChapter}–{job.toChapter}{tr(" 章 · 当前 ")}{job.currentChapter}
+                        {job.autoReview ? tr(" · 审核开") : ""}
+                        {job.retryCount ? tr(" · 已重试 {p0}", { p0: job.retryCount }) : ""}
                       </span>
                       <span className="job-status">{job.status}</span>
-                      {job.error ? <span className="job-error">{job.error}</span> : null}
+                      {job.error ? <span className="job-error">{tr(job.error)}</span> : null}
                       {job.status === "error" ? (
                         <button
                           type="button"
@@ -2023,15 +1953,13 @@ export function Studio() {
                               setNotice("已重新排队失败任务");
                             });
                           }}
-                        >
-                          重试本章
-                        </button>
+                        >{tr("重试本章")}</button>
                       ) : null}
                       {job.log?.length ? (
                         <ul className="job-log">
                           {job.log.slice(-4).map((entry, i) => (
                             <li key={`${job.id}-log-${i}`}>
-                              {STAGE_LABEL[entry.stage] ?? entry.stage} · {entry.message}
+                              {tr(STAGE_LABEL[entry.stage] ?? entry.stage)} · {tr(entry.message)}
                             </li>
                           ))}
                         </ul>
@@ -2040,20 +1968,20 @@ export function Studio() {
                   ))}
                 </ul>
               ) : (
-                <p className="jobs-empty">还没有批量任务</p>
+                <p className="jobs-empty">{tr("还没有批量任务")}</p>
               )}
             </div>
           ) : null}
         </div>
         <footer className="composer">
-          {error ? <p className="alert">{error}</p> : null}
+          {error ? <p className="alert">{tr(error)}</p> : null}
           <div className={busy ? "composer-box busy" : "composer-box"}>
             <div className="grow" data-value={mirror(chatText)}>
               <textarea
                 ref={composerRef}
                 rows={1}
                 value={chatText}
-                placeholder="说要写什么，Enter 发送"
+                placeholder={tr("说要写什么，Enter 发送")}
                 onChange={(event) => setChatText(event.target.value)}
                 onCompositionStart={() => {
                   composerComposing.current = true;
@@ -2082,30 +2010,26 @@ export function Studio() {
             <button
               type="button"
               className={jobOpen ? "jobs-btn on" : "jobs-btn"}
-              aria-label="批量写"
+              aria-label={tr("批量写")}
               aria-expanded={jobOpen}
-              title={jobs[0] && jobs[0].status !== "done" ? `批量写 · 第 ${jobs[0].currentChapter} 章` : "批量写（大纲→细纲→正文）"}
+              title={jobs[0] && jobs[0].status !== "done" ? tr("批量写 · 第 {p0} 章", { p0: jobs[0].currentChapter }) : tr("批量写（大纲→细纲→正文）")}
               onClick={() => setJobOpen((v) => !v)}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3 4h10M3 8h10M3 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+              <Icon name="filter" size={18} />
               {jobs[0] && (jobs[0].status === "running" || jobs[0].status === "paused") ? <i className="jobs-dot" /> : null}
             </button>
             <button
               type="button"
               className="send"
-              aria-label="发送"
-              title="发送（Enter）"
+              aria-label={tr("发送")}
+              title={tr("发送（Enter）")}
               onClick={() => void send()}
               disabled={Boolean(busy) || !chatText.trim()}
             >
               {busy === "chat" ? (
                 <Spinner />
               ) : (
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M8 13V3.5M3.75 7.5 8 3.25l4.25 4.25" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <Icon name="up" size={18} />
               )}
             </button>
           </div>
@@ -2114,24 +2038,22 @@ export function Studio() {
       <button
         type="button"
         className="m-backdrop"
-        aria-label="关闭面板"
+        aria-label={tr("关闭面板")}
         tabIndex={-1}
         onClick={() => setMPane("doc")}
       />
       {busy ? (
         <div className="m-stream" role="status">
           <span className="m-stream-dot" />
-          <span className="m-stream-text">{streamStatus || (busy === "assist" ? "正在改选区…" : "正在写…")}</span>
-          <button type="button" className="m-stream-stop" onClick={() => cancelStream()}>
-            停止
-          </button>
+          <span className="m-stream-text">{tr(streamStatus) || (busy === "assist" ? tr("正在改选区…") : tr("正在写…"))}</span>
+          <button type="button" className="m-stream-stop" onClick={() => cancelStream()}>{tr("停止")}</button>
         </div>
       ) : null}
-      <nav className="m-tabbar" aria-label="工作室面板">
+      <nav className="m-tabbar" aria-label={tr("工作室面板")}>
         {([
-          ["toc", "目录"],
-          ["doc", "正文"],
-          ["chat", "助手"],
+          ["toc", tr("目录")],
+          ["doc", tr("正文")],
+          ["chat", tr("助手")],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -2140,10 +2062,12 @@ export function Studio() {
             aria-pressed={mPane === id}
             onClick={() => setMPane((p) => (p === id && id !== "doc" ? "doc" : id))}
           >
-            {label}
+            <Icon name={id === "toc" ? "list" : id === "doc" ? "feather" : "sparkles"} size={20} />
+            <span>{tr(label)}</span>
             {id === "chat" && busy ? <i className="m-tab-dot" aria-hidden="true" /> : null}
           </button>
         ))}
+        <button type="button" className={toolsOpen ? "m-tab on" : "m-tab"} aria-pressed={toolsOpen} aria-label={tr("写作工具")} onClick={() => setToolsOpen((value) => !value)}><Icon name="tools" size={20} /><span>{tr("工具")}</span></button>
       </nav>
     </div>
   );

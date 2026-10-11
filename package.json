@@ -18,11 +18,18 @@
     "migrate:sqlite-to-pg": "tsx server/scripts/migrate-sqlite-to-pg.mts",
     "quarantine:legacy-phys": "tsx server/scripts/quarantine-legacy-phys.mts",
     "test:e2e:mobile": "tsx server/scripts/e2e-mobile.mts",
-    "test:e2e:theme": "tsx server/scripts/e2e-theme.mts"
+    "test:e2e:theme": "tsx server/scripts/e2e-theme.mts",
+    "dev:eazo": "node scripts/eazo-dev.mjs",
+    "start": "npm run dev:eazo",
+    "test:import": "tsx server/scripts/eazo-import-audit.mts",
+    "test:references": "tsx server/scripts/reference-audit.mts",
+    "test:references:browser": "tsx server/scripts/reference-browser-audit.mts",
+    "test:audit:isolated": "node scripts/eazo-audit-isolated.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.1.0",
     "@earendil-works/pi-ai": "^1.1.0",
+    "@eazo/sdk": "0.22.13",
     "@electric-sql/pglite": "^0.5.8",
     "@hono/node-server": "^1.19.0",
     "@tiptap/extensions": "^3.31.4",
@@ -32,6 +39,7 @@
     "@types/pg": "^8.23.1",
     "better-sqlite3": "11.10.0",
     "hono": "^4.9.0",
+    "lucide-react": "^1.55.0",
     "lxgw-wenkai-screen-webfont": "^1.7.0",
     "pg": "^8.23.1",
     "react": "^19.1.0",
@@ -46,10 +54,13 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.0",
-    "playwright": "^1.55.0",
+    "playwright": "~1.55.1",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vite": "^7.1.0"
   },
-  "description": "墨兰写作（molan os）— 以一本书为中心的长篇写作工作台"
+  "description": "墨兰写作（molan os）— 以一本书为中心的长篇写作工作台",
+  "engines": {
+    "node": ">=22.19.0"
+  }
 }

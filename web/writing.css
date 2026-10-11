@@ -1,0 +1,5 @@
+/* Writing-first interface. Replaces the presentation-only Atelier / Editions layers. */
+@import "./styles/writing-core.css";
+@import "./styles/writing-library.css";
+@import "./styles/writing-studio.css";
+@import "./styles/writing-mobile.css";

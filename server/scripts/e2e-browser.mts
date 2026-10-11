@@ -150,12 +150,28 @@ async function main() {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     page.setDefaultTimeout(20_000);
+    // Opt-in, fixture-page-only diagnostics for transient selection toolbar failures.
+    if (process.env.MOLAN_SELECTION_DIAGNOSTICS === "1") await page.addInitScript({ content: `
+      const events = [];
+      window.__selectionAuditEvents = events;
+      const record = (event) => {
+        const el = event.target;
+        const bubble = document.querySelector(".sel-bubble");
+        const box = bubble?.getBoundingClientRect();
+        events.push({ type: event.type, at: Math.round(performance.now()), target: el?.className || el?.nodeName,
+          key: event instanceof KeyboardEvent ? event.key : undefined,
+          selectionLength: window.getSelection()?.toString().length, bubble: !!bubble,
+          rect: box ? [box.x, box.y, box.width, box.height] : null });
+        if (events.length > 100) events.shift();
+      };
+      for (const type of ["mousedown", "mouseup", "click", "keydown", "keyup", "selectionchange", "scroll", "blur", "focus"]) document.addEventListener(type, record, true);
+    ` });
     page.on("dialog", (dialog) => {
       void dialog.accept().catch(() => undefined);
     });
 
     await page.goto(webUrl, { waitUntil: "networkidle" });
-    const hasLibrary = await page.getByRole("heading", { name: "书稿" }).isVisible().catch(() => false);
+    const hasLibrary = await page.getByRole("heading", { name: "书稿", exact: true }).isVisible().catch(() => false);
     check("书库页加载", hasLibrary);
 
     const title = `浏览器E2E ${Date.now()}`;
@@ -246,9 +262,18 @@ async function main() {
 
     async function selectAllAndBubble(ms: ReturnType<typeof page.locator>) {
       await ms.click();
+      // Collapse through ProseMirror's keyboard path before selecting again. A second
+      // click + Ctrl+A in the same frame can still expose the previous toolbar while
+      // the native selection is empty and selectionchange has not yet synchronized.
+      await page.keyboard.press("ArrowLeft");
       await page.keyboard.press("Control+A");
+      await page.waitForFunction(`(() => {
+        const selection = window.getSelection();
+        const editor = document.querySelector(".manuscript.ProseMirror");
+        return !!selection?.toString().trim() && !!editor?.contains(selection.anchorNode);
+      })()`, undefined, { timeout: 10_000 });
       const bubble = page.locator(".sel-bubble");
-      await bubble.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
+      await bubble.waitFor({ state: "visible", timeout: 10_000 });
       return bubble;
     }
 
@@ -311,7 +336,9 @@ async function main() {
             ms = await seedChapterBody(item.seed);
           }
           const beforeText = ((await ms.innerText().catch(() => "")) || "").trim();
-          bubble = await selectAllAndBubble(ms);
+          // The first selection is already established by the upfront assertion.
+          // Do not immediately click the editor again and race its selectionchange.
+          if (i > 0) bubble = await selectAllAndBubble(ms);
           bubbleVisible = await bubble.isVisible().catch(() => false);
           if (!bubbleVisible) {
             check(`${item.name} 气泡`, false, "bubble missing");
@@ -326,7 +353,8 @@ async function main() {
             (r) => r.url().includes("/selection-rewrite") && r.request().method() === "POST",
             { timeout: 45_000 },
           ).catch((e: unknown) => e);
-          await btn.click({ force: true });
+          await btn.click();
+          if (process.env.MOLAN_SELECTION_DIAGNOSTICS === "1") console.log("SELECTION_CLICK_EVENTS", item.hint, JSON.stringify(await page.evaluate("window.__selectionAuditEvents || []")));
           const respOrErr = await respPromise;
           if (respOrErr && typeof respOrErr === "object" && "ok" in respOrErr && typeof (respOrErr as { ok: () => boolean }).ok === "function") {
             const resp = respOrErr as { ok: () => boolean; status: () => number };
@@ -344,6 +372,10 @@ async function main() {
           check(`${item.name} 写回`, item.assert(beforeText, afterText), afterText.slice(0, 100));
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
+          if (process.env.MOLAN_SELECTION_DIAGNOSTICS === "1") {
+            console.log("SELECTION_DIAGNOSTICS", JSON.stringify(await page.evaluate("window.__selectionAuditEvents || []")));
+            console.log("SELECTION_ACTION_ERROR", msg);
+          }
           check(`${item.name} 气泡`, false, msg.slice(0, 120));
           check(`${item.name} API`, false, msg.slice(0, 120));
           check(`${item.name} 写回`, false, msg.slice(0, 120));
@@ -359,7 +391,7 @@ async function main() {
         const customBubbleOk = await bubble.isVisible().catch(() => false);
         check("对助手说 气泡", customBubbleOk);
         if (customBubbleOk) {
-          await bubble.getByRole("button", { name: "对助手说…", exact: true }).click({ force: true });
+          await bubble.getByRole("button", { name: "对助手说…", exact: true }).click();
           const prompt = bubble.locator("textarea");
           await prompt.waitFor({ state: "visible", timeout: 5_000 });
           await prompt.fill("语气再冷一点，去掉不禁和宛如，别解释动机");
@@ -367,7 +399,7 @@ async function main() {
             (r) => r.url().includes("/selection-rewrite") && r.request().method() === "POST",
             { timeout: 45_000 },
           ).catch((e: unknown) => e);
-          await bubble.getByRole("button", { name: "应用到选区", exact: true }).click({ force: true });
+          await bubble.getByRole("button", { name: "应用到选区", exact: true }).click();
           const customRespOrErr = await customRespPromise;
           if (customRespOrErr && typeof customRespOrErr === "object" && "ok" in customRespOrErr) {
             const resp = customRespOrErr as { ok: () => boolean; status: () => number; request: () => { postData: () => string | null } };
@@ -713,10 +745,10 @@ async function main() {
     } catch {
       await page.goto(webUrl + "/", { waitUntil: "domcontentloaded" });
     }
-    await page.getByRole("heading", { name: "书稿" }).waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByRole("heading", { name: "书稿", exact: true }).waitFor({ state: "visible", timeout: 15_000 });
     const back =
       page.url().includes(String(webPort)) &&
-      (await page.getByRole("heading", { name: "书稿" }).isVisible().catch(() => false));
+      (await page.getByRole("heading", { name: "书稿", exact: true }).isVisible().catch(() => false));
     check("返回书库", back, page.url());
 
     // Cleanup created book via API

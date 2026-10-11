@@ -14,10 +14,20 @@ export default defineConfig(({ mode }) => {
   const webPort = Number(env.MOLAN_WEB_PORT || process.env.MOLAN_WEB_PORT || 5173) || 5173;
   return {
     plugins: [react()],
+    // SDK checks `typeof process` before its dynamic env lookup. Replacing only
+    // process.env works in Vite dev but leaves that guard false in production.
+    // Supply a minimal public object, never loadEnv() or the real Node process.
+    define: {
+      "process": "{}",
+      "process.env": JSON.stringify({ NODE_ENV: mode, EAZO_APP_ID: env.EAZO_APP_ID || process.env.EAZO_APP_ID || "" }),
+    },
     server: {
       host,
       port: webPort,
       strictPort: true,
+      allowedHosts: (env.EAZO_PREVIEW_URL || process.env.EAZO_PREVIEW_URL)
+        ? [new URL(env.EAZO_PREVIEW_URL || process.env.EAZO_PREVIEW_URL!).hostname]
+        : [],
       proxy: {
         "/api": {
           target: apiProxy,

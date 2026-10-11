@@ -3948,9 +3948,9 @@ label {
   html, body { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
   .app { height: 100dvh; }
   .topbar {
-    padding-top: env(safe-area-inset-top);
-    padding-left: max(14px, env(safe-area-inset-left));
-    padding-right: max(14px, env(safe-area-inset-right));
+    padding-top: var(--safe-top);
+    padding-left: max(14px, var(--safe-left));
+    padding-right: max(14px, var(--safe-right));
   }
   .app.is-studio .topbar { min-height: 48px; height: auto; gap: 10px; }
   .app.is-studio .topbar .wordmark { display: none; }
@@ -3971,7 +3971,7 @@ label {
 
   /* Library */
   .book-grid { grid-template-columns: 1fr !important; gap: 14px; }
-  .page { padding-left: max(18px, env(safe-area-inset-left)); padding-right: max(18px, env(safe-area-inset-right)); padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .page { padding-left: max(18px, var(--safe-left)); padding-right: max(18px, var(--safe-right)); padding-bottom: calc(80px + var(--safe-bottom)); }
   .library-actions { flex-wrap: wrap; gap: 8px; }
 
   /* Models: route matrix stacks */
@@ -3983,7 +3983,7 @@ label {
   .studio {
     grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: minmax(0, 1fr) !important;
-    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    padding-bottom: calc(56px + var(--safe-bottom));
   }
   .studio > .center { grid-row: 1; grid-column: 1; min-height: 0; }
   .studio > .sidebar.rail {
@@ -3996,8 +3996,8 @@ label {
     background: var(--rail);
     border-right: 1px solid var(--line);
     border-bottom: 0;
-    padding-top: calc(env(safe-area-inset-top) + 14px);
-    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+    padding-top: calc(var(--safe-top) + 14px);
+    padding-bottom: calc(76px + var(--safe-bottom));
     transform: translateX(-104%);
     transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
     box-shadow: 8px 0 32px rgba(var(--ink-rgb), 0.14);
@@ -4006,9 +4006,9 @@ label {
   .studio > .assistant.rail {
     position: fixed;
     left: 0; right: 0;
-    bottom: calc(56px + env(safe-area-inset-bottom));
+    bottom: calc(56px + var(--safe-bottom));
     top: auto;
-    height: min(80dvh, calc(100dvh - 56px - 56px - env(safe-area-inset-bottom)));
+    height: min(80dvh, calc(100dvh - 56px - 56px - var(--safe-bottom)));
     max-height: none;
     z-index: 60;
     display: flex;
@@ -4020,8 +4020,8 @@ label {
     box-shadow: 0 -10px 36px rgba(var(--ink-rgb), 0.14);
     transform: translateY(calc(100% + 80px));
     transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
   }
   .studio.m-pane-chat > .assistant.rail { transform: none; }
   .studio.m-pane-toc .m-backdrop,
@@ -4037,8 +4037,8 @@ label {
     position: fixed;
     left: 0; right: 0; bottom: 0;
     z-index: 70;
-    height: calc(56px + env(safe-area-inset-bottom));
-    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    height: calc(56px + var(--safe-bottom));
+    padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
     background: rgba(var(--paper-rgb), 0.96);
     backdrop-filter: blur(10px);
     border-top: 1px solid var(--line);
@@ -4064,7 +4064,7 @@ label {
     gap: 10px;
     position: fixed;
     left: 10px; right: 10px;
-    bottom: calc(64px + env(safe-area-inset-bottom));
+    bottom: calc(64px + var(--safe-bottom));
     z-index: 72;
     padding: 6px 6px 6px 14px;
     border-radius: 14px;
@@ -4081,7 +4081,7 @@ label {
   .doc-bar { padding: 6px 12px; gap: 6px; flex-wrap: wrap; }
   .doc-tools { width: auto; flex-wrap: wrap; gap: 6px; }
   .doc-tools .btn { min-height: 40px; }
-  .page-doc.sheet { padding: 20px max(18px, env(safe-area-inset-right)) calc(140px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
+  .page-doc.sheet { padding: 20px max(18px, var(--safe-right)) calc(140px + var(--safe-bottom)) max(18px, var(--safe-left)); }
   .manuscript.prose { font-size: 17px; line-height: 1.9; }
 
   /* 工具抽屉：全屏 */
@@ -4093,8 +4093,8 @@ label {
     height: 100dvh;
     border-radius: 0 !important;
     z-index: 90 !important;
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
     display: flex;
     flex-direction: column;
   }
@@ -4106,9 +4106,9 @@ label {
   .sel-bubble.below {
     position: fixed !important;
     top: auto !important;
-    left: max(8px, env(safe-area-inset-left)) !important;
-    right: max(8px, env(safe-area-inset-right));
-    bottom: calc(64px + env(safe-area-inset-bottom));
+    left: max(8px, var(--safe-left)) !important;
+    right: max(8px, var(--safe-right));
+    bottom: calc(64px + var(--safe-bottom));
     transform: none !important;
     max-width: none !important;
     animation: none !important;
@@ -4121,7 +4121,7 @@ label {
 
   /* Dialogs */
   dialog, .modal, .dialog { max-width: calc(100vw - 24px) !important; max-height: calc(100dvh - 24px); overflow: auto; }
-  .toast-notice { left: 10px !important; right: 10px !important; bottom: calc(66px + env(safe-area-inset-bottom)) !important; top: auto !important; transform: none !important; max-width: none !important; }
+  .toast-notice { left: 10px !important; right: 10px !important; bottom: calc(66px + var(--safe-bottom)) !important; top: auto !important; transform: none !important; max-width: none !important; }
 }
 @media (max-width: 860px) {
   /* transform on .page-enter would make fixed drawers relative to .studio */
@@ -4364,3 +4364,106 @@ label {
 }
 .brief-hint { max-width: none; }
 @media (max-width: 720px) { .library-actions { flex-wrap: wrap; } }
+
+
+/* Eazo host compatibility: device/host insets resolve once, chrome owns each edge. */
+:root {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--eazo-safe-area-top, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--eazo-safe-area-right, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--eazo-safe-area-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--eazo-safe-area-left, 0px));
+}
+.app {
+  height: 100%;
+  max-height: calc(100dvh - var(--eazo-handoff-top, 0px) - var(--eazo-handoff-bottom, 0px));
+  min-width: 0;
+}
+.assistant-head { height: auto; min-height: 48px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+.assistant-head .studio-model { flex: 1; min-width: 100px; }
+.assistant-head .model-line { max-width: 100%; }
+.assistant-head .key-hint { margin-left: auto; }
+.assist-summary { flex-wrap: wrap; }
+.topbar {
+  height: calc(var(--top) + var(--safe-top));
+  min-height: calc(var(--top) + var(--safe-top));
+  padding-top: var(--safe-top);
+  padding-left: max(16px, var(--safe-left));
+  padding-right: max(18px, var(--safe-right));
+}
+.stage { min-width: 0; }
+.locale-select {
+  flex: none;
+  width: 105px;
+  min-height: 36px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+}
+.app:not(.is-studio) .page {
+  padding-left: max(18px, var(--safe-left));
+  padding-right: max(18px, var(--safe-right));
+}
+@media (min-width: 861px) {
+  .app:not(.is-studio) .main { padding-bottom: var(--safe-bottom); }
+  .app.is-studio .stage {
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
+  }
+}
+@media (max-width: 860px) {
+  .topbar, .app.is-studio .topbar {
+    height: auto;
+    min-height: calc(48px + var(--safe-top));
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding-bottom: 5px;
+  }
+  .topbar .tabs { order: 5; width: 100%; justify-content: space-between; }
+  .topbar .tabs a { flex: 1; justify-content: center; padding: 0 6px; }
+  .topbar .locale-select { width: 99px; min-height: 40px; font-size: 14px !important; }
+  .app.is-studio .topbar .crumbs { flex: 1; max-width: none; padding-left: 5px; margin: 0; gap: 5px; }
+  .app.is-studio .topbar .crumb-current { max-width: 25vw; }
+  .app.is-studio .topbar > .spacer { display: none; }
+  .app.is-studio .topbar .save-state { position: static; max-width: 70px; padding: 0 2px; font-size: 10px; }
+  /* Studio clears the full bottom navigation; the manuscript does not add the inset twice. */
+  .page-doc.sheet { padding-bottom: 80px; }
+  .studio > .assistant.rail {
+    height: min(80dvh, calc(100dvh - 104px - var(--safe-top) - 56px - var(--safe-bottom)));
+  }
+  .studio > .sidebar.rail {
+    padding-left: max(14px, var(--safe-left));
+    padding-right: 14px;
+  }
+  .tools-drawer {
+    animation: none;
+    top: var(--eazo-handoff-top, 0px) !important;
+    bottom: var(--eazo-handoff-bottom, 0px) !important;
+    height: calc(100dvh - var(--eazo-handoff-top, 0px) - var(--eazo-handoff-bottom, 0px));
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+  }
+  .studio > .sidebar.rail { top: var(--eazo-handoff-top, 0px); }
+  .studio > .assistant.rail {
+    max-height: calc(100dvh - var(--eazo-handoff-top, 0px) - var(--safe-top) - 56px - var(--safe-bottom));
+  }
+  .tools-tabs { flex-wrap: wrap; }
+  .book-card, .book-foot, .doc-tools { min-width: 0; }
+  .book-foot { flex-wrap: wrap; }
+  .book-export { padding-left: 5px; padding-right: 5px; }
+  .doc-tools .btn { white-space: normal; height: auto; padding-top: 7px; padding-bottom: 7px; }
+  .doc-bar { padding-left: max(12px, var(--safe-left)); padding-right: max(12px, var(--safe-right)); }
+  .doc-meta, .doc-bar-left { min-width: 0; flex-wrap: wrap; }
+}
+
+/* Long English control labels must wrap, not disappear into scrolling ancestors. */
+@media (max-width: 860px) {
+  .provider-foot, .route-head, .provider-head { flex-wrap: wrap; min-width: 0; }
+  .provider-foot .actions, .route-head .actions { width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-start; }
+  .models-page .actions .btn { max-width: 100%; white-space: normal; height: auto; min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+  .provider-foot > *, .route-head > * { min-width: 0; max-width: 100%; }
+}

@@ -1,3 +1,6 @@
+import { t as tr, useLocale } from "../lib/i18n";
+import { Link } from "react-router-dom";
+import { Icon } from "../components/Icon";
 import { useEffect, useState } from "react";
 import { api, type Skill } from "../api";
 import { useBookTitle } from "../App";
@@ -15,7 +18,7 @@ const SCENE: Record<string, string> = {
 };
 
 function sceneLabel(id: string): string {
-  return SCENE[id] ?? id;
+  return tr(SCENE[id] ?? id);
 }
 
 function attachLabel(skill: Skill): string {
@@ -26,6 +29,7 @@ function attachLabel(skill: Skill): string {
 }
 
 export function Skills() {
+  useLocale();
   const { setTitle } = useBookTitle();
   const [skills, setSkills] = useState<Skill[] | null>(null);
   const [current, setCurrent] = useState<string>("");
@@ -75,27 +79,28 @@ export function Skills() {
     <div className="page page-enter skills-page settings-page">
       <header className="page-head">
         <div>
-          <p className="eyebrow">墨兰写作 · 设置</p>
-          <h1>技能</h1>
-          <p className="sub">用户蒸馏包已完整接入：去 AI 味、开局拆解卡、卷级蒸馏、结构骨架、文风语料、选题创作。生成时按场景注入 pack 关键原文，不是空壳摘要。</p>
+          <p className="eyebrow"><span className="eyebrow-line" />{tr("你的写作方法")}</p>
+          <h1>{tr("技能")}<span className="heading-dot" aria-hidden="true">.</span></h1><span className="page-english-title" aria-hidden="true">THE CRAFT</span>
+          <p className="sub">{tr("从构思到润色，为每一个创作环节找到合适的方法。")}</p>
         </div>
         <div className="actions">
+          <Link className="btn" to="/references"><Icon name="stack" size={16} />{tr("小说蒸馏参考库")}</Link>
           <button type="button" className="btn" disabled={busy === "reload"} onClick={() => void reload()}>
-            {busy === "reload" ? "载入中…" : "重新载入"}
+            {busy === "reload" ? tr("载入中…") : tr("重新载入")}
           </button>
         </div>
       </header>
-      {error ? <p className="alert">{error}</p> : null}
+      {error ? <p className="alert">{tr(error)}</p> : null}
       <div className="skills-layout">
         <section className="panel skill-table">
           <div className="db-head">
-            <span>名称</span>
-            <span>场景</span>
-            <span>角色</span>
-            <span>启用</span>
+            <span>{tr("名称")}</span>
+            <span>{tr("场景")}</span>
+            <span>{tr("角色")}</span>
+            <span>{tr("启用")}</span>
           </div>
-          {skills === null ? <p className="empty loading-line">正在载入技能…</p> : null}
-          {skills && skills.length === 0 ? <p className="empty">还没有技能。把文件夹放进 skills/ 再点重新载入。</p> : null}
+          {skills === null ? <p className="empty loading-line">{tr("正在载入技能…")}</p> : null}
+          {skills && skills.length === 0 ? <p className="empty">{tr("还没有技能。把文件夹放进 skills/ 再点重新载入。")}</p> : null}
           {list.map((skill) => (
             <div
               key={skill.id}
@@ -108,13 +113,13 @@ export function Skills() {
               }}
             >
               <span className="db-name">{skill.name}</span>
-              <span className="meta" title={attachLabel(skill)}>{attachLabel(skill)}</span>
-              <span className={skill.role === "primary" ? "role primary" : "role"}>{skill.role === "primary" ? "主技能" : "辅助"}</span>
+              <span className="meta" title={attachLabel(skill)}>{tr(attachLabel(skill))}</span>
+              <span className={skill.role === "primary" ? "role primary" : "role"}>{skill.role === "primary" ? tr("主技能") : tr("辅助")}</span>
               <button
                 type="button"
                 role="switch"
                 aria-checked={skill.enabled}
-                aria-label={`${skill.name}启用`}
+                aria-label={tr("{p0}启用", { p0: skill.name })}
                 className={skill.enabled ? "toggle on" : "toggle"}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -133,8 +138,7 @@ export function Skills() {
                 <h2>{selected.name}</h2>
                 {selected.description ? <p className="reader-desc">{selected.description}</p> : null}
                 {selected.userPack || ["humanize", "opening-cards", "volume-arcs", "structure-skeleton", "style-corpus", "novel-craft"].includes(selected.id) ? (
-                  <p className="reader-desc pack-note">
-                    用户完整包：skills/{selected.id}/pack/。按场景自动挂载：{(selected.attachScenes?.length ? selected.attachScenes : [selected.scene]).map(sceneLabel).join("、")}。提示词预览：/api/skills/{selected.id}/prompt-preview
+                  <p className="reader-desc pack-note">{tr("用户完整包：skills/")}{selected.id}{tr("/pack/。按场景自动挂载：")}{(selected.attachScenes?.length ? selected.attachScenes : [selected.scene]).map(sceneLabel).join("、")}{tr("。提示词预览：/api/skills/")}{selected.id}/prompt-preview
                   </p>
                 ) : null}
                 <p className="path">{selected.path}</p>
@@ -142,7 +146,7 @@ export function Skills() {
               <pre className="skill-body">{parsed?.body ?? selected.body}</pre>
             </>
           ) : (
-            <p className="empty">还没有技能。</p>
+            <p className="empty">{tr("还没有技能。")}</p>
           )}
         </article>
       </div>

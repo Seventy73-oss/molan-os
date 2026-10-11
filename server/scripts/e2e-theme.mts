@@ -161,7 +161,7 @@ async function main() {
       });
     check("API 预置正文", (await put("chapter_body", "他不禁看着远方，宛如陷入沉思。茶还没凉，门外已经安静下来。", 1, "chapter_body")).ok);
     check("API 预置大纲", (await put("book_outline", "MOBILE_SEED\n1. 开篇保留", null, "outline")).ok);
-    const shots = path.join(root, "docs/themes");
+    const shots = process.env.MOLAN_AUDIT_OUTPUT || path.join(root, "docs/themes");
     fs.mkdirSync(shots, { recursive: true });
     const themes = ["light", "dark", "paper", "green", "molan", "ash", "mist", "sakura", "night", "contrast", "ancient"];
     const devs = [

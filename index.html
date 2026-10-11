@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <meta name="theme-color" content="#f6f1ea" />
+    <meta name="theme-color" content="#f3f2ec" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="format-detection" content="telephone=no" />
     <title>墨兰写作</title>
@@ -16,7 +16,7 @@
         var dk = { dark: 1, night: 1, contrast: 1, ancient: 1 };
         if (!ok[c]) c = "system";
         var r = c === "system" ? (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : c;
-        var tc = { light: "#f6f1ea", dark: "#1b1916", paper: "#efe3c8", green: "#dbe7d4", molan: "#ececf4", ash: "#e8e8e6", mist: "#dde8e8", sakura: "#f2e4e6", night: "#141b26", contrast: "#000000", ancient: "#2a2119" };
+        var tc = { light: "#f3f2ec", dark: "#171b20", paper: "#efe3c8", green: "#dbe7d4", molan: "#ececf4", ash: "#e8e8e6", mist: "#dde8e8", sakura: "#f2e4e6", night: "#141b26", contrast: "#000000", ancient: "#2a2119" };
         var d = document.documentElement;
         d.setAttribute("data-theme", r);
         d.setAttribute("data-theme-choice", c);
@@ -71,6 +71,7 @@
           .catch(useFallback);
       })();
     </script>
+    <script defer src="https://cdn.eazo.ai/branding/eazo-brand-banner.js" data-eazo-app-id="iylCsXBRrJj5v23U"></script>
   </head>
   <body>
     <div id="root"></div>

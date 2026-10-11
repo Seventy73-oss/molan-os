@@ -1,0 +1,156 @@
+@media(max-width:860px) {
+ :root { --top:58px; --workspace-nav:62px; }
+ .topbar,.app.is-studio .topbar { min-height:calc(var(--top) + var(--safe-top)); height:calc(var(--top) + var(--safe-top)); padding-left:max(21px,var(--safe-left)); padding-right:max(21px,var(--safe-right)); background:var(--paper); }
+ .topbar .brand-emblem { display:none; }
+ .topbar .brand .wordmark { font-size:32px; letter-spacing:-.055em; }
+ .topbar .locale-select { font-size:11px !important; }
+ .app:not(.is-studio) .page { padding:26px max(21px,var(--safe-right)) 0 max(21px,var(--safe-left)); }
+ .shell-rail { padding:0; }
+ .shell-rail .tabs { background:var(--cream); height:calc(var(--workspace-nav) + var(--safe-bottom)); }
+ .shell-rail .tabs a { border:0; gap:5px; height:var(--workspace-nav); font-size:9px; padding:7px 3px; }
+ .shell-rail .tabs a:hover { padding:7px 3px; }
+ .shell-rail .tabs a .nav-number { display:none; }
+ .shell-rail .tabs a.active > .ui-icon:first-child,.m-tab.on > .ui-icon { background:transparent; box-shadow:none; border-radius:0; }
+ .shell-rail .tabs a.active::after { content:""; position:absolute; bottom:7px; width:3px; height:3px; border-radius:50%; background:var(--accent); }
+ .shell-rail .tabs a.active { padding-bottom:12px; }
+ .atelier-scroll-line { left:0; top:calc(var(--eazo-handoff-top,0px) + var(--top) + var(--safe-top)); }
+ .atelier-library .library-hero { flex-wrap:nowrap; gap:10px; }
+ .atelier-library .hero-copy { flex:1; min-width:0; }
+ .atelier-library .hero-copy .eyebrow { font-size:8px; margin:0; letter-spacing:.04em; gap:7px; }
+ .library-volume { display:none; }
+ .atelier-library .library-actions { width:auto; flex:none; gap:7px; }
+ .atelier-library .library-actions .btn { min-height:34px; padding:5px 8px; font-size:10px; gap:5px; }
+ .atelier-library .library-actions > .btn.primary { min-width:0; }
+ .atelier-library .import-tools summary > span { display:none; }
+ .atelier-library .import-tools summary .ui-icon:last-child { display:none; }
+ .atelier-library .import-options { left:auto; right:-70px; top:calc(100% + 9px); }
+ .atelier-hero { display:grid; grid-template-columns:minmax(0,1fr); min-height:0; margin-top:25px; padding:0; }
+ .atelier-title-block { display:contents; padding:0; pointer-events:none; }
+ .atelier-title-block > .edition-marker { grid-row:1; }
+ .atelier-title-block > .atelier-title { grid-row:2; }
+ .atelier-title-block > .atelier-intro { grid-row:3; }
+ .atelier-title-block button { pointer-events:auto; }
+ .edition-marker { font-size:6px; margin:0 0 17px; letter-spacing:.07em; }
+ .atelier-title { font-size:clamp(62px,15.5vw,116px); line-height:1.07; letter-spacing:-.08em; }
+ .title-line.second { padding-left:.65em; margin-top:1px; }
+ .atelier-title.is-english { font-size:clamp(71px,17vw,124px); line-height:1; }
+ .is-english .title-line.second { padding-left:.45em; }
+ .atelier-intro { margin-top:25px; gap:14px; font-size:11px; max-width:92%; }
+ .intro-index { font-size:8px; }
+ .atelier-entry { grid-row:5; margin-top:0; gap:18px; position:relative; z-index:3; pointer-events:auto; min-width:0; }
+ .atelier-primary { font-size:12px; gap:17px; min-height:45px; }
+ .entry-icon { width:37px; height:37px; }
+ .entry-book { max-width:138px; font-size:9px; }
+ .paper-art { grid-column:1; grid-row:4; position:relative; min-height:0; height:245px; z-index:1; }
+ .paper-orbit { width:clamp(124px,37vw,145px); height:auto; aspect-ratio:145/190; top:47%; left:50%; }
+ .leaf-type { font-size:70px; top:15px; left:18px; }
+ .leaf-folio { font-size:6px; bottom:15px; left:18px; }
+ .leaf-lines { left:18px; right:18px; bottom:34px; height:16px; }
+ .art-coordinate { font-size:5px; left:15px; right:7px; }
+ .art-coordinate.top { top:18px; }
+ .art-coordinate.bottom { bottom:20px; }
+ .art-axis.y { top:35px; bottom:45px; }
+ .art-axis.x { left:5%; }
+ .paper-shadow { bottom:18px; height:22px; }
+ .hero-annotation { grid-row:6; margin-top:21px; padding:12px 0; font-size:6px; letter-spacing:.035em; gap:10px; }
+ .hero-annotation button { font-size:9px; gap:6px; min-height:30px; }
+ .atelier-library .library-overview { padding:22px 0; gap:18px; margin-bottom:31px; }
+ .atelier-library .library-overview > div { display:flex; flex-direction:column; align-items:flex-start; gap:7px; }
+ .atelier-library .library-overview strong { font-size:33px; }
+ .atelier-library .library-overview span { font-size:9px; }
+ .atelier-library .idea-panel { display:block; padding:25px 0; }
+ .atelier-library .idea-intro { display:flex; justify-content:space-between; gap:18px; align-items:center; }
+ .atelier-library .idea-intro h2 { font-size:24px; }
+ .atelier-library .idea-intro p { font-size:10px; margin-top:8px; }
+ .atelier-library .idea-index { font-size:6px; line-height:1.8; margin:0; }
+ .atelier-library .idea-panel .brief { margin:20px 0 12px; display:flex; flex-wrap:nowrap; height:51px; padding:0 0 9px; gap:10px; }
+ .atelier-library .idea-panel .brief input { width:auto; flex:1; height:35px; font-size:16px !important; }
+ .atelier-library .idea-panel .brief .btn { width:auto; min-width:65px; min-height:37px; font-size:11px; padding:9px; gap:6px; flex:none; }
+ .atelier-library .brief-hint { font-size:9px; line-height:1.85; }
+ .atelier-library .library-collection-head { margin:41px 0 23px; display:flex; flex-wrap:wrap; gap:18px; }
+ .collection-edition { width:100%; font-size:7px; padding-bottom:14px; }
+ .atelier-library .section-label h2 { font-size:28px; }
+ .atelier-library .collection-controls { width:100%; gap:12px; }
+ .atelier-library .book-search input { font-size:16px !important; }
+ .atelier-library .collection-controls > select { font-size:12px !important; }
+ .atelier-library .book-grid { gap:33px; }
+ .atelier-library .book-cover { height:280px; padding:23px 26px; }
+ .atelier-library .cover-title { font-size:34px; max-width:90%; }
+ .atelier-library .cover-topline,.atelier-library .cover-bottomline { font-size:8px; }
+ .atelier-library .book-details { padding-top:18px; }
+ .atelier-library .book-title { font-size:23px; }
+ .atelier-library .book-logline { min-height:0; font-size:12px; }
+ .atelier-library .book-progress { font-size:11px; }
+ .atelier-library .book-export { font-size:11px; min-height:44px; }
+ .atelier-library .book-trash { width:44px; height:44px; }
+ .atelier-library .book-confirm .btn { min-height:44px; }
+ .atelier-library .book-card.new { min-height:240px; padding:30px; }
+ .atelier-library .new-title { font-size:26px; }
+ .atelier-library .library-colophon { margin-top:55px; padding-top:28px; }
+ .colophon-large { font-size:clamp(90px,26vw,200px); }
+ .colophon-large > span { font-size:10px; margin-top:8px; margin-left:8px; }
+ .colophon-bottom { font-size:6px; margin-top:21px; padding:22px 0; gap:9px; }
+ .colophon-bottom .ui-icon { width:14px; height:14px; }
+ .page-head { padding-bottom:27px; margin-bottom:28px; }
+ .page-head h1 { font-size:52px; }
+ .page-english-title { font-size:9px; margin-top:13px; }
+ .page-head .sub { font-size:12px; margin-top:19px; }
+ .settings-page > .card,.settings-page > .panel { padding:23px 0 30px; }
+ .theme-grid { gap:9px; }
+ .theme-opt { padding:8px; }
+ .theme-swatch { height:51px; }
+ .font-opt { padding:20px 17px; }
+ .reader { padding:25px 18px; }
+ .reader-head h2 { font-size:27px; }
+ .provider-head h2,.route-head h2 { font-size:27px; }
+ .app.is-studio .topbar .crumb-current { font-family:var(--display); font-size:14px; }
+ .app.is-studio .topbar { background:var(--cream); }
+ .studio > .sidebar.rail,.studio > .assistant.rail { background:var(--paper); }
+ .studio > .center { background:var(--cream); }
+ .doc-bar { padding:8px max(17px,var(--safe-right)) 8px max(17px,var(--safe-left)); background:var(--cream); }
+ .doc-tools .btn { min-height:35px; }
+ .doc-title { font-size:32px; margin:21px 0 31px; }
+ .page-doc.sheet,.is-focused .page-doc.sheet { border:0; padding-top:29px; margin:0; background:var(--cream); }
+ .doc-meta { font-size:9px; }
+ .m-tabbar { background:var(--cream); }
+ .m-tab { font-size:9px; position:relative; }
+ .m-tab.on::after { content:""; position:absolute; bottom:8px; height:3px; width:3px; border-radius:50%; background:var(--accent); }
+ .m-tab.on { padding-bottom:5px; }
+ .assistant-head { padding:23px 21px 14px; }
+ .assistant-head h2 { font-size:23px; }
+ .assistant-subtitle { font-size:10px; }
+ .assistant-spark { width:32px; }
+ .assistant-context { padding-bottom:13px; }
+ .transcript { padding:21px; }
+ .chat-empty { padding:17px 0; }
+ .chat-empty-title { font-size:26px; }
+ .chat-empty-sub { font-size:12px; }
+ .chat-empty-mark { margin-bottom:19px; width:36px; height:36px; }
+ .suggestion { min-height:46px; font-size:12px; padding:12px 0; }
+ .composer { padding:11px 15px 16px; background:var(--paper); }
+ .tools-drawer { border-radius:0; }
+ .tools-drawer-title { padding:17px 18px; }
+ .tools-drawer-title h2 { font-size:24px; }
+}
+@media(min-width:560px) and (max-width:860px) {
+ .atelier-hero { display:grid; min-height:430px; grid-template-columns:1.1fr 1fr; padding-top:15px; }
+ .atelier-title-block { display:block; position:relative; z-index:2; }
+ .atelier-title { font-size:clamp(54px,10.3vw,80px); }
+ .atelier-title.is-english { font-size:clamp(54px,10vw,78px); }
+ .atelier-entry { margin-top:35px; flex-wrap:wrap; gap:8px; }
+ .paper-art { grid-column:2; grid-row:1; position:relative; top:auto; left:auto; right:auto; height:auto; min-height:320px; }
+ .paper-orbit { width:clamp(110px,20.5vw,175px); height:auto; aspect-ratio:175/224; }
+ .hero-annotation { grid-row:2; margin-top:25px; }
+ .atelier-library .library-overview > div { flex-direction:row; align-items:baseline; gap:8px; }
+ .atelier-library .book-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:30px clamp(20px,3.8vw,30px); }
+ .atelier-library .book-cover { height:clamp(254px,38vw,304px); padding:23px clamp(18px,3vw,26px); }
+ .atelier-library .cover-title { font-size:clamp(27px,4.2vw,34px); }
+ .atelier-library .book-title { font-size:clamp(20px,2.7vw,23px); }
+ .atelier-library .book-logline { min-height:3.8em; }
+}
+/* Keep the full literary composition; tighten only shorter phone viewports. */
+@media(max-width:559px) and (max-height:800px) {
+ .atelier-library .atelier-intro { margin-top:21px; }
+ .atelier-library .paper-art { height:215px; }
+ .atelier-library .paper-orbit { width:clamp(118px,35vw,133px); }
+}

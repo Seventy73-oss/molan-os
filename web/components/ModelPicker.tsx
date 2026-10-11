@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { t as tr, useLocale } from "../lib/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelInfo } from "../api";
 
@@ -26,6 +28,7 @@ export function ModelPicker({
   compact,
   onChange,
 }: Props) {
+  useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(value);
   const root = useRef<HTMLDivElement>(null);
@@ -64,7 +67,7 @@ export function ModelPicker({
           ref={input}
           value={open ? query : value}
           disabled={disabled}
-          placeholder={placeholder}
+          placeholder={tr(placeholder)}
           spellCheck={false}
           aria-autocomplete="list"
           aria-expanded={open}
@@ -102,16 +105,14 @@ export function ModelPicker({
             className="picker-caret"
             tabIndex={-1}
             disabled={disabled}
-            aria-label="打开模型列表"
+            aria-label={tr("打开模型列表")}
             onClick={() => {
               setOpen((v) => !v);
               setQuery("");
               input.current?.focus();
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon name="down" size={14} />
           </button>
         ) : null}
       </div>
@@ -119,10 +120,10 @@ export function ModelPicker({
         <div className="picker-menu" role="listbox">
           {allowEmpty ? (
             <button type="button" className={!value ? "picker-option on" : "picker-option"} onMouseDown={(e) => e.preventDefault()} onClick={() => commit("")}>
-              <span>{emptyLabel}</span>
+              <span>{tr(emptyLabel)}</span>
             </button>
           ) : null}
-          {filtered.length === 0 ? <div className="picker-empty">没有匹配的模型。回车使用「{query.trim() || "…"}」</div> : null}
+          {filtered.length === 0 ? <div className="picker-empty">{tr("没有匹配的模型。回车使用「")}{query.trim() || "…"}{tr("」")}</div> : null}
           {filtered.map((model) => (
             <button
               key={model.id}

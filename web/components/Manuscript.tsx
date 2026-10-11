@@ -1,3 +1,4 @@
+import { t as tr, useLocale } from "../lib/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
@@ -191,6 +192,7 @@ export function Manuscript({
   seek,
   onSeekDone,
 }: Props) {
+  useLocale();
   const emitted = useRef<string | null>(null);
   const [bubble, setBubble] = useState<Bubble | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
@@ -268,7 +270,7 @@ export function Manuscript({
         spellcheck: "false",
         role: "textbox",
         "aria-multiline": "true",
-        "aria-label": "稿件正文",
+        "aria-label": tr("稿件正文"),
       },
       handlePaste(_view, event) {
         const plain = event.clipboardData?.getData("text/plain");
@@ -428,7 +430,7 @@ export function Manuscript({
       const safeTo = Math.max(safeFrom, Math.min(to, size));
       const currentSlice = editor.state.doc.textBetween(safeFrom, safeTo, "\n", "\n");
       if (currentSlice !== selected) {
-        window.alert("原文已变化，选区改写结果未自动套用。请重新选择后再试。");
+        window.alert(tr("原文已变化，选区改写结果未自动套用。请重新选择后再试。"));
         return;
       }
       if (action === "continue") {
@@ -461,7 +463,7 @@ export function Manuscript({
               className={[busy ? "sel-bubble busy" : "sel-bubble", bubble.below ? "below" : ""].filter(Boolean).join(" ")}
               style={{ top: bubble.top, left: bubble.left }}
               role="toolbar"
-              aria-label="选区助手"
+              aria-label={tr("选区助手")}
               onMouseDown={(event) => {
                 const target = event.target as HTMLElement | null;
                 if (target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT")) return;
@@ -478,7 +480,7 @@ export function Manuscript({
                     title={item.instruction}
                     onClick={() => void runAssist(item.id, item.instruction)}
                   >
-                    {item.label}
+                    {tr(item.label)}
                   </button>
                 ))}
                 <span className="sel-sep" aria-hidden="true" />
@@ -487,15 +489,13 @@ export function Manuscript({
                   className={promptOpen ? "sel-chip soft on" : "sel-chip soft"}
                   disabled={busy}
                   onClick={() => setPromptOpen((open) => !open)}
-                >
-                  对助手说…
-                </button>
+                >{tr("对助手说…")}</button>
               </div>
               {promptOpen ? (
                 <div className="sel-prompt">
                   <textarea
                     value={promptText}
-                    placeholder="例如：语气再冷一点，别解释动机…"
+                    placeholder={tr("例如：语气再冷一点，别解释动机…")}
                     rows={2}
                     disabled={busy}
                     onChange={(event) => setPromptText(event.target.value)}
@@ -518,9 +518,7 @@ export function Manuscript({
                           onAskAssistant(bubble.text);
                           hideBubble();
                         }}
-                      >
-                        发到侧栏
-                      </button>
+                      >{tr("发到侧栏")}</button>
                     ) : null}
                     <button
                       type="button"
@@ -532,12 +530,12 @@ export function Manuscript({
                         void runAssist("custom", ask);
                       }}
                     >
-                      {busy ? "改写中…" : "应用到选区"}
+                      {busy ? tr("改写中…") : tr("应用到选区")}
                     </button>
                   </div>
                 </div>
               ) : null}
-              {busy ? <div className="sel-busy">正在改写选区…</div> : null}
+              {busy ? <div className="sel-busy">{tr("正在改写选区…")}</div> : null}
             </div>,
             document.body,
           )

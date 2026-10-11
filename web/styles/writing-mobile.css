@@ -1,0 +1,119 @@
+@media(max-width:860px) {
+  :root { --top:56px; --workspace-nav:64px; }
+  .writing-shell .topbar,.app.is-studio.writing-shell .topbar { min-height:calc(var(--top) + var(--safe-top)); height:calc(var(--top) + var(--safe-top)); padding:var(--safe-top) max(20px,var(--safe-right)) 0 max(20px,var(--safe-left)); gap:12px; }
+  .writing-shell .brand .wordmark { font-size:25px; }
+  .writing-shell .brand-emblem { display:none; }
+  .writing-shell .masthead-navigation { display:contents; }
+  .writing-shell .shell-rail .tabs { position:fixed; height:calc(var(--workspace-nav) + var(--safe-bottom)); bottom:var(--eazo-handoff-bottom,0px); left:0; right:0; width:auto; padding:0 max(8px,var(--safe-right)) var(--safe-bottom) max(8px,var(--safe-left)); border-top:1px solid var(--line); border-radius:0; gap:0; background:var(--cream); }
+  .writing-shell .shell-rail .tabs a,.writing-shell .shell-rail .tabs a:hover { flex:1; height:var(--workspace-nav); width:auto; flex-direction:column; justify-content:center; gap:5px; padding:8px 3px; font-size:11px; border:0; border-radius:0; background:transparent; }
+  .writing-shell .shell-rail .tabs a.active { background:none; color:var(--accent); }
+  .writing-shell .shell-rail .tabs a > .ui-icon { width:20px; height:20px; }
+  .writing-shell .shell-rail .tabs a.active > .ui-icon:first-child { background:none; box-shadow:none; border-radius:0; }
+  .writing-shell .locale-select { width:86px; min-height:40px; font-size:12px !important; }
+  .writing-shell .language-control { margin-left:auto; }
+  .app:not(.is-studio) .page { padding:26px max(24px,var(--safe-right)) 36px max(24px,var(--safe-left)); }
+  .page-head,.settings-page .page-head { margin-bottom:24px; padding:0; gap:18px; }
+  .page-head h1,.library-hero h1 { font-size:25px; }
+  .page-head .sub { font-size:12px; margin-top:7px; }
+  .library-page .library-hero { gap:16px; margin-bottom:24px; }
+  .library-page .library-actions { width:auto; gap:9px; }
+  .library-page .library-actions > .btn.primary { min-width:0; }
+  .library-page .library-actions .btn { min-height:42px; height:42px; padding:0 12px; font-size:12px; }
+  .library-page .import-options { left:auto; right:0; }
+  .library-page .card-form { padding:20px 18px; }
+  .library-page .library-collection-head { margin:0 0 12px; gap:14px; }
+  .library-page .collection-controls { width:100%; flex:1; justify-content:space-between; gap:10px; }
+  .library-page .book-search { flex:1; width:auto; max-width:300px; }
+  .library-page .book-search input { height:40px; font-size:16px !important; }
+  .library-page .collection-controls > select { height:40px; width:112px; flex:none; font-size:12px !important; }
+  .library-page .book-grid { gap:0; }
+  .library-page .book-card { min-height:130px; padding:19px 18px; gap:16px; }
+  .library-page .book-resume { min-height:40px; height:40px; padding:0 10px; font-size:12px; }
+  .book-more > summary { width:40px; height:40px; }
+  .library-page .book-actions-menu button { min-height:44px; }
+  .library-page .book-confirm { padding:14px; }
+  .library-page .book-confirm .actions { margin-left:auto; }
+  .library-page .idea-panel { margin-top:24px; }
+  .library-page .idea-intro { min-height:52px; padding:16px 2px; font-size:12px; }
+  .library-page .idea-panel .brief { gap:9px; padding:6px 6px 6px 12px; }
+  .library-page .idea-panel .brief input { font-size:16px !important; }
+  .library-page .idea-panel .brief .btn { min-height:40px; padding:0 10px; justify-content:center; }
+  .library-page .brief-hint { font-size:11px; }
+  .app.is-studio.writing-shell { --top:56px; }
+  .app.is-studio.writing-shell .topbar { padding-left:max(16px,var(--safe-left)); padding-right:max(16px,var(--safe-right)); gap:8px; }
+  .app.is-studio.writing-shell .topbar .brand { display:none; }
+  .app.is-studio .topbar .crumb-current { font-family:var(--sans); font-size:13px; max-width:none; }
+  .is-studio .language-control { margin-left:0; }
+  .is-studio .topbar .locale-select { width:72px; font-size:10px !important; }
+  .app.is-studio .topbar .save-state { font-size:10px; }
+  .studio > .sidebar.rail,.studio > .assistant.rail { background:var(--paper); }
+  .studio > .sidebar.rail { padding:24px max(22px,var(--safe-right)) 28px max(22px,var(--safe-left)); }
+  .studio .studio-book-heading { padding:0 4px 21px; margin-bottom:22px; }
+  .studio-book-heading h2 { font-size:18px; margin-top:6px; }
+  .studio-book-heading p { font-size:12px; }
+  .studio-book-overline { font-size:11px; }
+  .tree-item,.tree-item.chapter-row,.tree-item.child { min-height:44px; font-size:14px; }
+  .tree-item.child { font-size:13px; }
+  .doc-bar,.doc-bar.scrolled { background:var(--cream); padding:7px max(16px,var(--safe-right)) 7px max(16px,var(--safe-left)); }
+  .doc-count { font-size:10px; }
+  .doc-tools { width:100%; gap:6px; }
+  .doc-tools .btn { min-height:38px; padding:7px 9px; }
+  .page-doc.sheet,.is-focused .page-doc.sheet { width:100%; max-width:none; margin:0; padding:27px max(24px,var(--safe-right)) 70px max(24px,var(--safe-left)); border:0; box-shadow:none; background:var(--cream); }
+  .doc-title { font-size:26px; margin:13px 0 26px; }
+  .doc-meta { font-size:10px; line-height:1.9; }
+  .doc-empty { padding:20px 0; }
+  .doc-empty h2 { font-size:19px; }
+  .doc-empty p { font-size:13px; }
+  .doc-empty-actions { flex-wrap:wrap; }
+  .assistant-head { padding:21px 21px 14px; gap:14px; }
+  .assistant-head h2 { font-size:16px; }
+  .assistant-head .model-line { font-size:11px; min-height:34px; }
+  .assistant-head .key-hint { font-size:11px; }
+  .assistant-context { padding:0 20px 10px; }
+  .segment button { min-height:36px; font-size:12px; }
+  .transcript { padding:21px; }
+  .chat-empty { padding:10px 0; }
+  .chat-empty-title { font-size:19px; }
+  .chat-empty-sub { font-size:12px; }
+  .suggestion { font-size:12px; min-height:44px; padding:11px 12px; }
+  .composer { padding:11px 16px 15px; }
+  .composer textarea { font-size:16px !important; }
+  .composer .send,.composer .jobs-btn { width:38px; height:38px; }
+  .m-tabbar { background:var(--cream); border-color:var(--line); }
+  .m-tab { font-size:11px; font-weight:400; }
+  .m-tab.on > .ui-icon { background:none; box-shadow:none; border-radius:0; }
+  .tools-drawer { border-radius:0; }
+  .tools-drawer-title { padding:16px 18px 14px; }
+  .tools-drawer-title h2 { font-size:17px; }
+  .settings-page > .card,.settings-page > .panel { padding:22px 17px; }
+  .settings-page > .card > h2,.provider-head h2,.route-head h2,.reader-head h2 { font-size:19px; }
+  .theme-swatch { height:42px; }
+  .theme-name { font-size:12px; }
+  .theme-desc { font-size:11px; }
+  .reader { padding:23px 18px; }
+}
+@media(max-width:559px) {
+  .app:not(.is-studio) .page { padding:24px max(20px,var(--safe-right)) 34px max(20px,var(--safe-left)); }
+  .library-page .library-hero { align-items:flex-start; flex-direction:column; gap:17px; }
+  .library-page .library-actions { width:100%; justify-content:flex-start; }
+  .library-page .library-actions > .btn.primary { margin-left:auto; }
+  .library-page .import-options { left:0; right:auto; }
+  .library-page .collection-controls { width:100%; flex:0 0 100%; gap:9px; }
+  .library-page .book-search { max-width:none; }
+  .library-page .collection-controls > select { width:106px; }
+  .library-page .book-card { grid-template-columns:28px minmax(0,1fr); gap:12px; padding:18px 15px 13px; }
+  .book-file-mark { width:28px; height:34px; border:0; background:transparent; margin-top:0; }
+  .book-file-mark .ui-icon { width:21px; height:21px; }
+  .library-page .book-heading { align-items:flex-start; flex-direction:column; gap:4px; }
+  .library-page .book-title { font-size:16px; line-height:1.6; }
+  .library-page .book-genre { font-size:11px; }
+  .library-page .book-logline { margin:7px 0 9px; font-size:12px; }
+  .library-page .book-progress { font-size:11px; gap:6px 14px; }
+  .library-page .book-card-actions { grid-column:2; width:100%; justify-content:space-between; gap:10px; }
+  .library-page .book-resume { box-shadow:none; padding:0; gap:8px; background:none; }
+  .library-page .book-resume:hover { color:var(--accent); background:none; }
+  .library-page .book-confirm { grid-column:1 / -1; }
+  .idea-summary-note { display:none; }
+  .library-page .idea-panel .brief .btn { gap:6px; padding:0 10px; }
+  .library-page .idea-panel .brief .btn > .ui-icon:last-child { display:none; }
+}

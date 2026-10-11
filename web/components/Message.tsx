@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { t as tr, useLocale } from "../lib/i18n";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 const SCENE_HEAD = /^(场景\s*[一二三四五六七八九十百\d]+)\s*[·・:：\-—]?\s*(.*)$/;
@@ -5,6 +7,7 @@ const CHAPTER_HEAD = /^(第\s*[一二三四五六七八九十百\d]+\s*章)\s*(.
 const FIELD = /^([\u4e00-\u9fa5A-Za-z]{1,6})[：:]\s*(.+)$/;
 
 function Line({ text }: { text: string }) {
+  useLocale();
   if (!text.trim()) return <div className="m-gap" />;
   const scene = SCENE_HEAD.exec(text);
   if (scene) {
@@ -41,6 +44,7 @@ function Line({ text }: { text: string }) {
  * shown line by line. Long replies collapse to about six lines with a 展开 toggle.
  */
 export function AssistantMessage({ content, hasSummary, action }: { content: string; hasSummary: boolean; action?: ReactNode }) {
+  useLocale();
   const lines = content.replace(/\r\n?/g, "\n").split("\n");
   const summary = hasSummary && lines.length > 1 ? lines[0] : null;
   const body = (summary !== null ? lines.slice(1) : lines).join("\n").replace(/^\n+|\n+$/g, "").split(/\n/);
@@ -66,10 +70,8 @@ export function AssistantMessage({ content, hasSummary, action }: { content: str
         <div className="m-actions">
           {overflow ? (
             <button type="button" className="m-toggle" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-              {open ? "收起" : "展开"}
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className={open ? "flip" : ""}>
-                <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              {open ? tr("收起") : tr("展开")}
+              <Icon name="down" size={14} className={open ? "flip" : ""} />
             </button>
           ) : null}
           {action}

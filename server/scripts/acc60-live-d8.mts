@@ -2,7 +2,8 @@
 // ACC60 D8：真实模型写满 ≥10 万字后重生成第 3 章，核对全书设定。可续跑：进度在 data/acc60/d8/state.json
 import fs from "node:fs";
 const B = "http://127.0.0.1:8787";
-const j = async (m, p, b) => { const r = await fetch(B + p, { method: m, headers: { "content-type": "application/json" }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { s: r.status, d }; };
+const j = async (m, p, b) => { try { return await j0(m, p, b); } catch (e) { return { s: 0, d: { fetchError: String(e?.cause?.code || e) } }; } };
+const j0 = async (m, p, b) => { const r = await fetch(B + p, { method: m, headers: { "content-type": "application/json" }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { s: r.status, d }; };
 const OUT = "/workspace/changjuan/data/acc60/d8"; fs.mkdirSync(OUT, { recursive: true });
 const SF = OUT + "/state.json";
 const S = fs.existsSync(SF) ? JSON.parse(fs.readFileSync(SF, "utf8")) : { startedAt: Date.now(), ch: {}, total: 0 };

@@ -22,6 +22,9 @@ import { selectionSkillScene, skillPromptMeta, skillsForScene, toSkillTexts } fr
 import { sceneKind } from "./agent/adapter";
 import { normalizeThinking } from "./thinking";
 import { isAbortError, throwIfAborted } from "./abortUtil";
+import { estimateTokensFromText, recordUsage } from "./usage";
+
+export const EMPTY_STREAM_RETRIES = 2;
 
 type Emit = (event: Record<string, unknown>) => Promise<void>;
 
@@ -39,11 +42,24 @@ async function streamAdapterRun(
   const adapter = getAdapter(route);
   if (adapter instanceof OpenAICompatibleAdapter) {
     await emit({ type: "status", message: "正在连接模型…" });
-    const result = await adapter.runSceneStream(input, async (delta) => {
-      throwIfAborted(input.signal);
-      await emit({ type: "token", text: delta });
-    });
-    return result;
+    // 中转偶发返回空流（无任何 token）：未输出任何内容时自动重试，最多再试 EMPTY_STREAM_RETRIES 次
+    for (let attempt = 0; ; attempt++) {
+      let emitted = 0;
+      try {
+        return await adapter.runSceneStream(input, async (delta) => {
+          throwIfAborted(input.signal);
+          emitted += delta.length;
+          await emit({ type: "token", text: delta });
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "";
+        if (emitted === 0 && attempt < EMPTY_STREAM_RETRIES && /空流式响应/.test(msg) && !input.signal?.aborted) {
+          await emit({ type: "status", message: `模型返回空流，自动重试（${attempt + 1}/${EMPTY_STREAM_RETRIES}）…` });
+          continue;
+        }
+        throw error;
+      }
+    }
   }
   await emit({ type: "status", message: "本地草稿生成中…" });
   const result = await adapter.runScene(input);
@@ -184,6 +200,24 @@ export async function streamSceneRun(
     );
 
     throwIfAborted(input.signal);
+    try {
+      // C8：流式路径也记用量（优先 provider usage，否则估算）
+      const promptTokens = result.usage?.promptTokens ?? estimateTokensFromText(context + instruction);
+      const completionTokens = result.usage?.completionTokens ?? estimateTokensFromText(result.text);
+      recordUsage({
+        bookId: input.bookId,
+        scene: input.scene,
+        model: result.modelUsed,
+        provider: route.provider,
+        promptTokens,
+        completionTokens,
+        totalTokens: result.usage?.totalTokens ?? promptTokens + completionTokens,
+        local: /local/i.test(result.modelUsed),
+        meta: { stream: true, chars: Array.from(result.text).length },
+      });
+    } catch (error) {
+      console.error("[usage] stream record failed", error);
+    }
 
     const asCandidateNow = generationWriteShouldBeCandidate(input.generationId, input.signal);
     const saved = kind

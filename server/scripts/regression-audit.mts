@@ -1840,6 +1840,27 @@ z.close()
     }
   }
 
+  // ACC60 验收修复
+  {
+    const eng = await import("../src/engine");
+    const oa = await import("../src/agent/openai");
+    let msg = "";
+    try { eng.createBook({ title: "长".repeat(201) }); } catch (e) { msg = (e as Error).message; }
+    check("ACC60 B2 书名超 200 字明确报错", /最多 200/.test(msg), msg);
+    const bk = eng.createBook({ title: "ACC60删书" }).payload.book;
+    db.prepare("INSERT INTO generations (id, book_id, scene, status, created_at, updated_at) VALUES (?, ?, 'chat', 'completed', ?, ?)").run(crypto.randomUUID(), bk.id, new Date().toISOString(), new Date().toISOString());
+    const a = eng.saveRevision({ bookId: bk.id, kind: "chapter_body", chapterNumber: 1, body: "同一段", source: "human", model: null, skillIds: [], scene: null });
+    const b = eng.saveRevision({ bookId: bk.id, kind: "chapter_body", chapterNumber: 1, body: "同一段", source: "human", model: null, skillIds: [], scene: null });
+    check("ACC60 E4 相同内容保存不产生垃圾版本", a.revisionId === b.revisionId, `${a.revision}/${b.revision}`);
+    eng.deleteBook(bk.id);
+    const left = (db.prepare("SELECT COUNT(*) AS n FROM generations WHERE book_id = ?").get(bk.id) as { n: number }).n;
+    check("ACC60 B6 删书清理 generations 不留孤儿", left === 0, String(left));
+    let err = "";
+    try { oa.assertNotTruncated("length"); } catch (e) { err = (e as Error).message; }
+    check("ACC60 C2 finish_reason=length 报错不存半截稿", /截断/.test(err), err);
+    const body = oa.buildCompletionBody({ scene: "chapter_body", thinkingIntensity: "low", skillTexts: [], context: "", instruction: "x" } as never, "m", true);
+    check("ACC60 C2 正文场景 max_tokens≥16384 + 流式 usage", (body.max_tokens as number) >= 16384 && Boolean(body.stream_options), String(body.max_tokens));
+  }
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

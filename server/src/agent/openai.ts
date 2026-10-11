@@ -60,6 +60,15 @@ function buildMessages(input: RunInput) {
   ];
 }
 
+export const LONG_FORM_MAX_TOKENS = 16384;
+const LONG_FORM_SCENES = new Set(["chapter_body", "humanize", "outline", "chapter_outline", "book_setup", "topic", "memory_extract", "review", "chat"]);
+
+export function assertNotTruncated(finishReason: string | null | undefined) {
+  if (finishReason === "length") {
+    throw new Error("输出被截断（finish_reason=length，超出 max_tokens）；未保存半截稿，请重试或调低思考强度");
+  }
+}
+
 /** Build chat/completions body with thinking intensity mapped to provider fields. */
 export function buildCompletionBody(input: RunInput, model: string, stream: boolean) {
   const level = intensityOf(input);
@@ -79,7 +88,12 @@ export function buildCompletionBody(input: RunInput, model: string, stream: bool
   }
 
   const maxTok = maxTokensHint(level);
-  if (maxTok) body.max_tokens = maxTok;
+  // 长文场景（正文/润色/大纲/细纲/档案）：推理模型会把预算吃在思考上，导致正文半截。
+  // 给长文场景至少 LONG_FORM_MAX_TOKENS，并在 finish_reason=length 时报错而非保存半截稿。
+  const floor = LONG_FORM_SCENES.has(String(input.scene)) ? LONG_FORM_MAX_TOKENS : 0;
+  const finalMax = Math.max(maxTok ?? 0, floor);
+  if (finalMax) body.max_tokens = finalMax;
+  if (stream) body.stream_options = { include_usage: true };
 
   return body;
 }
@@ -116,9 +130,10 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
         throw new Error(`HTTP ${response.status} ${detail}`);
       }
       const data = (await response.json()) as {
-        choices?: { message?: { content?: string } }[];
+        choices?: { message?: { content?: string }; finish_reason?: string | null }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
+      assertNotTruncated(data.choices?.[0]?.finish_reason);
       const text = finalizeModelText(input.scene, data.choices?.[0]?.message?.content ?? "");
       if (!text) throw new Error("空响应");
       return {
@@ -185,6 +200,8 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
       const decoder = new TextDecoder();
       let buffer = "";
       let assembled = "";
+      let finishReason: string | null = null;
+      let streamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
       try {
       while (true) {
         throwIfAborted(input.signal);
@@ -200,8 +217,12 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
           if (!payload || payload === "[DONE]") continue;
           try {
             const json = JSON.parse(payload) as {
-              choices?: { delta?: { content?: string } }[];
+              choices?: { delta?: { content?: string }; finish_reason?: string | null }[];
+              usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
             };
+            if (json.usage) streamUsage = json.usage;
+            const fr = json.choices?.[0]?.finish_reason;
+            if (fr) finishReason = fr;
             const delta = json.choices?.[0]?.delta?.content ?? "";
             if (delta) {
               assembled += delta;
@@ -212,9 +233,20 @@ export class OpenAICompatibleAdapter implements AgentRuntimeAdapter {
           }
         }
       }
+      assertNotTruncated(finishReason);
       const text = finalizeModelText(input.scene, assembled);
       if (!text) throw new Error("空流式响应");
-      return { text, modelUsed: model };
+      return {
+        text,
+        modelUsed: model,
+        usage: streamUsage
+          ? {
+              promptTokens: streamUsage.prompt_tokens,
+              completionTokens: streamUsage.completion_tokens,
+              totalTokens: streamUsage.total_tokens,
+            }
+          : undefined,
+      };
       } finally {
         if (input.signal) input.signal.removeEventListener("abort", onAbort);
       }

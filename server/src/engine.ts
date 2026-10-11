@@ -34,6 +34,14 @@ const CN: Record<string, number> = {
   九: 9,
 };
 
+export const BOOK_TITLE_MAX = 200;
+export const CHAT_MESSAGE_MAX = 20000;
+const BOOK_SCOPED_TABLES = [
+  "generations", "story_book_heads", "chapter_publications", "memory_proposals", "story_fact_sets",
+  "story_facts", "story_operation_results", "story_outbox", "hook_events", "story_knowledge_events",
+  "bible_card_revisions", "story_batches",
+] as const;
+
 export function cnNumber(token: string): number | null {
   if (/^\d+$/.test(token)) return Number(token);
   if (token === "十") return 10;
@@ -204,6 +212,7 @@ export function createBook(input: {
   }
   const title = input.title.trim();
   if (!title) throw new HttpError(400, "要有书名");
+  if ([...title].length > BOOK_TITLE_MAX) throw new HttpError(400, `书名最多 ${BOOK_TITLE_MAX} 字`);
   const count = Math.min(48, Math.max(1, input.targetChapters ?? 12));
   const id = crypto.randomUUID();
   const created = now();
@@ -248,6 +257,7 @@ export function updateBook(
   const book = mustBook(bookId);
   const title = input.title !== undefined ? input.title.trim() : book.title;
   if (!title) throw new HttpError(400, "要有书名");
+  if ([...title].length > BOOK_TITLE_MAX) throw new HttpError(400, `书名最多 ${BOOK_TITLE_MAX} 字`);
   const genre = input.genre !== undefined ? input.genre.trim() : book.genre;
   const logline = input.logline !== undefined ? input.logline.trim() : book.logline;
   const style = input.style !== undefined ? input.style.trim() : book.style;
@@ -342,6 +352,10 @@ export function deleteBook(id: string) {
     db.prepare("DELETE FROM context_snapshots WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM api_usage WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM idempotency_keys WHERE book_id = ?").run(id);
+    // 兜底：generations / story_* 等也按 book_id 清理，不留孤儿（B6）
+    for (const name of BOOK_SCOPED_TABLES) {
+      db.prepare(`DELETE FROM ${name} WHERE book_id = ?`).run(id);
+    }
     db.prepare("DELETE FROM books WHERE id = ?").run(id);
   });
   tx();
@@ -542,6 +556,15 @@ export function saveRevision(input: {
         }
       }
     }
+    // E4：人工保存内容与当前修订完全相同时不产生垃圾版本
+    if (input.source === "human" && !asCandidate && artifact.current_revision_id) {
+      const cur = db
+        .prepare("SELECT id, revision, body FROM artifact_revisions WHERE id = ?")
+        .get(artifact.current_revision_id) as { id: string; revision: number; body: string } | undefined;
+      if (cur && cur.body === input.body) {
+        return { revision: cur.revision, revisionId: cur.id, artifactId: artifact.id, chapterId, chapterNumber, unchanged: true };
+      }
+    }
     const prev = db
       .prepare("SELECT COALESCE(MAX(revision), 0) AS n FROM artifact_revisions WHERE artifact_id = ?")
       .get(artifact.id) as { n: number };
@@ -578,7 +601,20 @@ export function saveRevision(input: {
       }
     }
     return { revision: next, revisionId: revId, artifactId: artifact.id, chapterId, chapterNumber };
-  })();
+  })() as { revision: number; revisionId: string; artifactId: string; chapterId: string | null; chapterNumber: number | null; unchanged?: boolean };
+  if (saved.unchanged) {
+    return {
+      kind: input.kind,
+      revision: saved.revision,
+      revisionId: saved.revisionId,
+      artifactId: saved.artifactId,
+      chapterId: saved.chapterId,
+      chapterNumber: saved.chapterNumber,
+      current: true,
+      conflicted: false,
+      unchanged: true,
+    };
+  }
   if (!asCandidate) {
     applyDerived(input.bookId, input.kind, input.scene, input.body);
     try {
@@ -1545,6 +1581,7 @@ export async function chat(
   const book = mustBook(bookId);
   const text = message.trim();
   if (!text) throw new HttpError(400, "要说一句");
+  if (text.length > CHAT_MESSAGE_MAX) throw new HttpError(400, `单条指令最多 ${CHAT_MESSAGE_MAX} 字，请缩短或分段发送`);
   if (generationId) {
     const began = beginGeneration({
       id: generationId,

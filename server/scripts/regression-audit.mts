@@ -1859,6 +1859,9 @@ z.close()
     try { oa.assertNotTruncated("length"); } catch (e) { err = (e as Error).message; }
     check("ACC60 C2 finish_reason=length 报错不存半截稿", /截断/.test(err), err);
     const body = oa.buildCompletionBody({ scene: "chapter_body", thinkingIntensity: "low", skillTexts: [], context: "", instruction: "x" } as never, "m", true);
+    let zw = "";
+    try { eng.createBook({ title: "\u200b\u200b" }); } catch (e) { zw = (e as Error).message; }
+    check("ACC60 G7 零宽字符书名视为空", /要有书名/.test(zw), zw);
     check("ACC60 C2 正文场景 max_tokens≥16384 + 流式 usage", (body.max_tokens as number) >= 16384 && Boolean(body.stream_options), String(body.max_tokens));
   }
 

@@ -210,7 +210,7 @@ export function createBook(input: {
       | undefined;
     if (hit) return { payload: getBookPayload(hit.book_id), reused: true };
   }
-  const title = input.title.trim();
+  const title = input.title.replace(/[\u200b-\u200d\u2060\ufeff]/g, "").trim();
   if (!title) throw new HttpError(400, "要有书名");
   if ([...title].length > BOOK_TITLE_MAX) throw new HttpError(400, `书名最多 ${BOOK_TITLE_MAX} 字`);
   const count = Math.min(48, Math.max(1, input.targetChapters ?? 12));
@@ -255,7 +255,7 @@ export function updateBook(
   },
 ) {
   const book = mustBook(bookId);
-  const title = input.title !== undefined ? input.title.trim() : book.title;
+  const title = input.title !== undefined ? input.title.replace(/[\u200b-\u200d\u2060\ufeff]/g, "").trim() : book.title;
   if (!title) throw new HttpError(400, "要有书名");
   if ([...title].length > BOOK_TITLE_MAX) throw new HttpError(400, `书名最多 ${BOOK_TITLE_MAX} 字`);
   const genre = input.genre !== undefined ? input.genre.trim() : book.genre;

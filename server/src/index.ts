@@ -413,6 +413,7 @@ app.put("/api/books/:id/artifacts", async (c) => {
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
   const kind = typeof body.kind === "string" ? body.kind : "";
   if (!kind) throw new HttpError(400, "缺少稿件类型");
+  if (!/^[a-z_]{1,40}$/.test(kind)) throw new HttpError(400, "稿件类型无效");
   const chapterNumber = typeof body.chapterNumber === "number" ? body.chapterNumber : null;
   const expectedRevisionId =
     body.expectedRevisionId === null

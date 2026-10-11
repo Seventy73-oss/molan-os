@@ -114,6 +114,28 @@ pub async fn context_preview(
     Ok(Json(preview_context(&db, &id, chapter)?))
 }
 
+pub async fn hard_constraints_list(
+    State(db): State<Db>,
+    Path(id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    use crate::services::hard_constraints as hc;
+    let list: Vec<Value> = hc::list_hard_constraints(&db, &id)?.iter().map(|c| c.to_json()).collect();
+    Ok(Json(json!({ "constraints": list, "budgetChars": hc::HARD_CONSTRAINT_BUDGET_CHARS })))
+}
+
+pub async fn hard_constraints_check(
+    State(db): State<Db>,
+    Path(id): Path<String>,
+    Query(q): Query<ChapterQuery>,
+) -> AppResult<impl IntoResponse> {
+    let n = q.chapter_number.as_deref().and_then(|s| s.parse::<i64>().ok()).filter(|n| *n > 0)
+        .ok_or_else(|| AppError::BadRequest("chapterNumber 必填".into()))?;
+    let body = db.with_conn(|conn| Ok(crate::services::engine::artifact_body(conn, &id, "chapter_body", Some(n))))?;
+    let mut out = crate::services::hard_constraints::check(&db, &id, &body)?;
+    out["chapterNumber"] = json!(n);
+    Ok(Json(out))
+}
+
 pub async fn hooks_list(
     State(db): State<Db>,
     Path(id): Path<String>,

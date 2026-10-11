@@ -216,6 +216,12 @@ export type UsageEntry = {
   createdAt: string;
 };
 
+export type HardConstraintCheck = {
+  checked: number;
+  violations: { constraintId: string; constraint: string; pattern: string; quote: string; index: number }[];
+  needsReview: string[];
+};
+
 export type SceneRunResult = {
   text: string;
   modelUsed: string;
@@ -729,5 +735,6 @@ export const streamApi = {
     ) as Promise<{
       message: ChatMessage;
       saved: Saved | null;
+      hardConstraintCheck?: HardConstraintCheck | null;
     }>,
 };

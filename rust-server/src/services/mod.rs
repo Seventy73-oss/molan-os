@@ -4,6 +4,7 @@ pub mod chapters;
 pub mod engine;
 pub mod features;
 pub mod generations;
+pub mod hard_constraints;
 pub mod hooks;
 pub mod import_book;
 pub mod jobs;

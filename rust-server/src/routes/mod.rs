@@ -82,6 +82,8 @@ pub fn api_router(db: Db) -> Router {
         )
         .route("/api/books/{id}/hooks", get(features_routes::hooks_list).patch(features_routes::hooks_patch))
         .route("/api/books/{id}/context-preview", get(features_routes::context_preview))
+        .route("/api/books/{id}/hard-constraints", get(features_routes::hard_constraints_list))
+        .route("/api/books/{id}/hard-constraints/check", get(features_routes::hard_constraints_check))
         .route("/api/books/{id}/review-issues", get(features_routes::review))
         .route("/api/usage", get(features_routes::usage_global))
         .route("/api/usage/summary", get(features_routes::usage_summary_route))

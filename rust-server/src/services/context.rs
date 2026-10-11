@@ -300,7 +300,9 @@ pub fn build_context_bundle(
     })?;
 
     let (book, chapter_list, current, tail, profile, outline, ch_outline, ch_body) = book_bits;
-    let text = [
+    let hard = crate::services::hard_constraints::format_section(db, book_id)?;
+    let hard_head: Vec<String> = if hard.is_empty() { vec![] } else { vec!["【硬约束】".into(), hard] };
+    let text = hard_head.into_iter().chain([
         "【书】".to_string(),
         format!("书名：{}", book.title),
         format!("题材：{}", book.genre),
@@ -333,7 +335,8 @@ pub fn build_context_bundle(
         tail,
         "【作者指令】".into(),
         instruction.to_string(),
-    ]
+    ])
+    .collect::<Vec<String>>()
     .join("\n");
 
     let missing = missing_hints(bible_inc.len(), mem_inc.len(), hook_inc.len(), chapter_number);

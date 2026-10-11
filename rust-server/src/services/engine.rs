@@ -407,6 +407,11 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
                     }
                 }
             }
+            let body = db.with_conn(|conn| Ok(artifact_body(conn, &input.book_id, "chapter_body", Some(n))))?;
+            let hc = crate::services::hard_constraints::format_for_review(db, &input.book_id, &body)?;
+            if !hc.is_empty() {
+                instruction = if instruction.is_empty() { hc } else { format!("{instruction}\n\n{hc}") };
+            }
         }
     }
     let built = build_context_for_scene(
@@ -583,6 +588,7 @@ pub async fn execute_scene(db: &Db, input: ExecuteSceneInput) -> AppResult<Value
         "skills": skills_json,
         "skillPromptMeta": skill_meta,
         "saved": saved,
+        "hardConstraintCheck": crate::services::hard_constraints::post_generation_check(db, &input.book_id, &input.scene, &result.text),
     }))
 }
 
@@ -637,7 +643,10 @@ pub async fn rewrite_selection(
         scene: "humanize".into(),
         model: Some(route.model_id.clone()),
         skill_texts,
-        context: format!("【待改片段】\n{selection}\n"),
+        context: {
+            let hard = crate::services::hard_constraints::format_section(db, book_id)?;
+            if hard.is_empty() { format!("【待改片段】\n{selection}\n") } else { format!("【硬约束】\n{hard}\n【待改片段】\n{selection}\n") }
+        },
         instruction: [
             instruction.as_str(),
             "只改写上面的「待改片段」。",
@@ -677,6 +686,7 @@ pub async fn rewrite_selection(
         "local": local,
         "skills": skills_json,
         "skillPromptMeta": skill_meta,
+        "hardConstraintCheck": crate::services::hard_constraints::post_generation_check(db, book_id, "selection_rewrite", &text),
     }))
 }
 
@@ -776,9 +786,12 @@ pub async fn chat(
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let body = result.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let hc_check = result.get("hardConstraintCheck").cloned().unwrap_or(Value::Null);
+                let hc_note = crate::services::hard_constraints::violations_note(&hc_check);
                 let content = format!(
-                    "已写入{where_ch}{label}，修订 {rev}。用的是{}。\n{}",
+                    "已写入{where_ch}{label}，修订 {rev}。用的是{}。{}\n{}",
                     model_label(model),
+                    if hc_note.is_empty() { String::new() } else { format!("\n{hc_note}") },
                     reply_body(body)
                 );
                 let meta = json!({
@@ -787,6 +800,7 @@ pub async fn chat(
                     "saved": saved,
                     "skills": result.get("skills"),
                     "skillPromptMeta": result.get("skillPromptMeta"),
+                    "hardConstraintCheck": hc_check,
                 });
                 let assistant = insert_message(db, book_id, "assistant", &content, Some(&meta))?;
                 let out = json!({
@@ -794,6 +808,7 @@ pub async fn chat(
                     "saved": saved,
                     "skills": result.get("skills"),
                     "skillPromptMeta": result.get("skillPromptMeta"),
+                    "hardConstraintCheck": hc_check,
                 });
                 Ok(out)
             }
@@ -1012,6 +1027,11 @@ pub async fn stream_scene_run(
                     }
                 }
             }
+            let body = db.with_conn(|conn| Ok(artifact_body(conn, &input.book_id, "chapter_body", Some(n))))?;
+            let hc = crate::services::hard_constraints::format_for_review(db, &input.book_id, &body)?;
+            if !hc.is_empty() {
+                instruction = if instruction.is_empty() { hc } else { format!("{instruction}\n\n{hc}") };
+            }
         }
     }
     let built = build_context_for_scene(
@@ -1181,6 +1201,7 @@ pub async fn stream_scene_run(
         "skills": skills_json,
         "skillPromptMeta": skill_meta,
         "saved": saved,
+        "hardConstraintCheck": crate::services::hard_constraints::post_generation_check(db, &input.book_id, &input.scene, &result.text),
     });
 
     if let Some(gid) = input.generation_id.as_deref() {

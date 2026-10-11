@@ -4355,3 +4355,12 @@ label {
 .jobs-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .composer-meta, .composer-hint, .thinking-inline { display: none; }
 .composer { padding-bottom: var(--sp-3); }
+
+/* v0.3.4 fixes */
+.library-actions { flex-wrap: nowrap; align-items: center; }
+.library-actions .import-conflict {
+  height: 32px; min-width: 0; padding: 0 26px 0 10px;
+  border: 1px solid var(--line-2); background-color: transparent; color: var(--muted);
+}
+.brief-hint { max-width: none; }
+@media (max-width: 720px) { .library-actions { flex-wrap: wrap; } }

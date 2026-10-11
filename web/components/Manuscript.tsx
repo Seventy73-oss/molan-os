@@ -166,6 +166,10 @@ function selectionBubble(editor: Editor): Bubble | null {
     top = bottomEdge + 10;
     below = true;
   }
+  // Tall selections (e.g. Ctrl+A on a long chapter) can put both edges off-screen; keep the bubble in view.
+  if (below && top > window.innerHeight - 140) {
+    top = Math.max(56, Math.min(window.innerHeight - 140, 72));
+  }
   return { top, left, text, from, to, below };
 }
 

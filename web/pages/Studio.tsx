@@ -1142,6 +1142,12 @@ export function Studio() {
   let docTitle = "档案";
   let metaParts: string[] = [];
   let crumb: string[] = [];
+  function chapterCrumb(no: number | null | undefined, title: string | null | undefined) {
+    const base = `第 ${no} 章`;
+    const t = (title ?? "").trim();
+    if (!t || t.replace(/\s+/g, "") === base.replace(/\s+/g, "")) return base;
+    return `${base} ${t}`;
+  }
   if (doc.kind === "book_profile") {
     docTitle = "档案";
     metaParts = [data.book.title, data.book.genre || "未定题材"];
@@ -1153,19 +1159,19 @@ export function Studio() {
   } else if (doc.kind === "chapter_body") {
     docTitle = chapterTitle || `第 ${chapterNo} 章`;
     metaParts = [`第 ${chapterNo} 章`, "正文"];
-    crumb = [`第 ${chapterNo} 章 ${chapterTitle ?? ""}`.trim(), "正文"];
+    crumb = [chapterCrumb(chapterNo, chapterTitle), "正文"];
   } else if (doc.kind === "chapter_outline") {
     docTitle = `第 ${chapterNo} 章 细纲`;
     metaParts = ["细纲", chapterTitle ?? ""];
-    crumb = [`第 ${chapterNo} 章 ${chapterTitle ?? ""}`.trim(), "细纲"];
+    crumb = [chapterCrumb(chapterNo, chapterTitle), "细纲"];
   } else if (doc.kind === "chapter_memory") {
     docTitle = `第 ${chapterNo} 章 记忆`;
     metaParts = ["记忆", chapterTitle ?? ""];
-    crumb = [`第 ${chapterNo} 章 ${chapterTitle ?? ""}`.trim(), "记忆"];
+    crumb = [chapterCrumb(chapterNo, chapterTitle), "记忆"];
   } else {
     docTitle = "审核报告";
     metaParts = [`第 ${chapterNo} 章`, chapterTitle ?? ""];
-    crumb = [`第 ${chapterNo} 章 ${chapterTitle ?? ""}`.trim(), "审核"];
+    crumb = [chapterCrumb(chapterNo, chapterTitle), "审核"];
   }
   metaParts = [...metaParts.filter(Boolean), revLine];
 
@@ -1631,7 +1637,7 @@ export function Studio() {
                 >
                   <span className="model-name">{modelLine}</span>
                   <span className="model-scene-sep">·</span>
-                  <span className="model-think">思考{thinkingLabel(route?.thinkingIntensity)}</span>
+                  <span className="model-think">思考 {thinkingLabel(route?.thinkingIntensity)}</span>
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                     <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -1705,7 +1711,7 @@ export function Studio() {
               <span className={needsKey ? "model-line warn" : "model-line"} title={`「${SCENE_NAME[scene]}」场景模型`}>
                 <span className="model-name">{modelLine}</span>
                 <span className="model-scene-sep">·</span>
-                <span className="model-think">思考{thinkingLabel(route?.thinkingIntensity)}</span>
+                <span className="model-think">思考 {thinkingLabel(route?.thinkingIntensity)}</span>
               </span>
             )}
             {needsKey ? (

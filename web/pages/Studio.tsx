@@ -733,7 +733,12 @@ export function Studio() {
         };
         show(payload, nextDoc);
         setRestoreOfferId(null);
-        setNotice(`已写入${savedLabel(result.saved.kind, result.saved.chapterNumber)}，并打开该稿`);
+        const hc = (result as { hardConstraintCheck?: { violations: { constraintId: string; quote: string }[] } | null }).hardConstraintCheck;
+        setNotice(
+          hc && hc.violations.length
+            ? `已写入${savedLabel(result.saved.kind, result.saved.chapterNumber)}；⚠ 硬约束预检命中 ${hc.violations.length} 处（${hc.violations[0].constraintId}：“${hc.violations[0].quote.slice(0, 40)}”），请核对`
+            : `已写入${savedLabel(result.saved.kind, result.saved.chapterNumber)}，并打开该稿`,
+        );
       }
     } catch (err) {
       if (isAbort(err)) {

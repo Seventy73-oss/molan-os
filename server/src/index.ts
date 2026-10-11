@@ -864,6 +864,19 @@ app.get("/api/books/:id/story/impact", (c) => {
   return c.json(storyImpact(c.req.param("id"), id));
 });
 
+app.get("/api/books/:id/hard-constraints", async (c) => {
+  const { listHardConstraints, HARD_CONSTRAINT_BUDGET_CHARS } = await import("./hardConstraints");
+  return c.json({ constraints: listHardConstraints(c.req.param("id")), budgetChars: HARD_CONSTRAINT_BUDGET_CHARS });
+});
+
+app.get("/api/books/:id/hard-constraints/check", async (c) => {
+  const { checkHardConstraints } = await import("./hardConstraints");
+  const { getArtifactBodyForReview } = await import("./engine");
+  const n = Number(c.req.query("chapterNumber"));
+  if (!Number.isInteger(n) || n <= 0) return c.json({ error: "chapterNumber 必填" }, 400);
+  return c.json({ chapterNumber: n, ...checkHardConstraints(c.req.param("id"), getArtifactBodyForReview(c.req.param("id"), n)) });
+});
+
 app.get("/api/books/:id/context-preview", (c) => {
   const raw = c.req.query("chapterNumber");
   const chapterNumber = raw ? Number(raw) : null;

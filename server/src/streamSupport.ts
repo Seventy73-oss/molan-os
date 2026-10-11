@@ -178,6 +178,10 @@ export async function streamSceneRun(
     if (input.scene === "review" && chapterNumber) {
       const hookBlock = formatOpenHooksForReview(input.bookId, chapterNumber);
       if (hookBlock) instruction = [instruction, hookBlock].filter(Boolean).join("\n\n");
+      const { formatHardConstraintsForReview } = await import("./hardConstraints");
+      const { getArtifactBodyForReview } = await import("./engine");
+      const hcBlock = formatHardConstraintsForReview(input.bookId, getArtifactBodyForReview(input.bookId, chapterNumber));
+      if (hcBlock) instruction = [instruction, hcBlock].filter(Boolean).join("\n\n");
     }
     const context = buildContext(input.bookId, chapterNumber, instruction, {
       scene: input.scene,
@@ -269,6 +273,7 @@ export async function streamSceneRun(
       skills: skills.map((skill) => ({ id: skill.id, name: skill.name, role: skill.role })),
       skillPromptMeta: skillPromptMeta(skillTexts),
       saved,
+      hardConstraintCheck: (await import("./engine")).postGenerationHardCheck(input.bookId, input.scene, result.text),
     };
     if (input.generationId) {
       if (generationWriteShouldBeCandidate(input.generationId, input.signal)) {
@@ -330,7 +335,7 @@ export async function streamSelectionRewrite(
             model: route.model_id,
             thinkingIntensity: normalizeThinking(route.thinking_intensity),
             skillTexts,
-            context: `【待改片段】\n${input.selection}\n`,
+            context: `${(await import("./hardConstraints")).formatHardConstraintsSection(input.bookId).replace(/^(.+)/s, "【硬约束】\n$1\n")}【待改片段】\n${input.selection}\n`,
             instruction: [
               input.instruction,
               "只改写上面的「待改片段」。",
@@ -365,6 +370,7 @@ export async function streamSelectionRewrite(
             local: false,
             skills: skillRows.map((s) => ({ id: s.id, name: s.name, role: s.role })),
             skillPromptMeta: skillPromptMeta(skillTexts),
+            hardConstraintCheck: (await import("./engine")).postGenerationHardCheck(input.bookId, "selection_rewrite", text),
           },
         });
         return;

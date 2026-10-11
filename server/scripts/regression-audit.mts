@@ -1866,6 +1866,47 @@ z.close()
     check("ACC60 C2 正文场景 max_tokens≥16384 + 流式 usage", (body.max_tokens as number) >= 16384 && Boolean(body.stream_options), String(body.max_tokens));
   }
 
+  // ---- ACC60 D4 硬约束（停表 fixture）----
+  {
+    const { createBook, saveRevision, buildContext, executeScene } = await import("../src/engine");
+    const { createBibleCard } = await import("../src/features");
+    const hc = await import("../src/hardConstraints");
+    const bk = createBook({ title: "D4停表", genre: "悬疑", targetChapters: 5, wordsPerChapter: 800 });
+    const bid = bk.payload.book.id as string;
+    createBibleCard(bid, {
+      kind: "prop",
+      name: "铜表",
+      summary: "父亲遗物，表盖刻“渡”",
+      details: "硬约束：铜表停在三点十七分，指针永不再走 ｜禁：指针*走、秒针*走、分针*走、指针还在游、分针爬、滴答",
+    });
+    saveRevision({ bookId: bid, kind: "book_profile", chapterNumber: null, body: "第一人称。\n硬约束：叙述者“我”怕深水，从不主动下水", source: "human", model: null, skillIds: [], scene: "book_setup", skipMemory: true });
+    const list = hc.listHardConstraints(bid);
+    check("D4 解析设定卡+档案硬约束", list.length === 2 && list[0].forbid.length === 6 && list[1].source.kind === "book_profile", JSON.stringify(list.map((x) => x.text)));
+    const ctx = buildContext(bid, 1, "写");
+    check("D4 【硬约束】独立段且位于上下文最前", ctx.startsWith("【硬约束】") && ctx.includes("铜表停在三点十七分") && ctx.includes("怕深水"));
+    const bad = "我掀开表盖，指针还在游，分针爬到二十。\n夜里我听见秒针还在走。";
+    const good = "我掀开表盖，指针没有走，仍是三点十七分。秒针早就不走了。";
+    const r1 = hc.checkTextAgainstConstraints(bad, list);
+    check("D4 预检命中停表违例并带原文引用", r1.violations.length >= 3 && r1.violations.every((v) => v.constraintId === "H1") && r1.violations.some((v) => v.quote.includes("秒针还在走")), JSON.stringify(r1.violations.map((v) => v.quote)));
+    const r2 = hc.checkTextAgainstConstraints(good, list);
+    check("D4 否定句不误报（指针没有走/不走了）", r2.violations.length === 0, JSON.stringify(r2.violations));
+    check("D4 无禁词约束标 needs_review", r2.needsReview.includes("H2"));
+    saveRevision({ bookId: bid, kind: "chapter_body", chapterNumber: 4, body: bad, source: "human", model: null, skillIds: [], scene: "chapter_body", skipMemory: true });
+    const rv = hc.formatHardConstraintsForReview(bid, bad);
+    check("D4 审核指令逐条列出硬约束并附预检引用", rv.includes("H1. 铜表停在三点十七分") && rv.includes("H2.") && rv.includes("秒针还在走") && rv.includes("不得省略"));
+    let big = "";
+    createBibleCard(bid, { kind: "place", name: "超长", details: `硬约束：${"雾".repeat(7000)}` });
+    try { buildContext(bid, 1, "写"); } catch (e) { big = (e as Error).message; }
+    check("D4 硬约束超预算报错不静默截断", /不可截断/.test(big), big);
+    const b2 = createBook({ title: "D4停表2", genre: "悬疑", targetChapters: 2, wordsPerChapter: 400 });
+    const bid2 = b2.payload.book.id as string;
+    createBibleCard(bid2, { kind: "prop", name: "铜表", details: "硬约束：铜表停在三点十七分 ｜禁：秒针*走" });
+    const out = await executeScene({ bookId: bid2, scene: "chapter_body", chapterNumber: 1, instruction: "写" });
+    check("D4 生成后回传 hardConstraintCheck", Boolean(out.hardConstraintCheck) && out.hardConstraintCheck!.checked === 1);
+    const pg = (await import("../src/engine")).postGenerationHardCheck(bid2, "chapter_body", "秒针又走了一格");
+    check("D4 生成后预检标违例", pg!.violations.length === 1);
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   try {

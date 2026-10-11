@@ -1,5 +1,6 @@
 import { db, getDbInfo, type BookRow, type ChapterRow, type RouteRow } from "./db";
 import { HttpError } from "./httpError";
+import { checkHardConstraints, formatHardConstraintsForReview, formatHardConstraintsSection, formatViolationsNote, type HardConstraintCheck } from "./hardConstraints";
 import {
   DEFAULT_LEASE_TTL_MS,
   SQLITE_ACQUIRE_SQL,
@@ -687,6 +688,10 @@ function applyDerived(bookId: string, kind: string, scene: string | null, body: 
   }
 }
 
+export function getArtifactBodyForReview(bookId: string, chapterNumber: number): string {
+  return artifactBody(bookId, "chapter_body", chapterNumber);
+}
+
 function artifactBody(bookId: string, kind: string, chapterNumber: number | null): string {
   const row = db
     .prepare(
@@ -805,7 +810,9 @@ export function buildContext(
     chapterNumber,
     opts?.scene ?? null,
   );
+  const hard = formatHardConstraintsSection(bookId);
   const text = [
+    ...(hard ? ["【硬约束】", hard] : []),
     "【书】",
     `书名：${book.title}`,
     `题材：${book.genre}`,
@@ -905,6 +912,8 @@ export async function executeScene(input: {
   if (input.scene === "review" && chapterNumber) {
     const hookBlock = formatOpenHooksForReview(input.bookId, chapterNumber);
     if (hookBlock) instruction = [instruction, hookBlock].filter(Boolean).join("\n\n");
+    const hcBlock = formatHardConstraintsForReview(input.bookId, artifactBody(input.bookId, "chapter_body", chapterNumber));
+    if (hcBlock) instruction = [instruction, hcBlock].filter(Boolean).join("\n\n");
   }
   const context = buildContext(input.bookId, chapterNumber, instruction, {
     scene: input.scene,
@@ -1031,7 +1040,19 @@ export async function executeScene(input: {
     skills: skills.map((skill) => ({ id: skill.id, name: skill.name, role: skill.role })),
     skillPromptMeta: skillPromptMeta(skillTexts),
     saved,
+    hardConstraintCheck: postGenerationHardCheck(input.bookId, input.scene, result.text),
   };
+}
+
+/** D4：正文类产出生成后做硬约束预检，结果回传 UI（不阻断写入、不自动改稿）。 */
+export function postGenerationHardCheck(bookId: string, scene: string, text: string): HardConstraintCheck | null {
+  if (!["chapter_body", "humanize", "chapter_outline", "selection_rewrite"].includes(scene)) return null;
+  try {
+    return checkHardConstraints(bookId, text);
+  } catch (error) {
+    console.error("[hard-constraints] check failed", error);
+    return null;
+  }
 }
 
 export async function autoSetup(brief: string, forcedId?: string) {
@@ -1540,7 +1561,7 @@ export async function rewriteSelection(input: {
       model: route.model_id,
       thinkingIntensity: normalizeThinking(route.thinking_intensity),
       skillTexts,
-      context: `【待改片段】\n${selection}\n`,
+      context: `${formatHardConstraintsSection(input.bookId).replace(/^(.+)/s, "【硬约束】\n$1\n")}【待改片段】\n${selection}\n`,
       instruction: [
         instruction,
         "只改写上面的「待改片段」。",
@@ -1563,7 +1584,7 @@ export async function rewriteSelection(input: {
       throw new HttpError(502, result.modelUsed);
     }
     const local = /local-draft/i.test(result.modelUsed);
-    return { text, modelUsed: result.modelUsed, local, ...skillInfo };
+    return { text, modelUsed: result.modelUsed, local, ...skillInfo, hardConstraintCheck: postGenerationHardCheck(input.bookId, "selection_rewrite", text) };
   } catch (error) {
     if (error instanceof HttpError) throw error;
     const reason = error instanceof Error ? error.message : "未知错误";
@@ -1681,16 +1702,18 @@ export async function chat(
     const result = await executeScene({ bookId, scene, chapterNumber, instruction: text, signal, generationId });
     const label = result.saved ? KIND_LABEL[result.saved.kind] ?? "稿件" : "稿件";
     const where = result.saved?.chapterNumber ? `第 ${result.saved.chapterNumber} 章` : "";
-    const content = `已写入${where}${label}，修订 ${result.saved?.revision ?? 1}。用的是${modelLabel(result.modelUsed)}。\n${replyBody(result.text)}`;
+    const hcNote = result.hardConstraintCheck ? formatViolationsNote(result.hardConstraintCheck) : "";
+    const content = `已写入${where}${label}，修订 ${result.saved?.revision ?? 1}。用的是${modelLabel(result.modelUsed)}。${hcNote ? `\n${hcNote}` : ""}\n${replyBody(result.text)}`;
     const meta = {
       scene,
       modelUsed: result.modelUsed,
       saved: result.saved,
       skills: result.skills,
       skillPromptMeta: result.skillPromptMeta,
+      hardConstraintCheck: result.hardConstraintCheck,
     };
     const assistant = insertMessage(bookId, "assistant", content, meta);
-    return { message: assistant, saved: result.saved, skills: result.skills, skillPromptMeta: result.skillPromptMeta };
+    return { message: assistant, saved: result.saved, skills: result.skills, skillPromptMeta: result.skillPromptMeta, hardConstraintCheck: result.hardConstraintCheck };
   } catch (error) {
     if (isAbortError(error)) throw error;
     const content = error instanceof Error ? error.message : "这次没有写成";

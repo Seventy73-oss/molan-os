@@ -1,0 +1,350 @@
+{
+  "iphone13": {
+    "library": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 122,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.active:书库(52x30)",
+        "a.:技能(52x30)",
+        "a.:模型(52x30)",
+        "button.btn:建书(49x30)",
+        "button.book-export:导出(40x24)",
+        "button.book-export:故事包(52x24)",
+        "button.book-trash:(30x30)",
+        "button.book-export:导出(40x24)",
+        "button.book-export:故事包(52x24)",
+        "button.book-trash:(30x30)",
+        "button.book-export:导出(40x24)"
+      ],
+      "tinyInputs": [
+        "select.import-conflict(13px)",
+        "input.(15px)"
+      ],
+      "wide": [
+        "button.book-export"
+      ]
+    },
+    "skills": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 18,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(52x30)",
+        "a.active:技能(52x30)",
+        "a.:模型(52x30)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "models": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 22,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(52x30)",
+        "a.:技能(52x30)",
+        "a.active:模型(52x30)",
+        "button.chip:OpenAI(73x30)",
+        "button.chip:DeepSeek(92x30)",
+        "button.chip:SiliconF(98x30)",
+        "button.chip:Moonshot(90x30)",
+        "button.chip:自定义(66x30)",
+        "button.ghost-mini:显示(39x24)",
+        "button.picker-caret:(24x24)",
+        "button.text-link:刷新模型(53x19)"
+      ],
+      "tinyInputs": [
+        "input.(12px)",
+        "select.(13px)",
+        "input.(13px)"
+      ],
+      "wide": [
+        "div.route-name",
+        "strong.",
+        "span.route-hint",
+        "select.",
+        "input."
+      ]
+    },
+    "studio": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 81,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(26x20)",
+        "button.tree-item:细纲(342x30)",
+        "button.tree-item:正文(342x30)",
+        "button.tree-item:审核(342x30)",
+        "button.tree-item:记忆(342x30)",
+        "button.text-link:改名(26x20)",
+        "button.text-link:删除(26x20)",
+        "button.tree-item:+新章(366x28)",
+        "button.btn:工具(51x30)",
+        "button.btn:文件(67x30)",
+        "button.btn:保存⌘S(79x30)"
+      ],
+      "tinyInputs": [
+        "textarea.(13px)",
+        "select.(13px)"
+      ],
+      "wide": []
+    },
+    "bubble": {
+      "x": 135,
+      "y": 253.640625,
+      "width": 170,
+      "height": 100
+    },
+    "tools": {
+      "scrollW": 390,
+      "innerW": 390,
+      "overflowX": false,
+      "smallTargets": 92,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(26x20)",
+        "button.tree-item:细纲(342x30)",
+        "button.tree-item:正文(342x30)",
+        "button.tree-item:审核(342x30)",
+        "button.tree-item:记忆(342x30)",
+        "button.text-link:改名(26x20)",
+        "button.text-link:删除(26x20)",
+        "button.tree-item:+新章(366x28)",
+        "button.btn:工具(76x30)",
+        "button.btn:文件(67x30)",
+        "button.btn:保存⌘S(79x30)"
+      ],
+      "tinyInputs": [
+        "input.(12px)",
+        "textarea.(13px)",
+        "select.(13px)"
+      ],
+      "wide": []
+    }
+  },
+  "android360": {
+    "library": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 122,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.active:书库(52x30)",
+        "a.:技能(52x30)",
+        "a.:模型(52x30)",
+        "button.btn:建书(49x30)",
+        "button.book-export:导出(40x24)",
+        "button.book-export:故事包(52x24)",
+        "button.book-trash:(30x30)",
+        "button.book-export:导出(40x24)",
+        "button.book-export:故事包(52x24)",
+        "button.book-trash:(30x30)",
+        "button.book-export:导出(40x24)"
+      ],
+      "tinyInputs": [
+        "select.import-conflict(13px)",
+        "input.(15px)"
+      ],
+      "wide": [
+        "button.book-export"
+      ]
+    },
+    "skills": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 18,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(52x30)",
+        "a.active:技能(52x30)",
+        "a.:模型(52x30)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "models": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 22,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(52x30)",
+        "a.:技能(52x30)",
+        "a.active:模型(52x30)",
+        "button.chip:OpenAI(73x30)",
+        "button.chip:DeepSeek(92x30)",
+        "button.chip:SiliconF(98x30)",
+        "button.chip:Moonshot(90x30)",
+        "button.chip:自定义(66x30)",
+        "button.ghost-mini:显示(39x24)",
+        "button.picker-caret:(24x24)",
+        "button.text-link:刷新模型(53x19)"
+      ],
+      "tinyInputs": [
+        "input.(12px)",
+        "select.(13px)",
+        "input.(13px)"
+      ],
+      "wide": [
+        "div.route-name",
+        "strong.",
+        "span.route-hint",
+        "select.",
+        "input."
+      ]
+    },
+    "studio": {
+      "scrollW": 360,
+      "innerW": 360,
+      "overflowX": false,
+      "smallTargets": 83,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(26x20)",
+        "button.tree-item:细纲(312x30)",
+        "button.tree-item:正文(312x30)",
+        "button.tree-item:审核(312x30)",
+        "button.tree-item:记忆(312x30)",
+        "button.text-link:改名(26x20)",
+        "button.text-link:删除(26x20)",
+        "button.tree-item:+新章(336x28)",
+        "button.btn:工具(51x30)",
+        "button.btn:文件(67x30)",
+        "button.btn:保存⌘S(79x30)"
+      ],
+      "tinyInputs": [
+        "textarea.(13px)",
+        "select.(13px)"
+      ],
+      "wide": []
+    }
+  },
+  "ipad768": {
+    "library": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 122,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.active:书库(52x30)",
+        "a.:技能(52x30)",
+        "a.:模型(52x30)",
+        "button.btn:建书(49x30)",
+        "button.book-export:导出(40x24)",
+        "button.book-export:故事包(52x24)",
+        "button.book-trash:(30x30)",
+        "button.book-export:导出(40x24)",
+        "button.book-export:故事包(52x24)",
+        "button.book-trash:(30x30)",
+        "button.book-export:导出(40x24)"
+      ],
+      "tinyInputs": [
+        "select.import-conflict(13px)",
+        "input.(15px)"
+      ],
+      "wide": []
+    },
+    "skills": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 18,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(52x30)",
+        "a.active:技能(52x30)",
+        "a.:模型(52x30)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)",
+        "button.toggle:(32x18)"
+      ],
+      "tinyInputs": [],
+      "wide": []
+    },
+    "models": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 22,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(52x30)",
+        "a.:技能(52x30)",
+        "a.active:模型(52x30)",
+        "button.chip:OpenAI(73x30)",
+        "button.chip:DeepSeek(92x30)",
+        "button.chip:SiliconF(98x30)",
+        "button.chip:Moonshot(90x30)",
+        "button.chip:自定义(66x30)",
+        "button.ghost-mini:显示(39x24)",
+        "button.picker-caret:(24x24)",
+        "button.text-link:刷新模型(53x19)"
+      ],
+      "tinyInputs": [
+        "input.(12px)",
+        "select.(13px)",
+        "input.(13px)"
+      ],
+      "wide": []
+    },
+    "studio": {
+      "scrollW": 768,
+      "innerW": 768,
+      "overflowX": false,
+      "smallTargets": 81,
+      "smallSample": [
+        "a.brand:长墨兰写作(113x28)",
+        "a.:书库(26x20)",
+        "button.tree-item:细纲(720x30)",
+        "button.tree-item:正文(720x30)",
+        "button.tree-item:审核(720x30)",
+        "button.tree-item:记忆(720x30)",
+        "button.text-link:改名(26x20)",
+        "button.text-link:删除(26x20)",
+        "button.tree-item:+新章(744x28)",
+        "button.btn:工具(51x30)",
+        "button.btn:文件(67x30)",
+        "button.btn:保存⌘S(79x30)"
+      ],
+      "tinyInputs": [
+        "textarea.(13px)",
+        "select.(13px)"
+      ],
+      "wide": []
+    }
+  }
+}

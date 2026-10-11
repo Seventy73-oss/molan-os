@@ -8,6 +8,23 @@
     <meta name="format-detection" content="telephone=no" />
     <title>墨兰写作</title>
     <meta name="color-scheme" content="light" />
+    <script>
+      (function () {
+        var c = "system";
+        try { c = localStorage.getItem("molan.theme") || "system"; } catch (e) {}
+        var ok = { system: 1, light: 1, dark: 1, paper: 1, green: 1, molan: 1 };
+        if (!ok[c]) c = "system";
+        var r = c === "system" ? (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : c;
+        var tc = { light: "#f6f1ea", dark: "#1b1916", paper: "#efe3c8", green: "#dbe7d4", molan: "#ececf4" };
+        var d = document.documentElement;
+        d.setAttribute("data-theme", r);
+        d.setAttribute("data-theme-choice", c);
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) m.setAttribute("content", tc[r]);
+        var cs = document.querySelector('meta[name="color-scheme"]');
+        if (cs) cs.setAttribute("content", r === "dark" ? "dark" : "light");
+      })();
+    </script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='1.5' width='10' height='13' rx='1' fill='none' stroke='%231c1915' stroke-width='1.5'/%3E%3Cpath d='M6 1.5v13' stroke='%231c1915' stroke-width='1.5'/%3E%3C/svg%3E" />
     <!-- Single active font stylesheet to avoid duplicate unicode-range faces.
          Prefer China-friendly mirror; fall back to Google Fonts if mirror fails. -->

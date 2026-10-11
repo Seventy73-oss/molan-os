@@ -1,5 +1,6 @@
 {
   "name": "molan-os",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,12 +12,13 @@
     "test:regression": "tsx server/scripts/regression-audit.mts",
     "test:e2e": "tsx server/scripts/e2e-audit.mts",
     "test:e2e:browser": "tsx server/scripts/e2e-browser.mts",
-    "test:audit": "npm run test:regression && npm run test:e2e && npm run test:e2e:browser && npm run test:e2e:mobile && npm run test:pg-lease",
+    "test:audit": "npm run test:regression && npm run test:e2e && npm run test:e2e:browser && npm run test:e2e:mobile && npm run test:e2e:theme && npm run test:pg-lease",
     "test:pg-lease": "tsx server/scripts/pg-lease-audit.mts",
     "test:live-model": "tsx server/scripts/live-model-audit.mts",
     "migrate:sqlite-to-pg": "tsx server/scripts/migrate-sqlite-to-pg.mts",
     "quarantine:legacy-phys": "tsx server/scripts/quarantine-legacy-phys.mts",
-    "test:e2e:mobile": "tsx server/scripts/e2e-mobile.mts"
+    "test:e2e:mobile": "tsx server/scripts/e2e-mobile.mts",
+    "test:e2e:theme": "tsx server/scripts/e2e-theme.mts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.1.0",

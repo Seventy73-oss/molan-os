@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import { Library } from "./pages/Library";
 import { Models } from "./pages/Models";
+import { Settings } from "./pages/Settings";
 import { Skills } from "./pages/Skills";
 import { Studio } from "./pages/Studio";
 
@@ -79,6 +80,7 @@ function Shell() {
           </NavLink>
           <NavLink to="/skills">技能</NavLink>
           <NavLink to="/models">模型</NavLink>
+          <NavLink to="/settings">设置</NavLink>
         </nav>
       </header>
       <div className="stage">
@@ -115,6 +117,7 @@ const router = createBrowserRouter([
       { path: "/books/:id", element: <Studio /> },
       { path: "/skills", element: <Skills /> },
       { path: "/models", element: <Models /> },
+      { path: "/settings", element: <Settings /> },
       { path: "*", element: <NotFound /> },
     ],
   },

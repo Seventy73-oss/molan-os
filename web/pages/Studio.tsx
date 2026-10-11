@@ -185,7 +185,21 @@ export function Studio() {
   const [scrolled, setScrolled] = useState(false);
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [writing, setWriting] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState<boolean | null>(null);
+  const [detailsOpen, setDetailsOpenState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("molan.assistDetails") === "1";
+    } catch {
+      return false;
+    }
+  });
+  function setDetailsOpen(next: boolean) {
+    setDetailsOpenState(next);
+    try {
+      localStorage.setItem("molan.assistDetails", next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }
   const [pendingUser, setPendingUser] = useState("");
   const [confirmDeleteChapter, setConfirmDeleteChapter] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
@@ -866,7 +880,6 @@ export function Studio() {
     if (!quote) return;
     const clipped = quote.length > 480 ? `${quote.slice(0, 480)}…` : quote;
     setChatText(`关于这段选中文字：\n「${clipped}」\n\n`);
-    setSettingsOpen(true);
     requestAnimationFrame(() => {
       const el = composerRef.current;
       if (!el) return;
@@ -1166,7 +1179,6 @@ export function Studio() {
   const outlineDoc: Doc | null = chapterNo ? { kind: "chapter_outline", chapterNumber: chapterNo, label: "细纲" } : null;
   const needsOutline = doc.kind === "chapter_body" && outlineDoc !== null && !hasBody("chapter_outline", chapterNo);
   const suggestions = suggestionsFor(doc, !isEmptyDoc, data.chapters.length);
-  const settingsExpanded = settingsOpen ?? messages.length === 0;
   const activeSkills = sceneSkills.filter((skill) => checked.includes(skill.id));
 
   return (
@@ -1617,9 +1629,12 @@ export function Studio() {
                   title={`切换「${SCENE_NAME[scene]}」场景的模型（只改当前场景）`}
                   onClick={() => setPickingModel((v) => !v)}
                 >
-                  <span className="model-scene-tag">{SCENE_NAME[scene]}</span>
+                  <span className="model-name">{modelLine}</span>
                   <span className="model-scene-sep">·</span>
-                  <span>{modelLine}</span>
+                  <span className="model-think">思考{thinkingLabel(route?.thinkingIntensity)}</span>
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </button>
                 {pickingModel ? (
                   <div className="studio-model-menu">
@@ -1688,9 +1703,9 @@ export function Studio() {
               </span>
             ) : (
               <span className={needsKey ? "model-line warn" : "model-line"} title={`「${SCENE_NAME[scene]}」场景模型`}>
-                <span className="model-scene-tag">{SCENE_NAME[scene]}</span>
+                <span className="model-name">{modelLine}</span>
                 <span className="model-scene-sep">·</span>
-                <span>{modelLine}</span>
+                <span className="model-think">思考{thinkingLabel(route?.thinkingIntensity)}</span>
               </span>
             )}
             {needsKey ? (
@@ -1703,14 +1718,10 @@ export function Studio() {
                 本地草稿
               </Link>
             ) : null}
-            <span className="thinking-pill" title={`「${SCENE_NAME[scene]}」思考强度`}>
-              思考·{thinkingLabel(route?.thinkingIntensity)}
-            </span>
           </span>
         </header>
-        {settingsExpanded ? (
-          <div className="assistant-context">
-            <div className="context-top">
+        <div className="assistant-context">
+          <div className="context-top">
               <div className="segment" role="tablist" aria-label="场景">
                 {segments(doc).map((item) => (
                   <button
@@ -1725,79 +1736,86 @@ export function Studio() {
                   </button>
                 ))}
               </div>
-              {messages.length ? (
-                <button type="button" className="icon-btn" aria-label="收起设置" title="收起" onClick={() => setSettingsOpen(false)}>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <path d="M3.5 8.75 7 5.25l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              ) : null}
-            </div>
-            {sceneSkills.length ? (
-              <ul className="skill-list">
-                {sceneSkills.map((skill) => {
-                  const on = checked.includes(skill.id);
-                  const isLocked = locked === skill.id || lockedUserPacks.has(skill.id);
-                  return (
-                    <li key={skill.id}>
-                      <span className="skill-name">{skill.name}</span>
-                      <span className={skill.role === "primary" ? "role primary" : "role"}>
-                        {skill.role === "primary" ? "主技能" : "辅助"}
-                      </span>
-                      {isLocked ? (
-                        <span className="locked" title="这个场景唯一的主技能，生成时必选" aria-label={`${skill.name}：必选`}>
-                          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                            <rect x="2.5" y="5.25" width="7" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.2" />
-                            <path d="M4.25 5.25V4a1.75 1.75 0 0 1 3.5 0v1.25" stroke="currentColor" strokeWidth="1.2" />
-                          </svg>
-                          必选
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={on}
-                          aria-label={`${skill.name}${on ? "已启用" : "未启用"}`}
-                          className={on ? "toggle on" : "toggle"}
-                          onClick={() =>
-                            setChecked((list) => (list.includes(skill.id) ? list.filter((item) => item !== skill.id) : [...list, skill.id]))
-                          }
-                        >
-                          <i />
-                        </button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="skill-empty">这个场景还没有启用的技能。</p>
-            )}
-            {contextHint ? (
-              <p className="context-ready" title="生成时会注入设定卡、前文记忆、未回收钩子">
-                上下文 · 设定卡 {contextHint.counts.bibleCards} · 前文记忆 {contextHint.counts.memories} · 钩子 {contextHint.counts.openHooks}
-                {contextHint.missing.length ? (
-                  <span className="context-missing"> · {contextHint.missing[0]}</span>
-                ) : (
-                  <span className="context-ok"> · 资料齐全</span>
-                )}
-              </p>
-            ) : null}
           </div>
-        ) : (
-          <button type="button" className="context-summary" onClick={() => setSettingsOpen(true)} aria-expanded={false}>
-            <span className="summary-scene">{SCENE_NAME[scene]}</span>
+          <button
+            type="button"
+            className={detailsOpen ? "assist-summary open" : "assist-summary"}
+            aria-expanded={detailsOpen}
+            aria-controls="assist-details"
+            title={activeSkills.length ? activeSkills.map((skill) => skill.name).join("、") : "无技能"}
+            onClick={() => setDetailsOpen(!detailsOpen)}
+          >
+            <span>技能 <b>{activeSkills.length}</b></span>
             <span className="summary-sep">·</span>
-            <span className="summary-skills">
-              {activeSkills.length ? activeSkills.map((skill) => skill.name).join("、") : "无技能"}
+            <span>
+              上下文 <b>{contextHint ? contextHint.counts.bibleCards + contextHint.counts.memories + contextHint.counts.openHooks : "—"}</b>
             </span>
+            {contextHint?.missing.length ? (
+              <span className="summary-warn" title={contextHint.missing[0]}>
+                <i aria-hidden="true" />
+                {contextHint.counts.openHooks ? `${contextHint.counts.openHooks} 钩子` : "待补"}
+              </span>
+            ) : null}
             <span className="spacer" />
-            <span className="summary-edit">设置</span>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M3.5 5.25 7 8.75l3.5-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d={detailsOpen ? "M3 7.5 6 4.5 9 7.5" : "M3 4.5 6 7.5 9 4.5"} stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-        )}
+          {detailsOpen ? (
+            <div className="assist-details" id="assist-details">
+              {sceneSkills.length ? (
+                <ul className="skill-list">
+                  {sceneSkills.map((skill) => {
+                    const on = checked.includes(skill.id);
+                    const isLocked = locked === skill.id || lockedUserPacks.has(skill.id);
+                    return (
+                      <li key={skill.id}>
+                        <span className="skill-name">{skill.name}</span>
+                        <span className={skill.role === "primary" ? "role primary" : "role"}>
+                          {skill.role === "primary" ? "主技能" : "辅助"}
+                        </span>
+                        {isLocked ? (
+                          <span className="locked" title="这个场景唯一的主技能，生成时必选" aria-label={`${skill.name}：必选`}>
+                            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                              <rect x="2.5" y="5.25" width="7" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.2" />
+                              <path d="M4.25 5.25V4a1.75 1.75 0 0 1 3.5 0v1.25" stroke="currentColor" strokeWidth="1.2" />
+                            </svg>
+                            必选
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={on}
+                            aria-label={`${skill.name}${on ? "已启用" : "未启用"}`}
+                            className={on ? "toggle on" : "toggle"}
+                            onClick={() =>
+                              setChecked((list) => (list.includes(skill.id) ? list.filter((item) => item !== skill.id) : [...list, skill.id]))
+                            }
+                          >
+                            <i />
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="skill-empty">这个场景还没有启用的技能。</p>
+              )}
+              {contextHint ? (
+                <p className="context-ready" title="生成时会注入设定卡、前文记忆、未回收钩子">
+                  上下文 · 设定卡 {contextHint.counts.bibleCards} · 前文记忆 {contextHint.counts.memories} · 钩子 {contextHint.counts.openHooks}
+                  {contextHint.missing.length ? (
+                    <span className="context-missing"> · {contextHint.missing[0]}</span>
+                  ) : (
+                    <span className="context-ok"> · 资料齐全</span>
+                  )}
+                </p>
+              ) : null}
+          </div>
+          ) : null}
+        </div>
         <div className="transcript" ref={transcriptRef}>
           {messages.length === 0 && !pendingUser && !busy ? (
             <div className="chat-empty">
@@ -1891,7 +1909,7 @@ export function Studio() {
           ) : null}
         </div>
         <div className={jobOpen ? "jobs-panel open" : "jobs-panel"}>
-          <button type="button" className="jobs-toggle" onClick={() => setJobOpen((v) => !v)} aria-expanded={jobOpen}>
+          <button type="button" className="jobs-toggle" onClick={() => setJobOpen((v) => !v)} aria-expanded={jobOpen} hidden={!jobOpen}>
             <span>批量写</span>
             <span className="jobs-meta">
               {jobs[0] ? `${jobs[0].status === "running" ? "进行中" : jobs[0].status === "done" ? "已完成" : jobs[0].status === "paused" ? "已暂停" : jobs[0].status} · 第 ${jobs[0].currentChapter} 章` : "大纲→细纲→正文"}
@@ -2029,7 +2047,7 @@ export function Studio() {
                 ref={composerRef}
                 rows={1}
                 value={chatText}
-                placeholder="例如：写这一章正文、写全书大纲、审核这一章…"
+                placeholder="说要写什么，Enter 发送"
                 onChange={(event) => setChatText(event.target.value)}
                 onCompositionStart={() => {
                   composerComposing.current = true;
@@ -2057,6 +2075,19 @@ export function Studio() {
             </div>
             <button
               type="button"
+              className={jobOpen ? "jobs-btn on" : "jobs-btn"}
+              aria-label="批量写"
+              aria-expanded={jobOpen}
+              title={jobs[0] && jobs[0].status !== "done" ? `批量写 · 第 ${jobs[0].currentChapter} 章` : "批量写（大纲→细纲→正文）"}
+              onClick={() => setJobOpen((v) => !v)}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3 4h10M3 8h10M3 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              {jobs[0] && (jobs[0].status === "running" || jobs[0].status === "paused") ? <i className="jobs-dot" /> : null}
+            </button>
+            <button
+              type="button"
               className="send"
               aria-label="发送"
               title="发送（Enter）"
@@ -2071,26 +2102,6 @@ export function Studio() {
                 </svg>
               )}
             </button>
-          </div>
-          <div className="composer-meta">
-            <label className="thinking-inline" title="当前场景的思考强度，可在上方模型菜单或「模型」页修改">
-              <span>思考</span>
-              <select
-                value={route?.thinkingIntensity ?? "medium"}
-                aria-label="思考强度"
-                disabled={Boolean(busy)}
-                onChange={(e) => {
-                  void applySceneThinking(e.target.value as ThinkingIntensity);
-                }}
-              >
-                {THINKING_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="composer-hint">写作请直接在上面说；Enter 发送，Shift+Enter 换行</p>
           </div>
         </footer>
       </aside>

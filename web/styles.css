@@ -4308,3 +4308,50 @@ label {
 .settings-page .card > h2 + .sub { margin-bottom: var(--sp-6); }
 .settings-page .appearance-block + .appearance-block { margin-top: var(--sp-8); padding-top: var(--sp-6); }
 .settings-page .appearance-block > h3 { margin-bottom: var(--sp-3); }
+
+/* ==========================================================================
+   v0.3.3 assistant panel — simplified
+   ========================================================================== */
+.assistant-head { gap: var(--sp-3); }
+.assistant-head .model-line {
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 220px; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: transparent;
+  color: var(--muted); font-size: var(--fs-xs);
+}
+.assistant-head .model-line:hover, .assistant-head .model-line.open { color: var(--ink); border-color: var(--line-strong); background: var(--hover); }
+.assistant-head .model-line .model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.assistant-head .model-line .model-think { flex: none; color: var(--ink-2); }
+.assistant-head .model-line svg { flex: none; opacity: 0.7; }
+.assistant-head .model-line::before { flex: none; }
+.thinking-pill { display: none; }
+
+.assistant-context { padding: var(--sp-1) var(--sp-4) var(--sp-2); border-bottom: 1px solid var(--line); }
+.assistant-context .context-top { margin: 0; }
+.assist-summary {
+  width: 100%; display: flex; align-items: center; gap: 6px;
+  margin-top: var(--sp-2); padding: 6px var(--sp-2); border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--muted); font: inherit; font-size: var(--fs-xs); cursor: pointer; text-align: left;
+}
+.assist-summary b { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.assist-summary:hover, .assist-summary.open { background: var(--hover); color: var(--ink-2); }
+.assist-summary .spacer { flex: 1; }
+.assist-summary svg { color: var(--muted); flex: none; }
+.summary-warn { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; color: var(--amber-text); font-weight: 500; }
+.summary-warn i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+.assist-details { padding: var(--sp-1) var(--sp-2) var(--sp-2); }
+.assist-details .skill-list { margin-top: var(--sp-1); }
+.assist-details .context-ready { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--muted); }
+
+/* batch-write: icon in composer, panel opens above it */
+.jobs-panel:not(.open) { display: none; }
+.jobs-panel.open { border-top: 1px solid var(--line); }
+.composer-box { align-items: flex-end; gap: 6px; }
+.jobs-btn {
+  position: relative; flex: none; width: 32px; height: 32px; border-radius: var(--radius-sm);
+  border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer;
+}
+.jobs-btn:hover, .jobs-btn.on { background: var(--hover); color: var(--ink); }
+.jobs-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.composer-meta, .composer-hint, .thinking-inline { display: none; }
+.composer { padding-bottom: var(--sp-3); }

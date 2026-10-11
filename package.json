@@ -1,6 +1,6 @@
 {
   "name": "molan-os",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -32,6 +32,7 @@
     "@types/pg": "^8.23.1",
     "better-sqlite3": "11.10.0",
     "hono": "^4.9.0",
+    "lxgw-wenkai-screen-webfont": "^1.7.0",
     "pg": "^8.23.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

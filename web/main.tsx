@@ -1,4 +1,3 @@
-import { EazoProvider } from "@eazo/sdk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
@@ -12,6 +11,6 @@ watchSystemTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <EazoProvider><App /></EazoProvider>
+    <App />
   </StrictMode>,
 );

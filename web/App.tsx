@@ -1,7 +1,6 @@
 import { t as tr, useLocale } from "./lib/i18n";
 import { createContext, useContext, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, RouterProvider, createBrowserRouter, useLocation } from "react-router-dom";
-import { References } from "./pages/References";
 import { Library } from "./pages/Library";
 import { Models } from "./pages/Models";
 import { Settings } from "./pages/Settings";
@@ -16,7 +15,6 @@ export function useBookTitle() { return useContext(TitleContext); }
 
 const NAV: { path: string; label: string; icon: IconName; caption: string }[] = [
   { path: "/", label: "书库", icon: "book", caption: "故事的起点" },
-  { path: "/references", label: "参考库", icon: "stack", caption: "阅读成为方法" },
   { path: "/skills", label: "技能", icon: "sparkles", caption: "你的写作方法" },
   { path: "/models", label: "模型", icon: "model", caption: "为灵感接上引擎" },
   { path: "/settings", label: "设置", icon: "sliders", caption: "舒服的写作环境" },
@@ -66,7 +64,7 @@ function NotFound() {
   useLocale();
   return <div className="page page-enter not-found"><p className="eyebrow">{tr("墨兰写作")}</p><h1>{tr("没有这一页")}</h1><p className="sub">{tr("链接可能写错了，或者书已经删掉。")}</p><Link className="btn primary" to="/">{tr("回书库")}</Link></div>;
 }
-const router = createBrowserRouter([{ element: <Shell />, children: [{ path: "/", element: <Library /> }, { path: "/books/:id", element: <Studio /> }, { path: "/references", element: <References /> }, { path: "/skills", element: <Skills /> }, { path: "/models", element: <Models /> }, { path: "/settings", element: <Settings /> }, { path: "*", element: <NotFound /> }] }]);
+const router = createBrowserRouter([{ element: <Shell />, children: [{ path: "/", element: <Library /> }, { path: "/books/:id", element: <Studio /> }, { path: "/skills", element: <Skills /> }, { path: "/models", element: <Models /> }, { path: "/settings", element: <Settings /> }, { path: "*", element: <NotFound /> }] }]);
 export function App() {
   useLocale();
   const [title, setTitle] = useState("");

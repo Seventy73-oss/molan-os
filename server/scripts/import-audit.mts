@@ -74,11 +74,6 @@ try {
       page.on("dialog", (dialog) => { void dialog.accept(); });
       await page.addInitScript(`(() => {
         localStorage.setItem("molan.locale", ${JSON.stringify(locale)});
-        if (${mobile}) document.addEventListener("DOMContentLoaded", () => {
-          const style = document.createElement("style");
-          style.textContent = ":root{--eazo-safe-area-top:32px!important;--eazo-safe-area-bottom:28px!important}";
-          document.head.append(style);
-        });
       })()`);
       await page.goto(base, { waitUntil: "domcontentloaded" });
       await page.getByRole("heading", { name: en ? "Manuscripts" : "书稿", exact: true }).waitFor();
@@ -123,12 +118,11 @@ try {
       await page.getByRole("button", { name: en ? "Tools" : "工具", exact: true }).click();
       await page.getByRole("dialog", { name: en ? "Writing tools" : "写作工具" }).waitFor();
       if (mobile) {
-        const drawerMetrics = await page.evaluate<{ top: number; closeTop: number; handoff: number }>(`(() => ({
+        const drawerMetrics = await page.evaluate<{ top: number; closeTop: number }>(`(() => ({
           top: document.querySelector(".tools-drawer").getBoundingClientRect().top,
           closeTop: document.querySelector(".drawer-close").getBoundingClientRect().top,
-          handoff: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--eazo-handoff-top")) || 0,
         }))()`);
-        check(`${label}: drawer controls clear banner and safe zone`, drawerMetrics.top >= drawerMetrics.handoff - 1 && drawerMetrics.closeTop >= drawerMetrics.handoff + 32);
+        check(`${label}: drawer controls remain visible`, drawerMetrics.top >= -1 && drawerMetrics.closeTop >= 0);
       }
       await page.getByRole("button", { name: en ? "Versions" : "版本", exact: true }).click();
       await poll(async () => (await page.locator(".rev-item").count()) > 0, "Version history missing");

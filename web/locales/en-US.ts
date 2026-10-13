@@ -1,6 +1,4 @@
-import { referenceEnglish } from "./references";
 export const enUS: Record<string, string> = {
-  ...referenceEnglish,
   "更多操作": "More actions",
   "从想法整理出书名和档案": "Turn an idea into a title and profile",
   "调整配色、正文字体和字号。": "Choose your colors, manuscript font, and text size.",

@@ -89,11 +89,6 @@ const TABLES = [
   "hook_marks",
   "context_snapshots",
   "generations",
-  "novel_sources",
-  "novel_chapters",
-  "novel_jobs",
-  "novel_cards",
-  "novel_book_links",
 ] as const;
 
 function resolveDriverChoice(): {

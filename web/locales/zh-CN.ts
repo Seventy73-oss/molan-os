@@ -1,6 +1,4 @@
-import { referenceEnglish } from "./references";
 export const zhCN: Record<string, string> = {
-  ...Object.fromEntries(Object.keys(referenceEnglish).map(key => [key, key])),
   "更多操作": "更多操作",
   "从想法整理出书名和档案": "从想法整理出书名和档案",
   "调整配色、正文字体和字号。": "调整配色、正文字体和字号。",

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useBlocker, useParams } from "react-router-dom";
 import { api, streamApi, type Artifact, type BookPayload, type ChatMessage, type ModelInfo, type ProviderSettings, type Route, type Skill, type WritingJob, THINKING_OPTIONS, thinkingLabel, type ThinkingIntensity } from "../api";
 import { prefersReducedMotion } from "../lib/reveal";
+import { createUuid } from "../lib/uuid";
 import { rememberOpenedBook } from "../lib/lastOpenedBook";
 import { ModelPicker } from "../components/ModelPicker";
 import { useBookTitle } from "../App";
@@ -706,7 +707,7 @@ export function Studio() {
     try {
       // Persist current edits first so chat generation cannot clobber an unsaved draft.
       await persist();
-      const generationId = crypto.randomUUID();
+      const generationId = createUuid();
       activeGenerationId.current = generationId;
       let result;
       let live = "";

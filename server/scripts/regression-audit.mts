@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createUuid } from "../../web/lib/uuid";
 
 const tmpDb = path.join(os.tmpdir(), `molan-reg-${Date.now()}.sqlite`);
 process.env.MOLAN_SQLITE_PATH = tmpDb;
@@ -21,6 +22,25 @@ function check(name: string, ok: boolean, detail?: string) {
 }
 
 async function main() {
+  // Simulate a browser on an HTTP LAN origin: getRandomValues exists, randomUUID does not.
+  const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const randomBytes = crypto.getRandomValues.bind(crypto);
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: { getRandomValues: randomBytes },
+  });
+  try {
+    const ids = Array.from({ length: 64 }, () => createUuid());
+    check(
+      "HTTP LAN 可生成唯一 UUID v4",
+      ids.every((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)) &&
+        new Set(ids).size === ids.length,
+    );
+  } finally {
+    if (cryptoDescriptor) Object.defineProperty(globalThis, "crypto", cryptoDescriptor);
+    else Reflect.deleteProperty(globalThis, "crypto");
+  }
+
   // Dynamic imports AFTER env is set so db picks up temp path.
   const {
     routeMessage,

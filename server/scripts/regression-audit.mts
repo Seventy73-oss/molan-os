@@ -1861,9 +1861,7 @@ z.close()
     const a = eng.saveRevision({ bookId: bk.id, kind: "chapter_body", chapterNumber: 1, body: "同一段", source: "human", model: null, skillIds: [], scene: null });
     const b = eng.saveRevision({ bookId: bk.id, kind: "chapter_body", chapterNumber: 1, body: "同一段", source: "human", model: null, skillIds: [], scene: null });
     check("ACC60 E4 相同内容保存不产生垃圾版本", a.revisionId === b.revisionId, `${a.revision}/${b.revision}`);
-    db.prepare("INSERT INTO novel_book_links (id, owner_id, card_id, book_id, created_at) VALUES (?, ?, ?, ?, ?)").run(crypto.randomUUID(), "regression-owner", "regression-card", bk.id, new Date().toISOString());
     eng.deleteBook(bk.id);
-    check("删书仅清理参考绑定，不留下孤儿引用", (db.prepare("SELECT COUNT(*) AS n FROM novel_book_links WHERE book_id = ?").get(bk.id) as {n:number}).n === 0);
     const left = (db.prepare("SELECT COUNT(*) AS n FROM generations WHERE book_id = ?").get(bk.id) as { n: number }).n;
     check("ACC60 B6 删书清理 generations 不留孤儿", left === 0, String(left));
     let err = "";

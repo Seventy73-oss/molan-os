@@ -313,8 +313,7 @@ async function main() {
       const drawer = page.locator(".tools-drawer");
       await drawer.waitFor({ state: "visible" });
       const db = await drawer.boundingBox();
-      const hostTop = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--eazo-handoff-top")) || 0);
-      check(`${tag} 工具抽屉全屏且避开宿主横幅`, !!db && db.width >= dev.viewport.width - 1 && db.x <= 0.5 && Math.abs(db.y - hostTop) <= 1 && db.height <= dev.viewport.height - hostTop + 1, JSON.stringify(db));
+      check(`${tag} 工具抽屉全屏`, !!db && db.width >= dev.viewport.width - 1 && db.x <= 0.5 && db.y <= 0.5, JSON.stringify(db));
       for (const t of ["版本", "人物态", "伏笔", "上下文"]) {
         const tb = drawer.getByRole("button", { name: t, exact: true }).or(drawer.getByRole("tab", { name: t, exact: true })).first();
         const ok = await tb.isVisible().catch(() => false);

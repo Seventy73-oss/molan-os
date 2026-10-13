@@ -1,4 +1,3 @@
-import { referenceSchema } from "../references/schema";
 /** Shared DDL. SQLite keeps ? placeholders at query time; Postgres schema uses standard SQL. */
 
 export const SCENES = [
@@ -14,7 +13,7 @@ export const SCENES = [
 ] as const;
 
 export function sqliteSchema(): string {
-  return referenceSchema() + `
+  return `
 CREATE TABLE IF NOT EXISTS books (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -284,7 +283,7 @@ CREATE INDEX IF NOT EXISTS story_outbox_status ON story_outbox(status, next_run_
 }
 
 export function postgresSchema(): string {
-  return referenceSchema() + `
+  return `
 CREATE TABLE IF NOT EXISTS books (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,

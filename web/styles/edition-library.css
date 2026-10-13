@@ -1,6 +1,6 @@
 /* A full-bleed cover, a dark ledger, then an asymmetric catalogue. */
 .app:not(.is-studio) .page.edition-library { max-width:none; padding:0; }
-.edition-library .atelier-scroll-line { left:0; background:var(--press-signal); top:calc(var(--eazo-handoff-top,0px) + var(--top) + var(--safe-top)); }
+.edition-library .atelier-scroll-line { left:0; background:var(--press-signal); top:calc(var(--top) + var(--safe-top)); }
 .edition-opening { background:var(--press-field); color:var(--press-ivory); padding:0 max(var(--press-gutter),var(--safe-right)) 0 max(var(--press-gutter),var(--safe-left)); }
 .edition-library .library-hero { min-height:84px; padding:20px 0; border-bottom:1px solid #ffffff38; position:relative; z-index:4; }
 .edition-library .hero-copy .eyebrow { color:var(--press-ivory); font-size:10px; letter-spacing:.14em; margin:0; }

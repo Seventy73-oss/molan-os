@@ -4,7 +4,7 @@
   .writing-shell .brand .wordmark { font-size:25px; }
   .writing-shell .brand-emblem { display:none; }
   .writing-shell .masthead-navigation { display:contents; }
-  .writing-shell .shell-rail .tabs { position:fixed; height:calc(var(--workspace-nav) + var(--safe-bottom)); bottom:var(--eazo-handoff-bottom,0px); left:0; right:0; width:auto; padding:0 max(8px,var(--safe-right)) var(--safe-bottom) max(8px,var(--safe-left)); border-top:1px solid var(--line); border-radius:0; gap:0; background:var(--cream); }
+  .writing-shell .shell-rail .tabs { position:fixed; height:calc(var(--workspace-nav) + var(--safe-bottom)); bottom:0; left:0; right:0; width:auto; padding:0 max(8px,var(--safe-right)) var(--safe-bottom) max(8px,var(--safe-left)); border-top:1px solid var(--line); border-radius:0; gap:0; background:var(--cream); }
   .writing-shell .shell-rail .tabs a,.writing-shell .shell-rail .tabs a:hover { flex:1; height:var(--workspace-nav); width:auto; flex-direction:column; justify-content:center; gap:5px; padding:8px 3px; font-size:11px; border:0; border-radius:0; background:transparent; }
   .writing-shell .shell-rail .tabs a.active { background:none; color:var(--accent); }
   .writing-shell .shell-rail .tabs a > .ui-icon { width:20px; height:20px; }

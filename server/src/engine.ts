@@ -351,8 +351,6 @@ export function deleteBook(id: string) {
     db.prepare("DELETE FROM writing_jobs WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM hook_marks WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM context_snapshots WHERE book_id = ?").run(id);
-    // Remove reference grants, not their owners' private source material.
-    db.prepare("DELETE FROM novel_book_links WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM api_usage WHERE book_id = ?").run(id);
     db.prepare("DELETE FROM idempotency_keys WHERE book_id = ?").run(id);
     // 兜底：generations / story_* 等也按 book_id 清理，不留孤儿（B6）
@@ -807,7 +805,7 @@ export function buildContext(
   const current = chapterNumber ? chapters.find((chapter) => chapter.number === chapterNumber) : undefined;
   const prev = chapterNumber && chapterNumber > 1 ? artifactBody(bookId, "chapter_body", chapterNumber - 1) : "";
   const tail = Array.from(prev).slice(-800).join("");
-  const { bible, memories, openHooks, references, manifest } = buildContextManifest(
+  const { bible, memories, openHooks, manifest } = buildContextManifest(
     bookId,
     chapterNumber,
     opts?.scene ?? null,
@@ -842,7 +840,6 @@ export function buildContext(
     current ? artifactBody(bookId, "chapter_body", current.number) : "",
     "【上章结尾】",
     tail,
-    ...(references ? ["【外部写作方法参考 · 非本书事实】", references] : []),
     "【作者指令】",
     instruction,
   ].join("\n");

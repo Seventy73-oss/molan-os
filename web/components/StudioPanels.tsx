@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { Icon, type IconName } from "./Icon";
 import { t as tr, useLocale, getLocale } from "../lib/i18n";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -839,8 +838,6 @@ export function ContextPanel({ bookId, chapterNumber }: ContextPanelProps) {
 
   return (
     <div className="panel-block context-panel">
-      <Link className="btn" to={`/references?book=${encodeURIComponent(bookId)}`}><Icon name="stack" size={16} />{tr("管理本书参考资料")}</Link>
-      <p className="panel-muted">{tr("参考卡仅提供写作方法，不是设定或正式记忆。")}</p>
       <div className="panel-row">
         <span className="panel-label">{tr("上下文清单")}{asOf ? tr(" · 第{p0}章", { p0: asOf }) : ""}</span>
         <button type="button" className="text-link" disabled={busy} onClick={() => void reload()}>{tr("刷新")}</button>

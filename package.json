@@ -19,17 +19,12 @@
     "quarantine:legacy-phys": "tsx server/scripts/quarantine-legacy-phys.mts",
     "test:e2e:mobile": "tsx server/scripts/e2e-mobile.mts",
     "test:e2e:theme": "tsx server/scripts/e2e-theme.mts",
-    "dev:eazo": "node scripts/eazo-dev.mjs",
-    "start": "npm run dev:eazo",
-    "test:import": "tsx server/scripts/eazo-import-audit.mts",
-    "test:references": "tsx server/scripts/reference-audit.mts",
-    "test:references:browser": "tsx server/scripts/reference-browser-audit.mts",
-    "test:audit:isolated": "node scripts/eazo-audit-isolated.mjs"
+    "test:import": "tsx server/scripts/import-audit.mts",
+    "test:audit:isolated": "node scripts/audit-isolated.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.1.0",
     "@earendil-works/pi-ai": "^1.1.0",
-    "@eazo/sdk": "0.22.13",
     "@electric-sql/pglite": "^0.5.8",
     "@hono/node-server": "^1.19.0",
     "@tiptap/extensions": "^3.31.4",

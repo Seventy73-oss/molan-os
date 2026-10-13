@@ -164,7 +164,7 @@ export function Studio() {
   const [pickingModel, setPickingModel] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
-  const [contextHint, setContextHint] = useState<{ missing: string[]; counts: { bibleCards: number; memories: number; openHooks: number; references?: number } } | null>(null);
+  const [contextHint, setContextHint] = useState<{ missing: string[]; counts: { bibleCards: number; memories: number; openHooks: number } } | null>(null);
   const [storyStatus, setStoryStatus] = useState<{
     chapterId: string;
     storyEpoch: number;
@@ -1714,7 +1714,7 @@ export function Studio() {
           >
             <span>{tr("技能 ")}<b>{activeSkills.length}</b></span>
             <span className="summary-sep">·</span>
-            <span>{tr("上下文")}<b>{contextHint ? contextHint.counts.bibleCards + contextHint.counts.memories + contextHint.counts.openHooks + (contextHint.counts.references || 0) : "—"}</b>
+            <span>{tr("上下文")}<b>{contextHint ? contextHint.counts.bibleCards + contextHint.counts.memories + contextHint.counts.openHooks : "—"}</b>
             </span>
             {contextHint?.missing.length ? (
               <span className="summary-warn" title={contextHint.missing[0]}>
@@ -1763,7 +1763,7 @@ export function Studio() {
                 <p className="skill-empty">{tr("这个场景还没有启用的技能。")}</p>
               )}
               {contextHint ? (
-                <p className="context-ready" title={tr("生成时会注入设定卡、前文记忆、未回收钩子")}>{tr("上下文 · 设定卡")}{contextHint.counts.bibleCards}{tr(" · 前文记忆 ")}{contextHint.counts.memories}{tr(" · 钩子 ")}{contextHint.counts.openHooks}{contextHint.counts.references ? <span>{tr(" · 方法参考 {p0}", { p0: contextHint.counts.references })}</span> : null}
+                <p className="context-ready" title={tr("生成时会注入设定卡、前文记忆、未回收钩子")}>{tr("上下文 · 设定卡")}{contextHint.counts.bibleCards}{tr(" · 前文记忆 ")}{contextHint.counts.memories}{tr(" · 钩子 ")}{contextHint.counts.openHooks}
                   {contextHint.missing.length ? (
                     <span className="context-missing"> · {tr(contextHint.missing[0])}</span>
                   ) : (

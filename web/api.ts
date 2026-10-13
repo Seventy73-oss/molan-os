@@ -535,12 +535,12 @@ export const api = {
       chapterNumber: number | null;
       missing: string[];
       manifest: {
-        counts: { bibleCards: number; memories: number; openHooks: number; references?: number };
+        counts: { bibleCards: number; memories: number; openHooks: number };
         missing: string[];
         included?: Array<Record<string, unknown>>;
         excluded?: Array<{ sourceId?: string; reason?: string }>;
       };
-      sections: { bible: string; memories: string; openHooks: string; references?: string };
+      sections: { bible: string; memories: string; openHooks: string };
       budgetEstimate?: {
         charCount: number;
         approxTokens: number;

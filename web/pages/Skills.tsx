@@ -1,6 +1,4 @@
 import { t as tr, useLocale } from "../lib/i18n";
-import { Link } from "react-router-dom";
-import { Icon } from "../components/Icon";
 import { useEffect, useState } from "react";
 import { api, type Skill } from "../api";
 import { useBookTitle } from "../App";
@@ -84,7 +82,6 @@ export function Skills() {
           <p className="sub">{tr("从构思到润色，为每一个创作环节找到合适的方法。")}</p>
         </div>
         <div className="actions">
-          <Link className="btn" to="/references"><Icon name="stack" size={16} />{tr("小说蒸馏参考库")}</Link>
           <button type="button" className="btn" disabled={busy === "reload"} onClick={() => void reload()}>
             {busy === "reload" ? tr("载入中…") : tr("重新载入")}
           </button>

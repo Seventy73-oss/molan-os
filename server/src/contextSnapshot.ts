@@ -1,4 +1,3 @@
-import { referenceContext } from "./references/context";
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "./db";
 import { formatBibleForContext, formatMemoriesForContextParts, listBibleCards } from "./features";
@@ -18,7 +17,7 @@ export type ContextManifest = {
   included: Array<Record<string, unknown>>;
   excluded: Array<Record<string, unknown>>;
   missing: string[];
-  counts: { bibleCards: number; memories: number; openHooks: number; references?: number };
+  counts: { bibleCards: number; memories: number; openHooks: number };
   note: string;
 };
 
@@ -45,10 +44,8 @@ export function buildContextManifest(
   bible: string;
   memories: string;
   openHooks: string;
-  references: string;
   manifest: ContextManifest;
 } {
-  const references = referenceContext(bookId, scene);
   const knowledgeMode: KnowledgeMode = "author";
   const bible = formatBibleForContext(bookId);
   const memParts = formatMemoriesForContextParts(bookId, chapterNumber);
@@ -69,7 +66,6 @@ export function buildContextManifest(
       name: c.name,
       reason: "book_bible",
     })),
-    ...references.included,
     ...memParts.included,
     ...charParts.included,
     ...foreshadowParts.included,
@@ -87,10 +83,9 @@ export function buildContextManifest(
     chapterNumber,
     scene: scene ?? null,
     included,
-    excluded: [...references.excluded, ...memParts.excluded, ...charParts.excluded, ...foreshadowParts.excluded],
+    excluded: [...memParts.excluded, ...charParts.excluded, ...foreshadowParts.excluded],
     missing,
     counts: {
-      references: references.count,
       bibleCards: cards.length,
       memories: memParts.included.length,
       openHooks: openHookItems.length,
@@ -99,7 +94,7 @@ export function buildContextManifest(
   };
   const openHooksMerged = [openHooks, foreshadowParts.text].filter(Boolean).join("\n");
   const bibleMerged = [bible, charParts.text ? `【人物动态】\n${charParts.text}` : ""].filter(Boolean).join("\n");
-  return { bible: bibleMerged, memories: memParts.text, openHooks: openHooksMerged, references: references.text, manifest };
+  return { bible: bibleMerged, memories: memParts.text, openHooks: openHooksMerged, manifest };
 }
 
 export function saveContextSnapshot(input: {
@@ -133,13 +128,13 @@ export function saveContextSnapshot(input: {
 
 
 export function estimateContextBudget(preview: {
-  sections?: { bible?: string; memories?: string; openHooks?: string; references?: string };
+  sections?: { bible?: string; memories?: string; openHooks?: string };
   manifest?: { included?: unknown[]; excluded?: unknown[] };
 }) {
   const bible = preview.sections?.bible?.length ?? 0;
   const memories = preview.sections?.memories?.length ?? 0;
   const hooks = preview.sections?.openHooks?.length ?? 0;
-  const chars = bible + memories + hooks + (preview.sections?.references?.length ?? 0);
+  const chars = bible + memories + hooks;
   const approxTokens = Math.ceil(chars / 1.5);
   return {
     charCount: chars,
@@ -152,8 +147,8 @@ export function estimateContextBudget(preview: {
 }
 
 export function previewContext(bookId: string, chapterNumber: number | null) {
-  const { bible, memories, openHooks, references, manifest } = buildContextManifest(bookId, chapterNumber, "preview");
-  const sections = { bible, memories, openHooks, references };
+  const { bible, memories, openHooks, manifest } = buildContextManifest(bookId, chapterNumber, "preview");
+  const sections = { bible, memories, openHooks };
   return {
     mode: MODE,
     chapterNumber,

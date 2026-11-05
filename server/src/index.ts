@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
@@ -75,7 +76,8 @@ import {
 import { sseJson, streamChat, streamSceneRun, streamSelectionRewrite } from "./streamSupport";
 import { exportBookZip, exportChapterMarkdown, exportChapterZip, readArtifactFile, syncAllBooks, syncBook } from "./manuscripts";
 import { exportStoryPackZip, importStoryPackFromZipBuffer, publishCheck } from "./storyPack";
-import { getModelsList, providerView, refreshModels, saveProvider, testProvider } from "./provider";
+import { addCustomModel, getModelsList, providerView, refreshModels, removeCustomModel, saveProvider, testProvider } from "./provider";
+import { coverPath, deleteCover, generateCover, imageProviderView, saveImageProvider } from "./imageProvider";
 import {
   assertAccessToken,
   assertLanAuthConfigured,
@@ -1013,6 +1015,83 @@ app.post("/api/settings/provider/test", async (c) => {
 app.get("/api/settings/provider/models", (c) => c.json(getModelsList()));
 
 app.post("/api/settings/provider/models/refresh", async (c) => c.json(await refreshModels(true)));
+
+// Manual model ids: many compatible relays expose no /models, and some models are
+// not listed even when the endpoint exists. Without this the author can only pick
+// from whatever the provider happens to advertise.
+app.post("/api/settings/provider/models/custom", async (c) => {
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  try {
+    return c.json(addCustomModel(body.id));
+  } catch (error) {
+    throw new HttpError(400, redactSecrets(error instanceof Error ? error.message : "无法添加模型"));
+  }
+});
+
+app.delete("/api/settings/provider/models/custom/:id", (c) => {
+  try {
+    return c.json(removeCustomModel(c.req.param("id")));
+  } catch (error) {
+    throw new HttpError(400, redactSecrets(error instanceof Error ? error.message : "无法移除模型"));
+  }
+});
+
+// ---- Image channel: separate credentials so text and cover art can come from
+// different gateways. Same allowlist rules as the text provider.
+app.get("/api/settings/image-provider", (c) => c.json(imageProviderView()));
+
+app.put("/api/settings/image-provider", async (c) => {
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  try {
+    return c.json(saveImageProvider(body));
+  } catch (error) {
+    throw new HttpError(400, redactSecrets(error instanceof Error ? error.message : "图片接口配置无效"));
+  }
+});
+
+app.post("/api/books/:id/cover", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const book = db.prepare("SELECT * FROM books WHERE id = ?").get(id) as
+    | { id: string; title: string; genre: string | null; logline: string | null; style: string | null }
+    | undefined;
+  if (!book) throw new HttpError(404, "没有这本书");
+  try {
+    const result = await generateCover({
+      bookId: book.id,
+      title: book.title,
+      genre: book.genre,
+      logline: book.logline,
+      style: book.style,
+      prompt: typeof body.prompt === "string" ? body.prompt : null,
+      size: typeof body.size === "string" ? body.size : null,
+    });
+    return c.json({ ok: true, cover: result });
+  } catch (error) {
+    throw new HttpError(400, redactSecrets(error instanceof Error ? error.message : "封面生成失败"));
+  }
+});
+
+app.get("/api/books/:id/cover", (c) => {
+  const id = c.req.param("id");
+  const book = db.prepare("SELECT id, cover_file FROM books WHERE id = ?").get(id) as
+    | { id: string; cover_file: string | null }
+    | undefined;
+  if (!book) throw new HttpError(404, "没有这本书");
+  const file = coverPath(book);
+  if (!file) throw new HttpError(404, "这本书还没有封面");
+  const ext = path.extname(file).slice(1).toLowerCase();
+  const type = ext === "jpg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png";
+  return c.body(fs.readFileSync(file), 200, {
+    "content-type": type,
+    "cache-control": "private, max-age=31536000, immutable",
+  });
+});
+
+app.delete("/api/books/:id/cover", (c) => {
+  deleteCover(c.req.param("id"));
+  return c.json({ ok: true });
+});
 
 app.get("/api/scene-routes", (c) => {
   const rows = db.prepare("SELECT * FROM scene_routes").all() as {

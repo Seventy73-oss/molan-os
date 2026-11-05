@@ -11,6 +11,8 @@ export type Book = {
   draftedCount: number;
   words?: number;
   targetWords?: number;
+  coverUrl?: string | null;
+  coverAt?: string | null;
 };
 
 export type Chapter = { id: string; number: number; title: string; status: string; words?: number };
@@ -119,6 +121,16 @@ export type ProviderSettings = {
   apiKeyHint: string | null;
   defaultModel: string;
   chatModel: string;
+  configured: boolean;
+  keySource?: "none" | "env" | "stored";
+};
+
+export type ImageProviderSettings = {
+  baseUrl: string;
+  hasApiKey: boolean;
+  apiKeyHint: string | null;
+  model: string;
+  size: string;
   configured: boolean;
   keySource?: "none" | "env" | "stored";
 };
@@ -383,6 +395,28 @@ export const api = {
   providerModels: () => request<ModelsList>("/api/settings/provider/models"),
   refreshProviderModels: () =>
     request<ModelsList>("/api/settings/provider/models/refresh", { method: "POST", body: "{}" }),
+  addCustomModel: (id: string) =>
+    request<ModelsList>("/api/settings/provider/models/custom", { method: "POST", body: JSON.stringify({ id }) }),
+  removeCustomModel: (id: string) =>
+    request<ModelsList>(`/api/settings/provider/models/custom/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  imageProvider: () => request<ImageProviderSettings>("/api/settings/image-provider"),
+  saveImageProvider: (body: {
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    size?: string;
+    clearApiKey?: boolean;
+  }) =>
+    request<ImageProviderSettings>("/api/settings/image-provider", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  generateCover: (id: string, body?: { prompt?: string; size?: string }) =>
+    request<{ ok: boolean; cover: { file: string; url: string; model: string; prompt: string; generatedAt: string } }>(
+      `/api/books/${id}/cover`,
+      { method: "POST", body: JSON.stringify(body ?? {}) },
+    ),
+  deleteCover: (id: string) => request<{ ok: boolean }>(`/api/books/${id}/cover`, { method: "DELETE" }),
   jobs: (id: string) => request<{ jobs: WritingJob[] }>(`/api/books/${id}/jobs`),
   createJob: (
     id: string,

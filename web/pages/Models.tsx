@@ -1,6 +1,6 @@
 import { t as tr, useLocale, getLocale } from "../lib/i18n";
 import { useEffect, useState } from "react";
-import { api, THINKING_OPTIONS, type AgentRuntimeInfo, type ModelsList, type ProviderSettings, type Route, type ThinkingIntensity, type UsageSummary } from "../api";
+import { api, THINKING_OPTIONS, type AgentRuntimeInfo, type ImageProviderSettings, type ModelsList, type ProviderSettings, type Route, type ThinkingIntensity, type UsageSummary } from "../api";
 import { useBookTitle } from "../App";
 import { ModelPicker } from "../components/ModelPicker";
 
@@ -74,6 +74,13 @@ export function Models() {
   const [error, setError] = useState("");
   const [runtime, setRuntime] = useState<AgentRuntimeInfo | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [customId, setCustomId] = useState("");
+  const [image, setImage] = useState<ImageProviderSettings | null>(null);
+  const [imageBase, setImageBase] = useState("");
+  const [imageKey, setImageKey] = useState("");
+  const [imageModel, setImageModel] = useState("");
+  const [imageSize, setImageSize] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
   const routesDirty = JSON.stringify(routes) !== savedRoutes;
 
   useEffect(() => {
@@ -117,6 +124,18 @@ export function Models() {
       .catch(() => {
         if (!cancel) setUsage(null);
       });
+    api.imageProvider()
+      .then((settings) => {
+        if (cancel) return;
+        setImage(settings);
+        setImageBase(settings.baseUrl);
+        setImageModel(settings.model);
+        setImageSize(settings.size);
+        setImageKey("");
+      })
+      .catch(() => {
+        if (!cancel) setImage(null);
+      });
     return () => {
       cancel = true;
     };
@@ -135,11 +154,65 @@ export function Models() {
     setRoutes((list) => list.map((route) => (route.scene === scene ? { ...route, ...patch } : route)));
   }
 
+  /** A model list is provider-specific: drop it the moment the Base URL changes. */
+  function forgetModels() {
+    setModels({ models: [], fetchedAt: null });
+  }
+
+  async function addModel() {
+    const id = customId.trim();
+    if (!id) return;
+    setError("");
+    setNotice("");
+    try {
+      const list = await api.addCustomModel(id);
+      setModels(list);
+      setCustomId("");
+      setNotice(`已添加模型 ${id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "添加失败");
+    }
+  }
+
+  async function removeModel(id: string) {
+    setError("");
+    setNotice("");
+    try {
+      const list = await api.removeCustomModel(id);
+      setModels(list);
+      setNotice(`已移除模型 ${id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "移除失败");
+    }
+  }
+
+  async function saveImage() {
+    setImageBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const next = await api.saveImageProvider({
+        baseUrl: imageBase.trim(),
+        apiKey: imageKey.trim(),
+        model: imageModel.trim(),
+        size: imageSize.trim(),
+      });
+      setImage(next);
+      setImageKey("");
+      setNotice(next.configured ? `图片接口已保存 · ${next.model}` : "图片接口已保存，但还缺 Base URL 或密钥");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "图片接口保存失败");
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
   function pickPreset(id: string) {
     const item = PRESETS.find((entry) => entry.id === id);
     if (!item) return;
     setPreset(id);
     setBaseUrl(item.baseUrl);
+    forgetModels();
     if (item.model && !defaultModel.trim()) setDefaultModel(item.model);
   }
 
@@ -162,6 +235,7 @@ export function Models() {
       });
       applySettings(next);
       if (next.configured) {
+        forgetModels();
         const list = await api.providerModels();
         setModels(list);
         setNotice(list.error ? `接口已保存。模型列表：${list.error}` : `接口已保存 · ${list.models.length} 个模型`);
@@ -316,6 +390,7 @@ export function Models() {
               placeholder="https://api.openai.com/v1"
               spellCheck={false}
               onChange={(e) => {
+                if (e.target.value.trim() !== baseUrl.trim()) forgetModels();
                 setBaseUrl(e.target.value);
                 setPreset("custom");
               }}
@@ -354,6 +429,51 @@ export function Models() {
             {busy === "models" ? tr("刷新中…") : tr("刷新模型")}
           </button>
         </div>
+        <div className="model-add">
+          <label>
+            {tr("手动添加模型")}
+            <span className="secret">
+              <input
+                value={customId}
+                placeholder={tr("接口没列出的模型 ID，例如 my-model-v1")}
+                spellCheck={false}
+                onChange={(e) => setCustomId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void addModel();
+                  }
+                }}
+              />
+              <button type="button" className="ghost-mini" onClick={() => void addModel()}>
+                {tr("添加")}
+              </button>
+            </span>
+          </label>
+          {models.models.some((model) => model.ownedBy === "manual") ? (
+            <div className="model-chips">
+              {models.models
+                .filter((model) => model.ownedBy === "manual")
+                .map((model) => (
+                  <span key={model.id} className="chip static">
+                    {model.id}
+                    <button
+                      type="button"
+                      className="chip-x"
+                      aria-label={tr("移除")}
+                      onClick={() => void removeModel(model.id)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+            </div>
+          ) : (
+            <p className="provider-security">
+              {tr("接口不提供模型列表、或某个模型没被列出时，在这里手动添加；添加过的会一直保留。")}
+            </p>
+          )}
+        </div>
         <div className="actions">
           <button type="button" className="btn primary" disabled={busy !== ""} onClick={() => void saveProvider()}>
             {busy === "save" ? tr("保存中…") : tr("保存接口")}
@@ -361,6 +481,68 @@ export function Models() {
           <button type="button" className="btn" disabled={busy !== "" || !provider.hasApiKey} onClick={() => void clearKey()}>{tr("清除密钥")}</button>
           <button type="button" className="btn" disabled={busy !== ""} onClick={() => void test()}>
             {busy === "test" ? tr("测试中…") : tr("测试连接")}
+          </button>
+        </div>
+      </section>
+
+      <section className="panel provider-card">
+        <div className="provider-head">
+          <div>
+            <h2>{tr("图片接口")}</h2>
+            <p>{tr("给书籍生成封面用。走 OpenAI 兼容的 /images/generations，可以和上面的文字接口是不同服务。")}</p>
+          </div>
+          <span className={image?.configured ? "pill on" : "pill"}>
+            {image?.configured ? tr("已配置") : tr("未配置")}
+          </span>
+        </div>
+        <div className="provider-grid">
+          <label>
+            Base URL
+            <input
+              value={imageBase}
+              placeholder="https://api.openai.com/v1"
+              spellCheck={false}
+              onChange={(e) => setImageBase(e.target.value)}
+            />
+          </label>
+          <label>
+            API Key
+            <input
+              type={showKey ? "text" : "password"}
+              value={imageKey}
+              placeholder={
+                image?.hasApiKey ? `${tr("已保存")} · ${image.apiKeyHint ?? "••••"} · ${tr("留空不改")}` : "sk-…"
+              }
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => setImageKey(e.target.value)}
+            />
+          </label>
+          <label>
+            {tr("图片模型")}
+            <input
+              value={imageModel}
+              placeholder="gpt-image-1 / seedream / flux"
+              spellCheck={false}
+              onChange={(e) => setImageModel(e.target.value)}
+            />
+          </label>
+          <label>
+            {tr("尺寸")}
+            <input
+              value={imageSize}
+              placeholder="1024x1536"
+              spellCheck={false}
+              onChange={(e) => setImageSize(e.target.value)}
+            />
+          </label>
+        </div>
+        <p className="provider-security">
+          {tr("密钥同样加密保存在服务器。封面的生成入口在书库：每本书的卡片上有「生成封面」。")}
+        </p>
+        <div className="actions">
+          <button type="button" className="btn primary" disabled={imageBusy} onClick={() => void saveImage()}>
+            {imageBusy ? tr("保存中…") : tr("保存图片接口")}
           </button>
         </div>
       </section>

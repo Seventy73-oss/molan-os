@@ -508,6 +508,18 @@ CREATE TABLE IF NOT EXISTS hook_marks (
   } catch {
     // column exists
   }
+  // Book cover: file name under data/covers plus the moment it was generated, so
+  // the UI can bust its own image cache after a regeneration.
+  try {
+    run(`ALTER TABLE books ADD COLUMN cover_file TEXT`);
+  } catch {
+    // column exists
+  }
+  try {
+    run(`ALTER TABLE books ADD COLUMN cover_at TEXT`);
+  } catch {
+    // column exists
+  }
   try {
     run(`CREATE UNIQUE INDEX IF NOT EXISTS artifact_revisions_unique ON artifact_revisions(artifact_id, revision)`);
   } catch {

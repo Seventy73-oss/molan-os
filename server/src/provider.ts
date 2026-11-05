@@ -15,6 +15,7 @@ const KEYS = {
   defaultModel: "default_model",
   chatModel: "chat_model",
   modelsCache: "models_cache",
+  customModels: "custom_models",
 } as const;
 
 export type ProviderView = {
@@ -35,7 +36,18 @@ export type ModelsList = {
   error?: string;
 };
 
-type CachePayload = { models: ModelInfo[]; fetchedAt: string; error?: string };
+/**
+ * A model list only means something for the Base URL it came from. Storing the
+ * URL inside the cache is what makes switching providers invalidate the list
+ * instead of silently showing the previous provider's models.
+ */
+type CachePayload = { baseUrl: string; models: ModelInfo[]; fetchedAt: string; error?: string };
+
+/** Compare Base URLs the way a human would: ignore case and trailing slashes. */
+export function sameBaseUrl(a: string, b: string): boolean {
+  const norm = (value: string) => value.trim().replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
 
 function read(key: string): string {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
@@ -93,10 +105,49 @@ function readCache(): CachePayload | null {
   try {
     const data = JSON.parse(raw) as CachePayload;
     if (!Array.isArray(data.models) || typeof data.fetchedAt !== "string") return null;
+    // Caches written before the URL was recorded are treated as belonging to no
+    // provider, so they can never leak across a switch.
+    if (typeof data.baseUrl !== "string") return null;
     return data;
   } catch {
     return null;
   }
+}
+
+/** The cache, but only when it was fetched from the Base URL in use right now. */
+function readCacheFor(baseUrl: string): CachePayload | null {
+  const cache = readCache();
+  if (!cache) return null;
+  if (!baseUrl) return cache;
+  return sameBaseUrl(cache.baseUrl, baseUrl) ? cache : null;
+}
+
+function readCustomModels(): string[] {
+  const raw = read(KEYS.customModels);
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw) as unknown;
+    if (!Array.isArray(list)) return [];
+    return list.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim());
+  } catch {
+    return [];
+  }
+}
+
+function writeCustomModels(list: string[]) {
+  const unique = [...new Set(list.map((item) => item.trim()).filter(Boolean))];
+  write(KEYS.customModels, unique.length ? JSON.stringify(unique) : "");
+}
+
+/** Merge fetched models with models the author added by hand (deduped, manual wins). */
+function mergeCustom(models: ModelInfo[]): ModelInfo[] {
+  const custom = readCustomModels();
+  if (!custom.length) return models;
+  const seen = new Set(models.map((model) => model.id.toLowerCase()));
+  const extra = custom
+    .filter((id) => !seen.has(id.toLowerCase()))
+    .map((id) => ({ id, ownedBy: "manual" }));
+  return [...models, ...extra];
 }
 
 function writeCache(payload: CachePayload) {
@@ -179,7 +230,10 @@ export function saveProvider(input: {
     if (nextBase && (willHaveStoredKey || Boolean(envApiKey()))) {
       cleanBase(nextBase, true);
     }
+    const previousBase = read(KEYS.baseUrl);
     write(KEYS.baseUrl, nextBase);
+    // Switching providers must not leave the previous provider's models on screen.
+    if (!sameBaseUrl(previousBase, nextBase)) write(KEYS.modelsCache, "");
   }
   if (input.clearApiKey === true) writeStoredApiKey("");
   else if (typeof input.apiKey === "string" && input.apiKey.trim()) {
@@ -206,11 +260,29 @@ function toModelsList(cache: CachePayload | null, error?: string): ModelsList {
 }
 
 export function getModelsList(): ModelsList {
-  const cache = readCache();
+  const baseUrl = providerView().baseUrl;
+  const cache = readCacheFor(baseUrl);
   if (!providerView().configured && !envApiKey()) {
     return toModelsList(cache, "还没有配置 API Key，无法拉取模型列表");
   }
-  return toModelsList(cache);
+  const list = toModelsList(cache);
+  return { ...list, models: mergeCustom(list.models) };
+}
+
+/** Add a model id by hand — works even when the provider has no /models endpoint. */
+export function addCustomModel(id: unknown): ModelsList {
+  const value = typeof id === "string" ? id.trim() : "";
+  if (!value) throw new Error("模型 ID 不能为空");
+  if (value.length > 120) throw new Error("模型 ID 太长");
+  writeCustomModels([...readCustomModels(), value]);
+  return getModelsList();
+}
+
+export function removeCustomModel(id: unknown): ModelsList {
+  const value = typeof id === "string" ? id.trim() : "";
+  if (!value) throw new Error("模型 ID 不能为空");
+  writeCustomModels(readCustomModels().filter((item) => item.toLowerCase() !== value.toLowerCase()));
+  return getModelsList();
 }
 
 /** Fetch GET {baseUrl}/models and cache the result. Never logs the key. */
@@ -220,15 +292,15 @@ export async function refreshModels(force = true): Promise<ModelsList> {
     resolved = resolveProvider();
   } catch (error) {
     const reason = redact(error instanceof Error ? error.message : "配置无效");
-    return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: reason };
+    return { ...getModelsList(), error: reason };
   }
   const { apiKey, baseUrl } = resolved;
-  if (!apiKey) return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: "还没有 API Key" };
-  if (!baseUrl) return { models: readCache()?.models ?? [], fetchedAt: readCache()?.fetchedAt ?? null, error: "还没有 Base URL" };
+  if (!apiKey) return { ...getModelsList(), error: "还没有 API Key" };
+  if (!baseUrl) return { ...getModelsList(), error: "还没有 Base URL" };
 
-  const existing = readCache();
+  const existing = readCacheFor(baseUrl);
   if (!force && existing && !existing.error && Date.now() - Date.parse(existing.fetchedAt) < 5 * 60_000) {
-    return toModelsList(existing);
+    return { ...toModelsList(existing), models: mergeCustom(existing.models) };
   }
 
   let safeUrl: string;
@@ -236,7 +308,7 @@ export async function refreshModels(force = true): Promise<ModelsList> {
     safeUrl = await assertSafeBaseUrlResolved(baseUrl, { withApiKey: Boolean(apiKey) });
   } catch (error) {
     const reason = redact(error instanceof Error ? error.message : "地址不安全");
-    return { models: existing?.models ?? [], fetchedAt: existing?.fetchedAt ?? null, error: reason };
+    return { models: mergeCustom(existing?.models ?? []), fetchedAt: existing?.fetchedAt ?? null, error: reason };
   }
 
   const url = `${safeUrl.replace(/\/$/, "")}/models`;
@@ -253,12 +325,15 @@ export async function refreshModels(force = true): Promise<ModelsList> {
       const detail = redact(await response.text());
       const error = `HTTP ${response.status}${detail ? ` ${detail}` : ""}`;
       const payload: CachePayload = {
+        baseUrl,
+        // A failed fetch keeps whatever this same provider already returned,
+        // never another provider's list.
         models: existing?.models ?? [],
         fetchedAt: new Date().toISOString(),
         error,
       };
       writeCache(payload);
-      return toModelsList(payload);
+      return { ...toModelsList(payload), models: mergeCustom(payload.models) };
     }
     const data = (await response.json()) as {
       data?: { id?: string; owned_by?: string }[];
@@ -270,18 +345,19 @@ export async function refreshModels(force = true): Promise<ModelsList> {
       }))
       .filter((item) => item.id)
       .sort((a, b) => a.id.localeCompare(b.id));
-    const payload: CachePayload = { models, fetchedAt: new Date().toISOString() };
+    const payload: CachePayload = { baseUrl, models, fetchedAt: new Date().toISOString() };
     writeCache(payload);
-    return toModelsList(payload);
+    return { ...toModelsList(payload), models: mergeCustom(models) };
   } catch (error) {
     const reason = redact(error instanceof Error ? error.message : "拉取失败");
     const payload: CachePayload = {
+      baseUrl,
       models: existing?.models ?? [],
       fetchedAt: new Date().toISOString(),
       error: reason,
     };
     writeCache(payload);
-    return toModelsList(payload);
+    return { ...toModelsList(payload), models: mergeCustom(payload.models) };
   }
 }
 

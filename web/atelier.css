@@ -3,3 +3,31 @@
 @import "./styles/atelier-sculpture.css";
 @import "./styles/atelier-workspace.css";
 @import "./styles/atelier-mobile.css";
+
+/* ---- model list: manual ids + cover art ---- */
+.model-add { display: grid; gap: 8px; margin-top: 10px; }
+.model-add > label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.model-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.static { display: inline-flex; align-items: center; gap: 6px; cursor: default; }
+.chip-x {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 4px;
+}
+.chip-x:hover { color: var(--accent); }
+
+.book-cover.has-art { position: relative; overflow: hidden; }
+.book-cover-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
+.book-cover.has-art .cover-art,
+.book-cover.has-art .cover-rule { display: none; }
+.book-cover.has-art .cover-topline,
+.book-cover.has-art .cover-title,
+.book-cover.has-art .cover-bottomline { position: relative; z-index: 1; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); }
+.book-cover.has-art::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0.12) 42%, rgba(0, 0, 0, 0.42));
+  pointer-events: none;
+}
+

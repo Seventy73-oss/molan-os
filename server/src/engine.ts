@@ -9,6 +9,7 @@ import {
 } from "./jobs/lease";
 export { HttpError } from "./httpError";
 import { deleteBookFiles, syncBook, wipeChapterDirs } from "./manuscripts";
+import { deleteCover } from "./imageProvider";
 import { sceneKind, type SceneId } from "./agent/adapter";
 import { getAdapter } from "./agent/runtime";
 import { normalizeDialogueQuotes, rewriteSelectionLocal } from "./agent/localDraft";
@@ -92,6 +93,9 @@ export function bookJson(
     draftedCount,
     words,
     targetWords,
+    // Cover art lives next to the database; the version query busts the browser cache.
+    coverUrl: row.cover_file ? `/api/books/${row.id}/cover?v=${encodeURIComponent(row.cover_at || "")}` : null,
+    coverAt: row.cover_at ?? null,
   };
 }
 
@@ -360,6 +364,8 @@ export function deleteBook(id: string) {
     db.prepare("DELETE FROM books WHERE id = ?").run(id);
   });
   tx();
+  // Cover art is a file on disk, not a row: drop it together with the book.
+  deleteCover(id);
   deleteBookFiles(id);
 }
 

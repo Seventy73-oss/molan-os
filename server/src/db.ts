@@ -27,6 +27,8 @@ export type BookRow = {
   target_chapters: number;
   words_per_chapter: number;
   created_at: string;
+  cover_file?: string | null;
+  cover_at?: string | null;
 };
 
 export type ChapterRow = {

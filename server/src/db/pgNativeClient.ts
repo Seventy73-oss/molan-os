@@ -81,6 +81,8 @@ DO $$ BEGIN
   ALTER TABLE writing_jobs ADD COLUMN IF NOT EXISTS lease_until TEXT;
   ALTER TABLE scene_routes ADD COLUMN IF NOT EXISTS thinking_intensity TEXT NOT NULL DEFAULT 'medium';
   ALTER TABLE artifact_revisions ADD COLUMN IF NOT EXISTS source_revision_id TEXT;
+  ALTER TABLE books ADD COLUMN IF NOT EXISTS cover_file TEXT;
+  ALTER TABLE books ADD COLUMN IF NOT EXISTS cover_at TEXT;
 EXCEPTION WHEN others THEN NULL;
 END $$;
 CREATE TABLE IF NOT EXISTS generations (

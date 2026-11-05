@@ -26,6 +26,7 @@ export function Library() {
   const [sort, setSort] = useState("newest");
   const [importConflict, setImportConflict] = useState<"new_book" | "overwrite" | "skip">("new_book");
   const [importing, setImporting] = useState(false);
+  const [coverBusy, setCoverBusy] = useState("");
   const importRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const confirmTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -50,8 +51,27 @@ export function Library() {
   }, [confirmId]);
   useEffect(() => {
     setTitle("");
-    api.books().then((res) => setBooks(res.books)).catch((err: Error) => setError(err.message));
+    reload();
   }, [setTitle]);
+
+  function reload() {
+    api.books().then((res) => setBooks(res.books)).catch((err: Error) => setError(err.message));
+  }
+
+  /** Generate a cover for one book, then refresh so the new image shows up. */
+  async function makeCover(book: Book) {
+    if (coverBusy) return;
+    setCoverBusy(book.id);
+    setError("");
+    try {
+      await api.generateCover(book.id);
+      reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "封面生成失败");
+    } finally {
+      setCoverBusy("");
+    }
+  }
   useEffect(() => {
     if (creating) {
       formRef.current?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
@@ -144,8 +164,8 @@ export function Library() {
         const total = book.chapterCount || book.targetChapters || 1;
         const pct = Math.min(100, Math.round(book.draftedCount / total * 100));
         return <div key={book.id} className="book-card reveal" data-kinetic="book" style={{ "--book-tone": `${8 + index % 3 * 6}%`, "--book-order": index % 3, "--book-symbol-rotate": `${index * 17}deg` } as CSSProperties} role="link" tabIndex={0} aria-label={book.title} onClick={() => navigate(`/books/${book.id}`)} onKeyDown={(event) => { if (event.target === event.currentTarget && event.key === "Enter") navigate(`/books/${book.id}`); }}>
-          <div className="book-cover" aria-hidden="true"><div className="cover-topline"><span>MOLAN / EDITIONS</span><span>{String(index + 1).padStart(2, "0")}</span></div><div className="cover-art"><i /><i /><i /><i /><i /><i /></div><div className="cover-title">{book.title}</div><div className="cover-bottomline"><span>{book.genre || tr("未定题材")}</span><Icon name="feather" size={24} /></div><span className="cover-rule" /></div>
-          <div className="book-details"><div className="book-heading"><span className="book-genre">{book.genre || tr("未定题材")}</span><Icon name="arrow" size={17} className="book-open-arrow" /></div><h3 className="book-title">{book.title}</h3><p className="book-logline">{book.logline || tr("还没有简介。")}</p><div className="book-foot"><span className="book-progress">{book.draftedCount} / {total} {tr("章")}<span>{(book.words || 0).toLocaleString(getLocale())} {tr("字")}</span></span><span className="progress" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span><div className="book-card-actions"><button type="button" className="book-export" title={tr("导出全书 markdown")} onClick={(event) => { event.stopPropagation(); download(api.exportBookUrl(book.id)); }}><Icon name="download" size={14} />{tr("导出")}</button><button type="button" className="book-export" title={tr("导出自包含故事包（定稿+事实+来源）")} onClick={(event) => { event.stopPropagation(); download(api.exportStoryPackUrl(book.id, true)); }}><Icon name="stack" size={14} />{tr("故事包")}</button><span className="spacer" /><button type="button" className="book-trash" disabled={deleting} aria-expanded={confirmId === book.id} aria-controls={confirmId === book.id ? `delete-confirm-${book.id}` : undefined} aria-label={tr("删除{p0}", { p0: book.title })} title={tr("删除")} onClick={(event) => { event.stopPropagation(); confirmTriggerRef.current = event.currentTarget; setConfirmId(book.id); }}><Icon name="trash" size={15} /></button></div></div></div>
+          <div className={book.coverUrl ? "book-cover has-art" : "book-cover"} aria-hidden="true">{book.coverUrl ? <img className="book-cover-img" src={book.coverUrl} alt="" loading="lazy" /> : null}<div className="cover-topline"><span>MOLAN / EDITIONS</span><span>{String(index + 1).padStart(2, "0")}</span></div><div className="cover-art"><i /><i /><i /><i /><i /><i /></div><div className="cover-title">{book.title}</div><div className="cover-bottomline"><span>{book.genre || tr("未定题材")}</span><Icon name="feather" size={24} /></div><span className="cover-rule" /></div>
+          <div className="book-details"><div className="book-heading"><span className="book-genre">{book.genre || tr("未定题材")}</span><Icon name="arrow" size={17} className="book-open-arrow" /></div><h3 className="book-title">{book.title}</h3><p className="book-logline">{book.logline || tr("还没有简介。")}</p><div className="book-foot"><span className="book-progress">{book.draftedCount} / {total} {tr("章")}<span>{(book.words || 0).toLocaleString(getLocale())} {tr("字")}</span></span><span className="progress" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span><div className="book-card-actions"><button type="button" className="book-export" disabled={coverBusy === book.id} title={book.coverUrl ? tr("重新生成封面") : tr("生成封面")} onClick={(event) => { event.stopPropagation(); void makeCover(book); }}><Icon name="feather" size={14} />{coverBusy === book.id ? tr("生成中") : tr("封面")}</button><button type="button" className="book-export" title={tr("导出全书 markdown")} onClick={(event) => { event.stopPropagation(); download(api.exportBookUrl(book.id)); }}><Icon name="download" size={14} />{tr("导出")}</button><button type="button" className="book-export" title={tr("导出自包含故事包（定稿+事实+来源）")} onClick={(event) => { event.stopPropagation(); download(api.exportStoryPackUrl(book.id, true)); }}><Icon name="stack" size={14} />{tr("故事包")}</button><span className="spacer" /><button type="button" className="book-trash" disabled={deleting} aria-expanded={confirmId === book.id} aria-controls={confirmId === book.id ? `delete-confirm-${book.id}` : undefined} aria-label={tr("删除{p0}", { p0: book.title })} title={tr("删除")} onClick={(event) => { event.stopPropagation(); confirmTriggerRef.current = event.currentTarget; setConfirmId(book.id); }}><Icon name="trash" size={15} /></button></div></div></div>
           {confirmId === book.id ? <div className="book-confirm" id={`delete-confirm-${book.id}`} role="group" aria-labelledby={`delete-message-${book.id}`} aria-busy={deleting} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><span id={`delete-message-${book.id}`}>{tr("删除《")}{book.title}{tr("》？不能恢复。")}</span><div className="actions"><button ref={cancelDeleteRef} type="button" className="btn small ghost" disabled={deleting} onClick={() => setConfirmId("")}>{tr("取消")}</button><button type="button" className="btn small danger" disabled={deleting} onClick={() => { setDeleting(true); void api.deleteBook(book.id).then(() => { setBooks((list) => list?.filter((item) => item.id !== book.id) ?? null); setConfirmId(""); requestAnimationFrame(() => collectionHeadingRef.current?.focus({ preventScroll: true })); }).catch((err: Error) => setError(err.message)).finally(() => setDeleting(false)); }}>{tr("删除")}</button></div></div> : null}
         </div>;
       })}
